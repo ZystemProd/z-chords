@@ -249,17 +249,34 @@ function render() {
     card.className = "card";
     card.innerHTML = "<h3>" + sym + "</h3>";
 
-    // Determine chord data
     let chordData;
+    let maxInv = 0;
+    let currentInv = inversion;
+
+    // Handle custom chords
     if (customMIDIs) {
-      chordData = { notes: customMIDIs, rootMidi: customMIDIs[0] };
-    } else if (parsed) {
+      const rootMidi = chord.rootMidi ?? customMIDIs[0];
+      chordData = {
+        notes: customMIDIs.slice(), // preserve user order
+        rootMidi,
+      };
+    }
+    // Handle normal chords
+    else if (parsed) {
       chordData = buildChordNotes(
         parsed.root,
         parsed.quality,
         inversion,
         octave
       );
+      if (!chordData) {
+        card.innerHTML +=
+          '<div class="note-list">Unsupported chord quality.</div>';
+        boardsEl.appendChild(card);
+        return;
+      }
+      maxInv = Math.max(0, chordData.notes.length - 1);
+      currentInv = inversion;
     } else {
       card.innerHTML +=
         '<div class="note-list">Unrecognized chord symbol.</div>';
@@ -267,16 +284,10 @@ function render() {
       return;
     }
 
-    if (!chordData || !chordData.notes.length) {
-      card.innerHTML +=
-        '<div class="note-list">Unsupported chord quality.</div>';
-      boardsEl.appendChild(card);
-      return;
-    }
-
+    // Display note names
     const midiNotes = chordData.notes;
     const noteNames = midiNotes.map((m) => getName(m)).join(" · ");
-    let labelText = "Notes (inversion " + inversion + ")";
+    let labelText = "Notes (inversion " + currentInv + ")";
     if (octave) labelText += ", Octave +1";
     card.innerHTML +=
       '<div class="note-list">' + labelText + ": " + noteNames + "</div>";
@@ -285,39 +296,49 @@ function render() {
     const piano = makePiano(chordData);
     card.appendChild(piano);
 
-    // Inversion / Octave select
-    const invCtrl = document.createElement("select");
-    invCtrl.className = "inversion-control";
-    const maxInv = Math.max(0, midiNotes.length - 1);
+    // Only add inversion controls for non-custom chords
+    if (!customMIDIs) {
+      const invWrap = document.createElement("div");
+      invWrap.className = "inversion-control";
 
-    for (let i = 0; i <= maxInv; i++) {
-      const opt = document.createElement("option");
-      opt.value = i;
-      opt.text = "Inv " + i;
-      if (!octave && i === inversion) opt.selected = true;
-      invCtrl.appendChild(opt);
+      const minusBtn = document.createElement("button");
+      minusBtn.textContent = "-";
+      minusBtn.style.width = "24px";
+      minusBtn.style.marginRight = "4px";
+
+      const invLabel = document.createElement("span");
+      invLabel.textContent = "Inv " + currentInv;
+      invLabel.style.margin = "0 6px";
+
+      const plusBtn = document.createElement("button");
+      plusBtn.textContent = "+";
+      plusBtn.style.width = "24px";
+      plusBtn.style.marginLeft = "4px";
+
+      minusBtn.addEventListener("click", () => {
+        let newInv = currentInv - 1;
+        if (newInv < 0) newInv = maxInv;
+        chord.inversion = newInv;
+        chord.octave = false;
+        boardsEl.dataset.chordsList = JSON.stringify(chordsList);
+        render();
+      });
+
+      plusBtn.addEventListener("click", () => {
+        let newInv = currentInv + 1;
+        if (newInv > maxInv) newInv = 0;
+        chord.inversion = newInv;
+        chord.octave = false;
+        boardsEl.dataset.chordsList = JSON.stringify(chordsList);
+        render();
+      });
+
+      invWrap.appendChild(minusBtn);
+      invWrap.appendChild(invLabel);
+      invWrap.appendChild(plusBtn);
+      card.appendChild(invWrap);
     }
 
-    const octaveOpt = document.createElement("option");
-    octaveOpt.value = "octave";
-    octaveOpt.text = "Octave +1";
-    if (octave) octaveOpt.selected = true;
-    invCtrl.appendChild(octaveOpt);
-
-    invCtrl.addEventListener("change", () => {
-      const selected = invCtrl.value;
-      if (selected === "octave") {
-        chord.octave = true;
-        chord.inversion = 0;
-      } else {
-        chord.inversion = parseInt(selected);
-        chord.octave = false;
-      }
-      boardsEl.dataset.chordsList = JSON.stringify(chordsList);
-      render();
-    });
-
-    card.appendChild(invCtrl);
     boardsEl.appendChild(card);
   });
 }
@@ -667,6 +688,15 @@ addCustomChordBtn.addEventListener("click", () => {
   // Close modal
   customModal.style.display = "none";
 });
+
+function applyInversionToMIDIs(midiArray, inversion) {
+  if (!midiArray || midiArray.length === 0) return [];
+  const notes = midiArray.slice(); // copy array
+  for (let i = 0; i < inversion; i++) {
+    notes.push(notes.shift() + 12); // move lowest note up an octave
+  }
+  return notes; // keep ascending order destroyed to preserve inversion
+}
 
 document.getElementById("addChord").addEventListener("click", () => {
   addChordsFromInput(chordInput.value);
