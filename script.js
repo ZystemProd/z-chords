@@ -241,28 +241,45 @@ function render() {
     return;
   }
 
-  chordsList.forEach((chord) => {
+  chordsList.forEach((chord, index) => {
     const { sym, inversion = 0, octave = false, customMIDIs } = chord;
     const parsed = parseChordSymbol(sym);
 
     const card = document.createElement("div");
     card.className = "card";
-    card.innerHTML = "<h3>" + sym + "</h3>";
+    card.style.position = "relative"; // allow absolute positioning
 
+    // Remove button
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "X";
+    removeBtn.className = "remove-chord"; // <- add this
+
+    removeBtn.addEventListener("click", () => {
+      chordsList.splice(index, 1);
+      boardsEl.dataset.chordsList = JSON.stringify(chordsList);
+      render();
+    });
+
+    // Append to the card
+    card.appendChild(removeBtn);
+
+    // Chord title
+    const title = document.createElement("h3");
+    title.textContent = sym;
+    card.appendChild(title);
+
+    // Determine chord data
     let chordData;
     let maxInv = 0;
     let currentInv = inversion;
 
-    // Handle custom chords
     if (customMIDIs) {
       const rootMidi = chord.rootMidi ?? customMIDIs[0];
       chordData = {
-        notes: customMIDIs.slice(), // preserve user order
+        notes: customMIDIs.slice(),
         rootMidi,
       };
-    }
-    // Handle normal chords
-    else if (parsed) {
+    } else if (parsed) {
       chordData = buildChordNotes(
         parsed.root,
         parsed.quality,
@@ -289,8 +306,10 @@ function render() {
     const noteNames = midiNotes.map((m) => getName(m)).join(" · ");
     let labelText = "Notes (inversion " + currentInv + ")";
     if (octave) labelText += ", Octave +1";
-    card.innerHTML +=
-      '<div class="note-list">' + labelText + ": " + noteNames + "</div>";
+    const noteListDiv = document.createElement("div");
+    noteListDiv.className = "note-list";
+    noteListDiv.textContent = labelText + ": " + noteNames;
+    card.appendChild(noteListDiv);
 
     // Render piano
     const piano = makePiano(chordData);
@@ -391,17 +410,33 @@ function transposeChords(amount) {
   const chords = boardsEl.dataset.chordsList
     ? JSON.parse(boardsEl.dataset.chordsList)
     : [];
+
   chords.forEach((ch) => {
+    // Standard chords
     const parsed = parseChordSymbol(ch.sym);
-    if (!parsed) return;
+    if (parsed) {
+      let rootIdx = nameToIndex(parsed.root);
+      if (rootIdx >= 0) {
+        rootIdx = (rootIdx + amount + 12) % 12;
+        const newRoot = N_SHARP[rootIdx];
+        ch.sym = newRoot + (parsed.quality || "");
+      }
+    }
 
-    let rootIdx = nameToIndex(parsed.root);
-    if (rootIdx < 0) return;
+    // Custom chords
+    if (ch.customMIDIs) {
+      ch.customMIDIs = ch.customMIDIs.map((m) => m + amount); // shift MIDI numbers
+      if (ch.rootMidi !== undefined && ch.rootMidi !== null) {
+        ch.rootMidi += amount;
+      }
 
-    rootIdx = (rootIdx + amount + 12) % 12;
-    const newRoot = N_SHARP[rootIdx];
-    ch.sym = newRoot + (parsed.quality || "");
+      // Optional: update sym name to indicate transpose
+      if (!parsed) {
+        ch.sym = "TransposedChord";
+      }
+    }
   });
+
   boardsEl.dataset.chordsList = JSON.stringify(chords);
   render();
 }

@@ -89,6 +89,24 @@ select {
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.03);
   position: relative;
+  padding-top: 40px; /* add space for buttons at the top */
+}
+
+/* Remove button */
+.card button.remove-chord {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: red;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 50%;
+  z-index: 10;
 }
 
 .card h3 {
@@ -103,10 +121,14 @@ select {
   margin-bottom: 10px;
 }
 
+/* Inversion control now lower to avoid collision */
 .inversion-control {
   position: absolute;
-  top: 14px;
+  top: 40px; /* moved down from 14px */
   right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Piano layout */
