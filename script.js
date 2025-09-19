@@ -228,11 +228,11 @@ function getName(midi) {
 
 function render() {
   boardsEl.innerHTML = "";
-  const chords = boardsEl.dataset.chordsList
+  const chordsList = boardsEl.dataset.chordsList
     ? JSON.parse(boardsEl.dataset.chordsList)
     : [];
 
-  if (!chords.length) {
+  if (!chordsList.length) {
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML =
@@ -241,25 +241,31 @@ function render() {
     return;
   }
 
-  chords.forEach(({ sym, inversion, octave }) => {
+  chordsList.forEach((chord) => {
+    const { sym, inversion = 0, octave = false, customMIDIs } = chord;
     const parsed = parseChordSymbol(sym);
-    const chord = chords.find((c) => c.sym === sym); // get full chord object
 
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = "<h3>" + sym + "</h3>";
 
-    if (!parsed && !chord.customMIDIs) {
+    // Determine chord data
+    let chordData;
+    if (customMIDIs) {
+      chordData = { notes: customMIDIs, rootMidi: customMIDIs[0] };
+    } else if (parsed) {
+      chordData = buildChordNotes(
+        parsed.root,
+        parsed.quality,
+        inversion,
+        octave
+      );
+    } else {
       card.innerHTML +=
         '<div class="note-list">Unrecognized chord symbol.</div>';
       boardsEl.appendChild(card);
       return;
     }
-
-    // Build chord notes, supporting custom chords
-    const chordData = chord.customMIDIs
-      ? { notes: chord.customMIDIs, rootMidi: chord.customMIDIs[0] }
-      : buildChordNotes(parsed.root, parsed.quality, inversion, chord.octave);
 
     if (!chordData || !chordData.notes.length) {
       card.innerHTML +=
@@ -268,35 +274,34 @@ function render() {
       return;
     }
 
-    // Extract notes
     const midiNotes = chordData.notes;
-
-    // Display note names
     const noteNames = midiNotes.map((m) => getName(m)).join(" · ");
     let labelText = "Notes (inversion " + inversion + ")";
-    if (chord.octave) labelText += ", Octave +1";
+    if (octave) labelText += ", Octave +1";
     card.innerHTML +=
       '<div class="note-list">' + labelText + ": " + noteNames + "</div>";
 
-    // Create piano with proper root & intervals
+    // Render piano
     const piano = makePiano(chordData);
     card.appendChild(piano);
 
+    // Inversion / Octave select
     const invCtrl = document.createElement("select");
     invCtrl.className = "inversion-control";
     const maxInv = Math.max(0, midiNotes.length - 1);
+
     for (let i = 0; i <= maxInv; i++) {
       const opt = document.createElement("option");
       opt.value = i;
       opt.text = "Inv " + i;
-      if (!chord.octave && i === inversion) opt.selected = true;
+      if (!octave && i === inversion) opt.selected = true;
       invCtrl.appendChild(opt);
     }
 
     const octaveOpt = document.createElement("option");
     octaveOpt.value = "octave";
     octaveOpt.text = "Octave +1";
-    if (chord.octave) octaveOpt.selected = true;
+    if (octave) octaveOpt.selected = true;
     invCtrl.appendChild(octaveOpt);
 
     invCtrl.addEventListener("change", () => {
@@ -308,7 +313,7 @@ function render() {
         chord.inversion = parseInt(selected);
         chord.octave = false;
       }
-      boardsEl.dataset.chordsList = JSON.stringify(chords);
+      boardsEl.dataset.chordsList = JSON.stringify(chordsList);
       render();
     });
 
