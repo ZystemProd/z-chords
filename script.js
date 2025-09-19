@@ -226,7 +226,7 @@ function getName(midi) {
   return note.replace("#", "♯") + octave;
 }
 
-function render() {
+function render(preview = false) {
   boardsEl.innerHTML = "";
   const chordsList = boardsEl.dataset.chordsList
     ? JSON.parse(boardsEl.dataset.chordsList)
@@ -234,9 +234,8 @@ function render() {
 
   if (!chordsList.length) {
     const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML =
-      '<h3>No chords added</h3><div class="note-list">Type a chord above and click "Add chord".</div>';
+    card.className = preview ? "card preview" : "card";
+    card.innerHTML = "<h3>No chords added</h3>";
     boardsEl.appendChild(card);
     return;
   }
@@ -246,39 +245,13 @@ function render() {
     const parsed = parseChordSymbol(sym);
 
     const card = document.createElement("div");
-    card.className = "card";
-    card.style.position = "relative"; // allow absolute positioning
+    card.className = preview ? "card preview" : "card";
+    card.innerHTML = `<h3>${sym}</h3>`;
 
-    // Remove button
-    const removeBtn = document.createElement("button");
-    removeBtn.textContent = "X";
-    removeBtn.className = "remove-chord"; // <- add this
-
-    removeBtn.addEventListener("click", () => {
-      chordsList.splice(index, 1);
-      boardsEl.dataset.chordsList = JSON.stringify(chordsList);
-      render();
-    });
-
-    // Append to the card
-    card.appendChild(removeBtn);
-
-    // Chord title
-    const title = document.createElement("h3");
-    title.textContent = sym;
-    card.appendChild(title);
-
-    // Determine chord data
     let chordData;
-    let maxInv = 0;
-    let currentInv = inversion;
-
     if (customMIDIs) {
       const rootMidi = chord.rootMidi ?? customMIDIs[0];
-      chordData = {
-        notes: customMIDIs.slice(),
-        rootMidi,
-      };
+      chordData = { notes: customMIDIs.slice(), rootMidi };
     } else if (parsed) {
       chordData = buildChordNotes(
         parsed.root,
@@ -287,75 +260,97 @@ function render() {
         octave
       );
       if (!chordData) {
-        card.innerHTML +=
-          '<div class="note-list">Unsupported chord quality.</div>';
+        if (!preview)
+          card.innerHTML +=
+            '<div class="note-list">Unsupported chord quality.</div>';
         boardsEl.appendChild(card);
         return;
       }
-      maxInv = Math.max(0, chordData.notes.length - 1);
-      currentInv = inversion;
     } else {
-      card.innerHTML +=
-        '<div class="note-list">Unrecognized chord symbol.</div>';
+      if (!preview)
+        card.innerHTML +=
+          '<div class="note-list">Unrecognized chord symbol.</div>';
       boardsEl.appendChild(card);
       return;
     }
 
-    // Display note names
-    const midiNotes = chordData.notes;
-    const noteNames = midiNotes.map((m) => getName(m)).join(" · ");
-    let labelText = "Notes (inversion " + currentInv + ")";
-    if (octave) labelText += ", Octave +1";
-    const noteListDiv = document.createElement("div");
-    noteListDiv.className = "note-list";
-    noteListDiv.textContent = labelText + ": " + noteNames;
-    card.appendChild(noteListDiv);
+    // Only show note names if not preview
+    if (!preview) {
+      const midiNotes = chordData.notes;
+      const noteNames = midiNotes.map(getName).join(" · ");
+      let labelText = `Notes (inversion ${inversion})`;
+      if (octave) labelText += ", Octave +1";
+      card.innerHTML += `<div class="note-list">${labelText}: ${noteNames}</div>`;
+    }
 
     // Render piano
     const piano = makePiano(chordData);
     card.appendChild(piano);
 
-    // Only add inversion controls for non-custom chords
+    // Add inversion controls for standard chords
     if (!customMIDIs) {
       const invWrap = document.createElement("div");
-      invWrap.className = "inversion-control";
+      invWrap.className = "inversion-control preview-hover"; // flows under piano
 
-      const minusBtn = document.createElement("button");
-      minusBtn.textContent = "-";
-      minusBtn.style.width = "24px";
-      minusBtn.style.marginRight = "4px";
+      const leftBtn = document.createElement("button");
+      leftBtn.innerHTML = "&#8592;"; // ←
 
-      const invLabel = document.createElement("span");
-      invLabel.textContent = "Inv " + currentInv;
-      invLabel.style.margin = "0 6px";
+      const label = document.createElement("span");
+      label.textContent = "inv."; // text between arrows
+      label.className = "inv-label";
 
-      const plusBtn = document.createElement("button");
-      plusBtn.textContent = "+";
-      plusBtn.style.width = "24px";
-      plusBtn.style.marginLeft = "4px";
+      const rightBtn = document.createElement("button");
+      rightBtn.innerHTML = "&#8594;"; // →
 
-      minusBtn.addEventListener("click", () => {
-        let newInv = currentInv - 1;
-        if (newInv < 0) newInv = maxInv;
-        chord.inversion = newInv;
-        chord.octave = false;
-        boardsEl.dataset.chordsList = JSON.stringify(chordsList);
-        render();
+      leftBtn.addEventListener("click", () => {
+        chord.inversion =
+          (chord.inversion -
+            1 +
+            (chord.customMIDIs
+              ? chord.customMIDIs.length
+              : buildChordNotes(
+                  parseChordSymbol(chord.sym).root,
+                  parseChordSymbol(chord.sym).quality
+                ).notes.length)) %
+          (chord.customMIDIs
+            ? chord.customMIDIs.length
+            : buildChordNotes(
+                parseChordSymbol(chord.sym).root,
+                parseChordSymbol(chord.sym).quality
+              ).notes.length);
+        updatePreviewChord(card, chord);
       });
 
-      plusBtn.addEventListener("click", () => {
-        let newInv = currentInv + 1;
-        if (newInv > maxInv) newInv = 0;
-        chord.inversion = newInv;
-        chord.octave = false;
-        boardsEl.dataset.chordsList = JSON.stringify(chordsList);
-        render();
+      rightBtn.addEventListener("click", () => {
+        chord.inversion =
+          (chord.inversion + 1) %
+          (chord.customMIDIs
+            ? chord.customMIDIs.length
+            : buildChordNotes(
+                parseChordSymbol(chord.sym).root,
+                parseChordSymbol(chord.sym).quality
+              ).notes.length);
+        updatePreviewChord(card, chord);
       });
 
-      invWrap.appendChild(minusBtn);
-      invWrap.appendChild(invLabel);
-      invWrap.appendChild(plusBtn);
-      card.appendChild(invWrap);
+      invWrap.appendChild(leftBtn);
+      invWrap.appendChild(label);
+      invWrap.appendChild(rightBtn);
+
+      card.appendChild(invWrap); // append below piano
+    }
+
+    // Add remove button only if not preview
+    if (!preview) {
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "X";
+      removeBtn.className = "remove-chord";
+      removeBtn.addEventListener("click", () => {
+        chordsList.splice(index, 1);
+        boardsEl.dataset.chordsList = JSON.stringify(chordsList);
+        render(preview);
+      });
+      card.appendChild(removeBtn);
     }
 
     boardsEl.appendChild(card);
@@ -371,7 +366,7 @@ function addChordToList(sym) {
     : [];
   list.push({ sym: sym.trim(), inversion: 0 });
   boardsEl.dataset.chordsList = JSON.stringify(list);
-  render();
+  render(boardsEl.classList.contains("preview")); // ✅ preserve preview state
 }
 
 function addChordsFromInput(inputValue) {
@@ -438,7 +433,7 @@ function transposeChords(amount) {
   });
 
   boardsEl.dataset.chordsList = JSON.stringify(chords);
-  render();
+  render(boardsEl.classList.contains("preview")); // ✅ keeps preview mode consistent
 }
 
 document
@@ -730,7 +725,40 @@ function applyInversionToMIDIs(midiArray, inversion) {
   for (let i = 0; i < inversion; i++) {
     notes.push(notes.shift() + 12); // move lowest note up an octave
   }
-  return notes; // keep ascending order destroyed to preserve inversion
+  return notes; // keep order to preserve inversion
+}
+
+function updatePreviewChord(card, chord) {
+  // Remove old piano
+  const oldPiano = card.querySelector(".piano");
+  if (oldPiano) oldPiano.remove();
+
+  let chordData;
+
+  if (chord.customMIDIs) {
+    // Apply inversion for custom chords
+    const notes = applyInversionToMIDIs(chord.customMIDIs, chord.inversion);
+    chordData = {
+      notes,
+      rootMidi: notes[0], // choose lowest note as root
+    };
+  } else {
+    // Standard chord
+    const parsed = parseChordSymbol(chord.sym);
+    chordData = buildChordNotes(
+      parsed.root,
+      parsed.quality,
+      chord.inversion,
+      chord.octave
+    );
+  }
+
+  // Rebuild piano
+  const newPiano = makePiano(chordData);
+
+  // Insert new piano above inversion controls
+  const invWrap = card.querySelector(".inversion-control");
+  card.insertBefore(newPiano, invWrap);
 }
 
 document.getElementById("addChord").addEventListener("click", () => {
@@ -741,6 +769,53 @@ document.getElementById("addChord").addEventListener("click", () => {
 document.getElementById("clearAll").addEventListener("click", () => {
   boardsEl.dataset.chordsList = JSON.stringify([]);
   render();
+});
+
+const previewBtn = document.getElementById("previewBtn");
+
+previewBtn.addEventListener("click", () => {
+  boardsEl.classList.toggle("preview");
+  render(boardsEl.classList.contains("preview"));
+});
+
+const themeToggle = document.getElementById("themeToggle");
+
+themeToggle.addEventListener("click", () => {
+  document.body.classList.toggle("light-mode");
+
+  // Update button text depending on mode
+  if (document.body.classList.contains("light-mode")) {
+    themeToggle.textContent = "Dark mode";
+  } else {
+    themeToggle.textContent = "Light mode";
+  }
+});
+
+document.getElementById("downloadPdf").addEventListener("click", async () => {
+  // Switch to preview mode temporarily
+  render(true);
+
+  const boards = document.querySelector(".boards.preview");
+
+  // Use html2canvas to capture
+  const canvas = await html2canvas(boards, {
+    scale: 2, // higher quality
+    useCORS: true,
+  });
+
+  const imgData = canvas.toDataURL("image/png");
+  const pdf = new jspdf.jsPDF("p", "mm", "a4");
+
+  // Scale image to fit A4 page width
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const imgWidth = pageWidth - 20; // padding
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+  pdf.addImage(imgData, "PNG", 10, 10, imgWidth, imgHeight);
+  pdf.save("chords.pdf");
+
+  // Switch back to normal mode
+  render(false);
 });
 
 render();

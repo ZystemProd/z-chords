@@ -1,12 +1,40 @@
 :root {
+  /* Dark mode (default) */
   --bg: #0b0f15;
   --card: #12141a;
+  --text: #e6eef8;
+  --note-text: #9fb0c2;
   --white: #fff;
   --black: #0b0b0b;
   --pressed-red-1: #ff6565;
   --pressed-red-2: #d92b2b;
   --root-green-1: #2ecc71;
   --root-green-2: #27ae60;
+  --input-bg: #0f1621;
+  --input-border: #242832;
+  --button-bg: #1e6ef0;
+  --button-text: #ffffff;
+  --card-gradient-1: #0f1621;
+  --card-gradient-2: #0b1116;
+  --kbd-label: #9fb0c2;
+  --modal-close: #aaa;
+}
+
+body.light-mode {
+  --bg: #ffffff;
+  --card: #f7f9fb;
+  --text: #222222;
+  --note-text: #444444;
+  --white: #ffffff;
+  --black: #0b0b0b;
+  --input-bg: #ffffff;
+  --input-border: #cccccc;
+  --button-bg: #1e6ef0;
+  --button-text: #ffffff;
+  --card-gradient-1: #f7f9fb;
+  --card-gradient-2: #e9ecf1;
+  --kbd-label: #555555;
+  --modal-close: #444;
 }
 
 * {
@@ -17,7 +45,7 @@ body {
   margin: 0;
   font-family: Inter, system-ui, Arial;
   background: var(--bg);
-  color: #e6eef8;
+  color: var(--text);
 }
 
 .app {
@@ -63,15 +91,15 @@ h1 {
 input[type="text"] {
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid #242832;
-  background: #0f1621;
-  color: #e6eef8;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 button,
 select {
-  background: #1e6ef0;
-  color: white;
+  background: var(--button-bg);
+  color: var(--button-text);
   border: none;
   padding: 8px 12px;
   border-radius: 8px;
@@ -84,7 +112,11 @@ select {
 }
 
 .card {
-  background: linear-gradient(180deg, #0f1621, #0b1116);
+  background: linear-gradient(
+    180deg,
+    var(--card-gradient-1),
+    var(--card-gradient-2)
+  );
   border-radius: 12px;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.03);
@@ -111,20 +143,21 @@ select {
 
 .card h3 {
   margin: 0 0 8px;
-  font-size: 16px;
+  font-size: 28px;
   font-weight: bold;
+  color: var(--text);
 }
 
 .note-list {
-  color: #9fb0c2;
+  color: var(--note-text);
   font-size: 13px;
   margin-bottom: 10px;
 }
 
-/* Inversion control now lower to avoid collision */
+/* Inversion control */
 .inversion-control {
   position: absolute;
-  top: 40px; /* moved down from 14px */
+  top: 40px;
   right: 14px;
   display: flex;
   align-items: center;
@@ -145,7 +178,6 @@ select {
   display: grid;
   grid-template-columns: repeat(auto-fill, 50px);
   height: 100%;
-  gap: 4;
   position: relative;
 }
 
@@ -153,14 +185,12 @@ select {
   position: relative;
   background: var(--white);
   border: 1px solid #000000;
-  border-right: none;
   border-radius: 0 0 8px 8px;
   box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.06);
   display: flex;
   align-items: flex-end;
   justify-content: center;
   padding-bottom: 8px;
-  box-sizing: border-box;
 }
 
 .white-key:last-child {
@@ -195,7 +225,7 @@ select {
   top: 18px;
   background: var(--black);
   border-radius: 0 0 6px 6px;
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3);
   border: 2px solid #000;
   z-index: 5;
 }
@@ -211,7 +241,7 @@ select {
 .kbd-labels {
   display: flex;
   justify-content: space-between;
-  color: #9fb0c2;
+  color: var(--kbd-label);
   margin-top: 8px;
   font-size: 12px;
 }
@@ -245,13 +275,13 @@ select {
   padding: 20px;
   border-radius: 12px;
   width: 90%;
-  max-width: 1000px; /* large enough for full piano */
+  max-width: 1000px;
   position: relative;
-  color: #e6eef8;
+  color: var(--text);
 }
 
 .close {
-  color: #aaa;
+  color: var(--modal-close);
   float: right;
   font-size: 28px;
   font-weight: bold;
@@ -263,22 +293,13 @@ select {
 
 #customPiano {
   margin: 20px 0;
-  height: 210px; /* same as main piano */
+  height: 210px;
 }
 .white-key,
 .black-key {
   cursor: pointer;
 }
 .white-key.selected,
-.black-key.selected {
-  background-color: green;
-}
-
-.white-key.selected {
-  background: linear-gradient(180deg, var(--root-green-1), var(--root-green-2));
-  color: #fff;
-}
-
 .black-key.selected {
   background: linear-gradient(180deg, var(--root-green-1), var(--root-green-2));
   color: #fff;
@@ -296,8 +317,8 @@ select {
   user-select: none;
   z-index: 2;
   border-radius: 50%;
-  border: 1px solid transparent; /* reserve space for hover border */
-  bottom: -24px; /* move it a bit further down */
+  border: 1px solid transparent;
+  bottom: -24px;
   transition: border 0.2s, background 0.2s;
 }
 
@@ -307,30 +328,19 @@ select {
 
 .root-label:hover {
   border-color: white;
-  background-color: rgba(255, 0, 0, 0.2); /* optional subtle highlight */
+  background-color: rgba(255, 0, 0, 0.2);
 }
 
 .white-key .root-label {
-  bottom: -20px; /* outside key */
+  bottom: -20px;
   left: 50%;
   transform: translateX(-50%);
 }
 
 .black-key .root-label {
-  top: -20px; /* outside key */
+  top: -20px;
   left: 50%;
   transform: translateX(-50%);
-}
-
-.root-label.active {
-  color: yellow; /* selected root key */
-}
-
-.white-key {
-  position: relative;
-}
-.black-key {
-  position: absolute;
 }
 
 .clickable-suggestion {
@@ -348,6 +358,105 @@ select {
 
 .clickable-suggestion:hover {
   background-color: #155ac8;
+}
+
+/* Preview mode for boards */
+.boards.preview {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.card.preview {
+  padding: 0px;
+  border: none;
+  background: none;
+  position: relative;
+}
+
+.card.preview h3 {
+  text-align: center;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.card.preview .white-keys {
+  grid-template-columns: repeat(14, 1fr);
+  gap: 0px;
+  height: 120px;
+}
+
+.card.preview .white-key {
+  border-radius: 0 0 6px 6px;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.06);
+  padding-bottom: 6px;
+}
+
+.card.preview .black-key {
+  height: 45%;
+  top: 18px;
+  width: 20px;
+}
+
+.card.preview .piano {
+  transform: scale(0.9);
+  transform-origin: top center;
+  width: 503px;
+  height: auto;
+}
+
+body.light-mode .card.preview .piano {
+  background: linear-gradient(180deg, black, white);
+}
+
+.card.preview .black-key {
+  transform: translateX(5px);
+}
+
+.card.preview .note-list,
+.card.preview .inversion-control,
+.card.preview .remove-chord {
+  display: none;
+}
+
+/* For preview mode only */
+.card.preview .inversion-control.preview-hover {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px; /* space below piano */
+  opacity: 0; /* hide by default */
+  transition: opacity 0.2s;
+  position: static; /* normal flow */
+}
+
+/* Show on hover over the preview card */
+.card.preview:hover .inversion-control.preview-hover {
+  opacity: 1;
+}
+
+/* Buttons (arrows) */
+.card.preview .inversion-control.preview-hover button {
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 16px; /* bigger arrows */
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 6px; /* wider click area */
+  line-height: 1;
+}
+
+.card.preview .inversion-control.preview-hover button:hover {
+  color: var(--root-green-1);
+}
+
+/* Label between arrows */
+.card.preview .inversion-control.preview-hover .inv-label {
+  font-size: 14px;
+  color: var(--note-text);
+  font-weight: normal;
+  user-select: none;
 }
 
 @media (max-width: 700px) {

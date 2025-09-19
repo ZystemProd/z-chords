@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Chord Viewer – Piano Notes Highlighter</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 </head>
 
 <body>
@@ -25,9 +28,13 @@
                 <button id="clearAll">Clear</button>
                 <!-- Button to open modal -->
                 <button id="openCustomChordModal">Create Custom Chord</button>
+                <button id="previewBtn">Preview</button>
+
             </div>
 
             <div class="controls-right">
+                <button id="downloadPdf">Download PDF</button>
+                <button id="themeToggle">Light mode</button>
                 <span style="color:#9fb0c2;font-size:13px;">Transpose by:</span>
                 <button id="transposeDown">–1</button>
                 <button id="transposeUp">+1</button>
