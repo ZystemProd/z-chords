@@ -226,7 +226,10 @@ function getName(midi) {
   return note.replace("#", "♯") + octave;
 }
 
-function render(preview = false) {
+// Make preview mode default
+boardsEl.classList.add("preview");
+
+function render() {
   boardsEl.innerHTML = "";
   const chordsList = boardsEl.dataset.chordsList
     ? JSON.parse(boardsEl.dataset.chordsList)
@@ -234,7 +237,7 @@ function render(preview = false) {
 
   if (!chordsList.length) {
     const card = document.createElement("div");
-    card.className = preview ? "card preview" : "card";
+    card.className = "card preview";
     card.innerHTML = "<h3>No chords added</h3>";
     boardsEl.appendChild(card);
     return;
@@ -245,13 +248,15 @@ function render(preview = false) {
     const parsed = parseChordSymbol(sym);
 
     const card = document.createElement("div");
-    card.className = preview ? "card preview" : "card";
+    card.className = "card preview";
     card.innerHTML = `<h3>${sym}</h3>`;
 
     let chordData;
     if (customMIDIs) {
-      const rootMidi = chord.rootMidi ?? customMIDIs[0];
-      chordData = { notes: customMIDIs.slice(), rootMidi };
+      chordData = {
+        notes: applyInversionToMIDIs(customMIDIs, inversion),
+        rootMidi: customMIDIs[0],
+      };
     } else if (parsed) {
       chordData = buildChordNotes(
         parsed.root,
@@ -260,102 +265,70 @@ function render(preview = false) {
         octave
       );
       if (!chordData) {
-        if (!preview)
-          card.innerHTML +=
-            '<div class="note-list">Unsupported chord quality.</div>';
+        card.innerHTML += "<div>Unsupported chord</div>";
         boardsEl.appendChild(card);
         return;
       }
     } else {
-      if (!preview)
-        card.innerHTML +=
-          '<div class="note-list">Unrecognized chord symbol.</div>';
+      card.innerHTML += "<div>Unrecognized chord symbol</div>";
       boardsEl.appendChild(card);
       return;
-    }
-
-    // Only show note names if not preview
-    if (!preview) {
-      const midiNotes = chordData.notes;
-      const noteNames = midiNotes.map(getName).join(" · ");
-      let labelText = `Notes (inversion ${inversion})`;
-      if (octave) labelText += ", Octave +1";
-      card.innerHTML += `<div class="note-list">${labelText}: ${noteNames}</div>`;
     }
 
     // Render piano
     const piano = makePiano(chordData);
     card.appendChild(piano);
 
-    // Add inversion controls for standard chords
-    if (!customMIDIs) {
-      const invWrap = document.createElement("div");
-      invWrap.className = "inversion-control preview-hover"; // flows under piano
+    // --- INVERSION CONTROLS ---
+    const invWrap = document.createElement("div");
+    invWrap.className = "inversion-control"; // use your CSS to style below piano
 
-      const leftBtn = document.createElement("button");
-      leftBtn.innerHTML = "&#8592;"; // ←
+    const leftBtn = document.createElement("button");
+    leftBtn.innerHTML = "&#8592;"; // ←
+    const label = document.createElement("span");
+    label.textContent = "inv.";
+    label.className = "inv-label";
+    const rightBtn = document.createElement("button");
+    rightBtn.innerHTML = "&#8594;"; // →
 
-      const label = document.createElement("span");
-      label.textContent = "inv."; // text between arrows
-      label.className = "inv-label";
+    leftBtn.addEventListener("click", () => {
+      const totalNotes = chord.customMIDIs
+        ? chord.customMIDIs.length
+        : chordData.notes.length;
+      chord.inversion = (chord.inversion - 1 + totalNotes) % totalNotes;
+      updatePreviewChord(card, chord);
+    });
 
-      const rightBtn = document.createElement("button");
-      rightBtn.innerHTML = "&#8594;"; // →
+    rightBtn.addEventListener("click", () => {
+      const totalNotes = chord.customMIDIs
+        ? chord.customMIDIs.length
+        : chordData.notes.length;
+      chord.inversion = (chord.inversion + 1) % totalNotes;
+      updatePreviewChord(card, chord);
+    });
 
-      leftBtn.addEventListener("click", () => {
-        chord.inversion =
-          (chord.inversion -
-            1 +
-            (chord.customMIDIs
-              ? chord.customMIDIs.length
-              : buildChordNotes(
-                  parseChordSymbol(chord.sym).root,
-                  parseChordSymbol(chord.sym).quality
-                ).notes.length)) %
-          (chord.customMIDIs
-            ? chord.customMIDIs.length
-            : buildChordNotes(
-                parseChordSymbol(chord.sym).root,
-                parseChordSymbol(chord.sym).quality
-              ).notes.length);
-        updatePreviewChord(card, chord);
-      });
+    invWrap.appendChild(leftBtn);
+    invWrap.appendChild(label);
+    invWrap.appendChild(rightBtn);
+    card.appendChild(invWrap);
 
-      rightBtn.addEventListener("click", () => {
-        chord.inversion =
-          (chord.inversion + 1) %
-          (chord.customMIDIs
-            ? chord.customMIDIs.length
-            : buildChordNotes(
-                parseChordSymbol(chord.sym).root,
-                parseChordSymbol(chord.sym).quality
-              ).notes.length);
-        updatePreviewChord(card, chord);
-      });
-
-      invWrap.appendChild(leftBtn);
-      invWrap.appendChild(label);
-      invWrap.appendChild(rightBtn);
-
-      card.appendChild(invWrap); // append below piano
-    }
-
-    // Add remove button only if not preview
-    if (!preview) {
-      const removeBtn = document.createElement("button");
-      removeBtn.textContent = "X";
-      removeBtn.className = "remove-chord";
-      removeBtn.addEventListener("click", () => {
-        chordsList.splice(index, 1);
-        boardsEl.dataset.chordsList = JSON.stringify(chordsList);
-        render(preview);
-      });
-      card.appendChild(removeBtn);
-    }
+    // --- REMOVE BUTTON ---
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "X";
+    removeBtn.className = "remove-chord";
+    removeBtn.addEventListener("click", () => {
+      chordsList.splice(index, 1);
+      boardsEl.dataset.chordsList = JSON.stringify(chordsList);
+      render();
+    });
+    card.appendChild(removeBtn);
 
     boardsEl.appendChild(card);
   });
 }
+
+// Always render preview mode
+render();
 
 function addChordToList(sym) {
   if (!sym) return;
@@ -366,7 +339,7 @@ function addChordToList(sym) {
     : [];
   list.push({ sym: sym.trim(), inversion: 0 });
   boardsEl.dataset.chordsList = JSON.stringify(list);
-  render(boardsEl.classList.contains("preview")); // ✅ preserve preview state
+  render();
 }
 
 function addChordsFromInput(inputValue) {
@@ -433,7 +406,7 @@ function transposeChords(amount) {
   });
 
   boardsEl.dataset.chordsList = JSON.stringify(chords);
-  render(boardsEl.classList.contains("preview")); // ✅ keeps preview mode consistent
+  render();
 }
 
 document
@@ -771,13 +744,6 @@ document.getElementById("clearAll").addEventListener("click", () => {
   render();
 });
 
-const previewBtn = document.getElementById("previewBtn");
-
-previewBtn.addEventListener("click", () => {
-  boardsEl.classList.toggle("preview");
-  render(boardsEl.classList.contains("preview"));
-});
-
 const themeToggle = document.getElementById("themeToggle");
 
 themeToggle.addEventListener("click", () => {
@@ -792,21 +758,31 @@ themeToggle.addEventListener("click", () => {
 });
 
 document.getElementById("downloadPdf").addEventListener("click", async () => {
-  // Switch to preview mode temporarily
-  render(true);
-
+  // Clone the boards container into an off-screen div
   const boards = document.querySelector(".boards.preview");
+  const clone = boards.cloneNode(true);
 
-  // Use html2canvas to capture
-  const canvas = await html2canvas(boards, {
-    scale: 2, // higher quality
+  // Apply light-mode for PDF capture
+  clone.classList.add("pdf-capture");
+
+  // Create hidden off-screen container
+  const hiddenContainer = document.createElement("div");
+  hiddenContainer.style.position = "fixed";
+  hiddenContainer.style.top = "-9999px";
+  hiddenContainer.style.left = "-9999px";
+  hiddenContainer.style.opacity = "0"; // invisible
+  hiddenContainer.appendChild(clone);
+  document.body.appendChild(hiddenContainer);
+
+  // Capture with html2canvas
+  const canvas = await html2canvas(clone, {
+    scale: 2,
     useCORS: true,
   });
 
   const imgData = canvas.toDataURL("image/png");
   const pdf = new jspdf.jsPDF("p", "mm", "a4");
 
-  // Scale image to fit A4 page width
   const pageWidth = pdf.internal.pageSize.getWidth();
   const imgWidth = pageWidth - 20; // padding
   const imgHeight = (canvas.height * imgWidth) / canvas.width;
@@ -814,8 +790,8 @@ document.getElementById("downloadPdf").addEventListener("click", async () => {
   pdf.addImage(imgData, "PNG", 10, 10, imgWidth, imgHeight);
   pdf.save("chords.pdf");
 
-  // Switch back to normal mode
-  render(false);
+  // Clean up
+  document.body.removeChild(hiddenContainer);
 });
 
 render();

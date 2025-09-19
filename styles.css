@@ -418,25 +418,25 @@ body.light-mode .card.preview .piano {
   display: none;
 }
 
-/* For preview mode only */
-.card.preview .inversion-control.preview-hover {
+/* Make inversion controls visible on hover for preview cards */
+.card.preview .inversion-control {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 6px;
   margin-top: 6px; /* space below piano */
-  opacity: 0; /* hide by default */
+  opacity: 0; /* hidden by default */
   transition: opacity 0.2s;
   position: static; /* normal flow */
 }
 
-/* Show on hover over the preview card */
-.card.preview:hover .inversion-control.preview-hover {
+/* Show inversion controls on hover */
+.card.preview:hover .inversion-control {
   opacity: 1;
 }
 
-/* Buttons (arrows) */
-.card.preview .inversion-control.preview-hover button {
+/* Buttons inside inversion controls */
+.card.preview .inversion-control button {
   border: none;
   background: none;
   color: var(--text);
@@ -445,6 +445,18 @@ body.light-mode .card.preview .piano {
   cursor: pointer;
   padding: 0 6px; /* wider click area */
   line-height: 1;
+}
+
+.card.preview .inversion-control button:hover {
+  color: var(--root-green-1);
+}
+
+/* Label between arrows */
+.card.preview .inversion-control .inv-label {
+  font-size: 14px;
+  color: var(--note-text);
+  font-weight: normal;
+  user-select: none;
 }
 
 .card.preview .inversion-control.preview-hover button:hover {
@@ -457,6 +469,63 @@ body.light-mode .card.preview .piano {
   color: var(--note-text);
   font-weight: normal;
   user-select: none;
+}
+
+/* PDF capture styling */
+.pdf-capture {
+  background-color: white !important; /* ensures white background */
+  color: black !important; /* text black for PDF */
+}
+
+/* Ensure white keys look like normal */
+.pdf-capture .white-key {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+}
+
+/* Ensure black keys are visible */
+.pdf-capture .black-key {
+  background: #000 !important;
+  border: 1px solid #333 !important;
+}
+
+/* Highlight pressed keys */
+.pdf-capture .white-key.pressed,
+.pdf-capture .black-key.pressed {
+  background: #d92b2b !important; /* orange highlight */
+  color: #000 !important; /* interval label readable */
+}
+
+/* Highlight the root key */
+.pdf-capture .white-key.root,
+.pdf-capture .black-key.root {
+  background: #2ecc71 !important; /* orange highlight */
+  border: 1px solid #000 !important;
+}
+
+/* Interval labels */
+.pdf-capture .interval,
+.pdf-capture .label {
+  color: black !important;
+  font-weight: bold;
+}
+
+/* PDF chord text */
+.pdf-capture .card h3 {
+  color: black !important;
+  font-size: 28px !important;
+  margin: 0 0 10px 0; /* optional: adjust spacing */
+}
+
+/* Ensure proper stacking for black keys */
+.pdf-capture .black-key {
+  z-index: 2 !important;
+}
+
+/* Optional: remove modal/backdrop effects */
+.pdf-capture .modal,
+.pdf-capture .overlay {
+  display: none !important;
 }
 
 @media (max-width: 700px) {
