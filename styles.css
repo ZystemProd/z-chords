@@ -1,0 +1,209 @@
+:root {
+            --bg: #0b0f15;
+            --card: #12141a;
+            --white: #fff;
+            --black: #0b0b0b;
+            --pressed-red-1: #ff6565;
+            --pressed-red-2: #d92b2b;
+            --root-green-1: #2ecc71;
+            --root-green-2: #27ae60;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, Arial;
+            background: var(--bg);
+            color: #e6eef8
+        }
+
+        .app {
+            max-width: 1100px;
+            margin: 28px auto;
+            padding: 20px
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 14px
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 20px
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card);
+            padding: 14px;
+            border-radius: 12px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .controls-left {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .controls-right {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        input[type=text] {
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #242832;
+            background: #0f1621;
+            color: #e6eef8
+        }
+
+        button,
+        select {
+            background: #1e6ef0;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer
+        }
+
+        .boards {
+            display: grid;
+            gap: 16px
+        }
+
+        .card {
+            background: linear-gradient(180deg, #0f1621, #0b1116);
+            border-radius: 12px;
+            padding: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            position: relative
+        }
+
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 16px;
+            font-weight: bold
+        }
+
+        .note-list {
+            color: #9fb0c2;
+            font-size: 13px;
+            margin-bottom: 10px
+        }
+
+        .inversion-control {
+            position: absolute;
+            top: 14px;
+            right: 14px
+        }
+
+        /* Piano layout */
+        .piano {
+            position: relative;
+            width: 100%;
+            height: 210px;
+            background: linear-gradient(180deg, #071022, #091220);
+            border-radius: 8px;
+            padding: 18px;
+        }
+
+        .white-keys {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, 50px);
+            height: 100%;
+            gap: 4;
+            position: relative;
+        }
+
+        .white-key {
+            position: relative;
+            background: var(--white);
+            border: 1px solid #000000;
+            border-right: none;
+            border-radius: 0 0 8px 8px;
+            box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.06);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 8px;
+            box-sizing: border-box;
+        }
+
+        .white-key:last-child {
+            border-right: 1px solid #cfcfcf;
+        }
+
+        .white-key.pressed {
+            background: linear-gradient(180deg, var(--pressed-red-1), var(--pressed-red-2));
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .white-key.root {
+            background: linear-gradient(180deg, var(--root-green-1), var(--root-green-2));
+            color: #fff;
+        }
+
+        .white-key .label {
+            font-size: 12px;
+            color: #22313a;
+            font-weight: bold
+        }
+
+        .black-key {
+            position: absolute;
+            width: 28px;
+            height: 45%;
+            top: 18px;
+            background: var(--black);
+            border-radius: 0 0 6px 6px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6);
+            border: 2px solid #000;
+            z-index: 5;
+        }
+
+        .black-key.pressed {
+            background: linear-gradient(180deg, #d94b4b, #b21616);
+        }
+
+        .black-key.root {
+            background: linear-gradient(180deg, var(--root-green-1), var(--root-green-2));
+        }
+
+        .kbd-labels {
+            display: flex;
+            justify-content: space-between;
+            color: #9fb0c2;
+            margin-top: 8px;
+            font-size: 12px
+        }
+
+        .interval {
+            position: absolute;
+            top: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: #fff;
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+
+        @media (max-width:700px) {
+            .piano {
+                height: 160px
+            }
+        }

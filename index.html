@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chord Viewer – Piano Notes Highlighter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="app">
+        <header>
+            <h1>Chord Viewer</h1>
+            <div style="color:#9fb0c2;font-size:13px;margin-top:6px">Type a chord (e.g. C, Dm, Bbmaj7, G7) and click
+                Add. You can switch inversion per chord.</div>
+        </header>
+
+        <section class="controls">
+            <div class="controls-left">
+                <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
+                    autocomplete="off" />
+                <datalist id="suggestions"></datalist>
+                <button id="addChord">Add chord</button>
+                <button id="clearAll">Clear</button>
+            </div>
+
+            <div class="controls-right">
+                <span style="color:#9fb0c2;font-size:13px;">Transpose by:</span>
+                <button id="transposeDown">–1</button>
+                <button id="transposeUp">+1</button>
+            </div>
+        </section>
+
+        <section class="boards" id="boards"></section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
