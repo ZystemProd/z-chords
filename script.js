@@ -358,13 +358,6 @@ chordInput.addEventListener("input", () => {
     option.value = chord;
     suggestionsEl.appendChild(option);
   });
-
-  const exactMatch = matches.find((ch) => ch.toUpperCase() === val);
-  if (exactMatch) {
-    addChordsFromInput(exactMatch);
-    chordInput.value = "";
-    suggestionsEl.innerHTML = "";
-  }
 });
 
 function transposeChords(amount) {
