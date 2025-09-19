@@ -23,6 +23,8 @@
                 <datalist id="suggestions"></datalist>
                 <button id="addChord">Add chord</button>
                 <button id="clearAll">Clear</button>
+                <!-- Button to open modal -->
+                <button id="openCustomChordModal">Create Custom Chord</button>
             </div>
 
             <div class="controls-right">
@@ -33,6 +35,21 @@
         </section>
 
         <section class="boards" id="boards"></section>
+
+        <!-- Custom Chord Modal -->
+        <div id="customChordModal" class="modal">
+            <div class="modal-content">
+                <span id="closeModal" class="close">&times;</span>
+                <h3>Create Custom Chord</h3>
+                <div id="customPiano"></div>
+                <div>
+                    <label>Chord Name (optional): </label>
+                    <input type="text" id="customChordName" placeholder="e.g., MyChord">
+                </div>
+                <div id="suggestedChords" style="margin:10px 0;"></div>
+                <button id="addCustomChord">Add Chord</button>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>

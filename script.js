@@ -231,6 +231,7 @@ function render() {
   const chords = boardsEl.dataset.chordsList
     ? JSON.parse(boardsEl.dataset.chordsList)
     : [];
+
   if (!chords.length) {
     const card = document.createElement("div");
     card.className = "card";
@@ -242,23 +243,24 @@ function render() {
 
   chords.forEach(({ sym, inversion, octave }) => {
     const parsed = parseChordSymbol(sym);
+    const chord = chords.find((c) => c.sym === sym); // get full chord object
+
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = "<h3>" + sym + "</h3>";
-    if (!parsed) {
+
+    if (!parsed && !chord.customMIDIs) {
       card.innerHTML +=
         '<div class="note-list">Unrecognized chord symbol.</div>';
       boardsEl.appendChild(card);
       return;
     }
 
-    // Build chord notes with root info
-    const chordData = buildChordNotes(
-      parsed.root,
-      parsed.quality,
-      inversion,
-      chords.find((c) => c.sym === sym).octave
-    );
+    // Build chord notes, supporting custom chords
+    const chordData = chord.customMIDIs
+      ? { notes: chord.customMIDIs, rootMidi: chord.customMIDIs[0] }
+      : buildChordNotes(parsed.root, parsed.quality, inversion, chord.octave);
+
     if (!chordData || !chordData.notes.length) {
       card.innerHTML +=
         '<div class="note-list">Unsupported chord quality.</div>';
@@ -272,7 +274,7 @@ function render() {
     // Display note names
     const noteNames = midiNotes.map((m) => getName(m)).join(" · ");
     let labelText = "Notes (inversion " + inversion + ")";
-    if (chords.find((c) => c.sym === sym).octave) labelText += ", Octave +1";
+    if (chord.octave) labelText += ", Octave +1";
     card.innerHTML +=
       '<div class="note-list">' + labelText + ": " + noteNames + "</div>";
 
@@ -287,19 +289,18 @@ function render() {
       const opt = document.createElement("option");
       opt.value = i;
       opt.text = "Inv " + i;
-      if (!octave && i === inversion) opt.selected = true;
+      if (!chord.octave && i === inversion) opt.selected = true;
       invCtrl.appendChild(opt);
     }
 
     const octaveOpt = document.createElement("option");
     octaveOpt.value = "octave";
     octaveOpt.text = "Octave +1";
-    if (octave) octaveOpt.selected = true;
+    if (chord.octave) octaveOpt.selected = true;
     invCtrl.appendChild(octaveOpt);
 
     invCtrl.addEventListener("change", () => {
       const selected = invCtrl.value;
-      const chord = chords.find((c) => c.sym === sym);
       if (selected === "octave") {
         chord.octave = true;
         chord.inversion = 0;
@@ -392,6 +393,274 @@ chordInput.addEventListener("keydown", (e) => {
     chordInput.value = "";
     suggestionsEl.innerHTML = "";
   }
+});
+
+function updateSuggestions() {
+  suggestedEl.innerHTML = "";
+
+  if (selectedMIDIs.size < 2) return; // need at least 2 notes for a suggestion
+
+  // Convert selected MIDIs to pitch classes
+  const pcs = Array.from(selectedMIDIs)
+    .map((m) => m % 12)
+    .sort((a, b) => a - b);
+
+  // Find matching chords
+  const matches = [];
+  for (const [type, pattern] of Object.entries(CHORD_PATTERNS)) {
+    for (let root = 0; root < 12; root++) {
+      const chordPCs = pattern
+        .map((interval) => (root + interval) % 12)
+        .sort((a, b) => a - b);
+      if (pcs.every((pc) => chordPCs.includes(pc))) {
+        matches.push(N_SHARP[root] + (type || ""));
+      }
+    }
+  }
+
+  if (matches.length === 0) {
+    suggestedEl.textContent = "No matching chord found";
+    suggestedEl.classList.remove("clickable-suggestion");
+  } else {
+    matches.forEach((match) => {
+      const btn = document.createElement("div");
+      btn.className = "clickable-suggestion";
+      btn.textContent = match;
+      btn.addEventListener("click", () => {
+        customChordNameInput.value = match; // put text into input
+      });
+      suggestedEl.appendChild(btn);
+    });
+  }
+}
+
+const customModal = document.getElementById("customChordModal");
+const openModalBtn = document.getElementById("openCustomChordModal");
+const closeModalBtn = document.getElementById("closeModal");
+const customPianoEl = document.getElementById("customPiano");
+const addCustomChordBtn = document.getElementById("addCustomChord");
+const suggestedEl = document.getElementById("suggestedChords");
+const customChordNameInput = document.getElementById("customChordName");
+
+let selectedMIDIs = new Set();
+
+// Open modal
+openModalBtn.addEventListener("click", () => {
+  customModal.style.display = "block";
+  renderCustomPiano();
+  selectedMIDIs.clear();
+  customChordNameInput.value = "";
+  suggestedEl.innerHTML = "";
+});
+
+// Close modal
+closeModalBtn.addEventListener(
+  "click",
+  () => (customModal.style.display = "none")
+);
+window.addEventListener("click", (e) => {
+  if (e.target === customModal) customModal.style.display = "none";
+});
+
+// Tracks the current root and previous root element
+let rootMID = null; // tracks the chosen root
+
+function renderCustomPiano() {
+  customPianoEl.innerHTML = "";
+  const LOW = 60,
+    HIGH = 83;
+  const whiteMIDIs = [];
+  for (let m = LOW; m <= HIGH; m++)
+    if (!N_SHARP[m % 12].includes("#")) whiteMIDIs.push(m);
+
+  const pianoWrap = document.createElement("div");
+  pianoWrap.className = "piano";
+  const whiteGrid = document.createElement("div");
+  whiteGrid.className = "white-keys";
+
+  // White keys
+  whiteMIDIs.forEach((midi) => {
+    const wk = document.createElement("div");
+    wk.className = "white-key";
+    wk.dataset.midi = midi;
+
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = N_SHARP[midi % 12].replace("#", "♯");
+    wk.appendChild(label);
+
+    // Apply classes instead of inline styles to match main piano
+    if (selectedMIDIs.has(midi)) wk.classList.add("pressed");
+    if (rootMID === midi) wk.classList.add("root");
+
+    // Only show "R" on marked keys (selected or root)
+    if (selectedMIDIs.has(midi) || rootMID === midi) {
+      const rootLabel = document.createElement("div");
+      rootLabel.className = "root-label";
+      rootLabel.textContent = "R";
+
+      if (rootMID === midi) rootLabel.classList.add("active");
+
+      rootLabel.addEventListener("click", (e) => {
+        e.stopPropagation();
+        rootMID = midi;
+        renderCustomPiano();
+      });
+
+      wk.appendChild(rootLabel); // append inside the key
+    }
+
+    wk.addEventListener("click", () => toggleKey(midi, wk));
+    whiteGrid.appendChild(wk);
+  });
+
+  pianoWrap.appendChild(whiteGrid);
+
+  // Black keys
+  requestAnimationFrame(() => {
+    const whiteEls = whiteGrid.querySelectorAll(".white-key");
+    whiteEls.forEach((wk) => {
+      const midi = parseInt(wk.dataset.midi);
+      if (["E", "B"].includes(N_SHARP[midi % 12])) return;
+
+      const blackMidi = midi + 1;
+      const bk = document.createElement("div");
+      bk.className = "black-key";
+      bk.dataset.midi = blackMidi;
+
+      if (selectedMIDIs.has(blackMidi)) bk.classList.add("pressed");
+      if (rootMID === blackMidi) bk.classList.add("root");
+
+      if (selectedMIDIs.has(blackMidi) || rootMID === blackMidi) {
+        const rootLabel = document.createElement("div");
+        rootLabel.className = "root-label";
+        rootLabel.textContent = "R";
+
+        if (rootMID === blackMidi) rootLabel.classList.add("active");
+
+        rootLabel.addEventListener("click", (e) => {
+          e.stopPropagation();
+          rootMID = blackMidi;
+          renderCustomPiano();
+        });
+
+        bk.appendChild(rootLabel); // append inside black key
+      }
+
+      bk.addEventListener("click", () => toggleKey(blackMidi, bk));
+
+      const whiteWidthPx = wk.offsetWidth;
+      const blackWidthPx = bk.offsetWidth;
+      const leftPx = wk.offsetLeft + whiteWidthPx - (blackWidthPx / 2 + -4);
+      bk.style.left = leftPx + "px";
+      pianoWrap.appendChild(bk);
+    });
+  });
+
+  customPianoEl.appendChild(pianoWrap);
+}
+
+function toggleKey(midi, el) {
+  if (selectedMIDIs.has(midi)) {
+    selectedMIDIs.delete(midi);
+    if (rootMID === midi) rootMID = null;
+    el.classList.remove("selected");
+  } else {
+    selectedMIDIs.add(midi);
+    el.classList.add("selected");
+  }
+  renderCustomPiano();
+  updateSuggestions();
+}
+
+addCustomChordBtn.addEventListener("click", () => {
+  if (selectedMIDIs.size === 0) return;
+
+  let name = customChordNameInput.value.trim();
+  if (!name)
+    name =
+      suggestedEl.textContent.split(":")[1]?.split(",")[0]?.trim() ||
+      "CustomChord";
+
+  const midiArray = Array.from(selectedMIDIs).sort((a, b) => a - b);
+
+  // Ensure chosen root is first
+  if (rootMID !== null) {
+    const idx = midiArray.indexOf(rootMID);
+    if (idx > 0) {
+      midiArray.splice(idx, 1);
+      midiArray.unshift(rootMID);
+    }
+  }
+
+  const chordObj = {
+    sym: name,
+    inversion: 0,
+    octave: false,
+    customMIDIs: midiArray,
+    rootMidi: rootMID,
+  };
+
+  const list = boardsEl.dataset.chordsList
+    ? JSON.parse(boardsEl.dataset.chordsList)
+    : [];
+  list.push(chordObj);
+  boardsEl.dataset.chordsList = JSON.stringify(list);
+
+  render();
+  customModal.style.display = "none";
+  selectedMIDIs.clear();
+  rootMID = null;
+});
+
+// Handle root toggling dynamically
+function toggleRoot(midi, labelEl) {
+  if (prevRootEl) prevRootEl.classList.remove("active");
+
+  if (rootMID === midi) {
+    rootMID = null;
+    prevRootEl = null;
+  } else {
+    rootMID = midi;
+    prevRootEl = labelEl;
+    labelEl.classList.add("active");
+  }
+}
+
+addCustomChordBtn.addEventListener("click", () => {
+  if (selectedMIDIs.size === 0) return; // nothing selected
+
+  // Get a name from the input or generate one from suggestions
+  let name = customChordNameInput.value.trim();
+  if (!name) {
+    name =
+      suggestedEl.textContent.split(":")[1]?.split(",")[0]?.trim() ||
+      "CustomChord";
+  }
+
+  // Convert selected MIDIs to a sorted array
+  const midiArray = Array.from(selectedMIDIs).sort((a, b) => a - b);
+
+  // Build a chord object compatible with your boardsEl list
+  const chordObj = {
+    sym: name,
+    inversion: 0,
+    octave: false,
+    customMIDIs: midiArray, // store the actual MIDI notes for this custom chord
+  };
+
+  // Add to the existing chords list
+  const list = boardsEl.dataset.chordsList
+    ? JSON.parse(boardsEl.dataset.chordsList)
+    : [];
+  list.push(chordObj);
+  boardsEl.dataset.chordsList = JSON.stringify(list);
+
+  // Re-render
+  render();
+
+  // Close modal
+  customModal.style.display = "none";
 });
 
 document.getElementById("addChord").addEventListener("click", () => {
