@@ -1,40 +1,17 @@
+let sectionCounter = 0; // track part number
+
 document.addEventListener("DOMContentLoaded", () => {
-  const sectionModal = document.getElementById("sectionModal");
-  const closeSectionModal = document.getElementById("closeSectionModal");
-  const sectionNameInput = document.getElementById("sectionNameInput");
-  const saveSectionBtn = document.getElementById("saveSectionBtn");
   const addSectionBtn = document.getElementById("addSectionBtn");
 
   addSectionBtn.addEventListener("click", () => {
-    sectionModal.style.display = "block";
-    sectionNameInput.focus();
-  });
+    sectionCounter++;
+    const name = `Part ${String.fromCharCode(64 + sectionCounter)}`; // 1 -> A, 2 -> B, etc.
 
-  closeSectionModal.addEventListener("click", () => {
-    sectionModal.style.display = "none";
+    const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+    sections.push({ name, chords: [] });
+    boardsEl.dataset.sections = JSON.stringify(sections);
+    renderSections();
   });
-
-  // Click save
-  saveSectionBtn.addEventListener("click", () => {
-    saveSection();
-  });
-
-  // Press Enter inside input
-  sectionNameInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault(); // prevent form submit / accidental line breaks
-      saveSection();
-    }
-  });
-
-  function saveSection() {
-    const name = sectionNameInput.value.trim();
-    if (name) {
-      addSection(name); // your existing function
-      sectionModal.style.display = "none";
-      sectionNameInput.value = "";
-    }
-  }
 });
 
 const N_SHARP = [
@@ -53,24 +30,77 @@ const N_SHARP = [
 ];
 const ENHARMONIC = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
 const CHORD_PATTERNS = {
-  "": [0, 4, 7],
-  m: [0, 3, 7],
-  dim: [0, 3, 6],
-  aug: [0, 4, 8],
+  // --- Triads ---
+  "": [0, 4, 7], // Major
+  m: [0, 3, 7], // Minor
+  dim: [0, 3, 6], // Diminished
+  aug: [0, 4, 8], // Augmented
   sus2: [0, 2, 7],
   sus4: [0, 5, 7],
+
+  // --- Sixth chords ---
   6: [0, 4, 7, 9],
   m6: [0, 3, 7, 9],
-  7: [0, 4, 7, 10],
+  "6/9": [0, 4, 7, 9, 14],
+  "m6/9": [0, 3, 7, 9, 14],
+  add6: [0, 4, 7, 9],
+  add9: [0, 4, 7, 14],
+  add13: [0, 4, 7, 21],
+  add4: [0, 4, 7, 5],
+
+  // --- Seventh chords ---
+  7: [0, 4, 7, 10], // Dominant 7
   maj7: [0, 4, 7, 11],
   m7: [0, 3, 7, 10],
   dim7: [0, 3, 6, 9],
   m7b5: [0, 3, 6, 10],
-  add9: [0, 4, 7, 14],
+  "m(maj7)": [0, 3, 7, 11],
+  "7#5": [0, 4, 8, 10],
+  "7b5": [0, 4, 6, 10],
+  "maj7#5": [0, 4, 8, 11],
+  maj7b5: [0, 4, 6, 11],
+  "m7#5": [0, 3, 8, 10],
+
+  // --- Ninth chords ---
   9: [0, 4, 7, 10, 14],
   m9: [0, 3, 7, 10, 14],
   maj9: [0, 4, 7, 11, 14],
+  "7b9": [0, 4, 7, 10, 13],
+  "7#9": [0, 4, 7, 10, 15],
+  "9#11": [0, 4, 7, 10, 14, 18],
+  m9b5: [0, 3, 6, 10, 14],
+
+  // --- Eleventh chords ---
+  11: [0, 4, 7, 10, 14, 17],
+  maj11: [0, 4, 7, 11, 14, 17],
+  m11: [0, 3, 7, 10, 14, 17],
+  "7#11": [0, 4, 7, 10, 18],
+  "maj7#11": [0, 4, 7, 11, 18],
+  m11b5: [0, 3, 6, 10, 14, 17],
+
+  // --- Thirteenth chords ---
+  13: [0, 4, 7, 10, 14, 17, 21],
+  maj13: [0, 4, 7, 11, 14, 17, 21],
+  m13: [0, 3, 7, 10, 14, 17, 21],
+  "7b13": [0, 4, 7, 10, 20],
+  "7#13": [0, 4, 7, 10, 22],
+  "13b9": [0, 4, 7, 10, 13, 21],
+  "13#9": [0, 4, 7, 10, 15, 21],
+
+  // --- Altered Dominants ---
+  "7#9#11": [0, 4, 7, 10, 15, 18],
+  "7b9b13": [0, 4, 7, 10, 13, 20],
+  "7#5b9": [0, 4, 8, 10, 13],
+  "7#5#9": [0, 4, 8, 10, 15],
+  "7b5b9": [0, 4, 6, 10, 13],
+  "7b5#9": [0, 4, 6, 10, 15],
+
+  // --- Add chords / Misc ---
+  add2: [0, 2, 4, 7],
+  add4: [0, 4, 7, 5],
+  add11: [0, 4, 7, 17],
 };
+
 const CHORD_TYPES = Object.keys(CHORD_PATTERNS).filter((k) => k !== "");
 const typesSorted = CHORD_TYPES.slice().sort((a, b) => b.length - a.length);
 const TYPE_RE = typesSorted.join("|");
@@ -143,6 +173,26 @@ function buildChordNotes(rootName, quality, inversion = 0, octave = false) {
     rootMidi: actualRootNote.midi, // the midi value that represents the chord root in this voicing
     origRootMidi, // optional if you need it elsewhere
   };
+}
+
+function formatChordSymbol(sym) {
+  if (!sym) return "";
+
+  // Match parts: root note (A-G), accidental (# or b), rest (chord type)
+  const m = sym.match(/^([A-Ga-g])([#b]?)(.*)$/);
+  if (!m) return sym;
+
+  const root = m[1].toUpperCase();
+  const accidental = m[2] || "";
+  let type = m[3] || "";
+
+  // Replace common alterations with <sup> tags
+  // Order matters: #11, b13, #9, b9, #5, b5, 6, 7, 9, 11, 13, addX
+  type = type
+    .replace(/(b9|#9|b5|#5|b13|#11|#13)/g, "<sup>$1</sup>")
+    .replace(/add(\d+)/g, "add<sup>$1</sup>");
+
+  return root + accidental + type;
 }
 
 const boardsEl = document.getElementById("boards");
@@ -267,107 +317,6 @@ function getName(midi) {
 
 // Make preview mode default
 boardsEl.classList.add("preview");
-
-function render() {
-  boardsEl.innerHTML = "";
-  const chordsList = boardsEl.dataset.chordsList
-    ? JSON.parse(boardsEl.dataset.chordsList)
-    : [];
-
-  if (!chordsList.length) {
-    const card = document.createElement("div");
-    card.className = "card preview";
-    card.innerHTML = "<h3>No chords added</h3>";
-    boardsEl.appendChild(card);
-    return;
-  }
-
-  chordsList.forEach((chord, index) => {
-    const { sym, inversion = 0, octave = false, customMIDIs } = chord;
-    const parsed = parseChordSymbol(sym);
-
-    const card = document.createElement("div");
-    card.className = "card preview";
-    card.innerHTML = `<h3>${sym}</h3>`;
-
-    let chordData;
-    if (customMIDIs) {
-      chordData = {
-        notes: applyInversionToMIDIs(customMIDIs, inversion),
-        rootMidi: customMIDIs[0],
-      };
-    } else if (parsed) {
-      chordData = buildChordNotes(
-        parsed.root,
-        parsed.quality,
-        inversion,
-        octave
-      );
-      if (!chordData) {
-        card.innerHTML += "<div>Unsupported chord</div>";
-        boardsEl.appendChild(card);
-        return;
-      }
-    } else {
-      card.innerHTML += "<div>Unrecognized chord symbol</div>";
-      boardsEl.appendChild(card);
-      return;
-    }
-
-    // Render piano
-    const piano = makePiano(chordData);
-    card.appendChild(piano);
-
-    // --- INVERSION CONTROLS ---
-    const invWrap = document.createElement("div");
-    invWrap.className = "inversion-control";
-
-    const leftBtn = document.createElement("button");
-    leftBtn.innerHTML = "&#8592;"; // ←
-    const label = document.createElement("span");
-    label.className = "inv-label";
-    label.textContent = "inv.";
-    const rightBtn = document.createElement("button");
-    rightBtn.innerHTML = "&#8594;"; // →
-
-    leftBtn.addEventListener("click", () => {
-      const totalNotes = chord.customMIDIs
-        ? chord.customMIDIs.length
-        : chordData.notes.length;
-      chord.inversion = (chord.inversion - 1 + totalNotes) % totalNotes;
-      updatePreviewChord(card, chord);
-    });
-
-    rightBtn.addEventListener("click", () => {
-      const totalNotes = chord.customMIDIs
-        ? chord.customMIDIs.length
-        : chordData.notes.length;
-      chord.inversion = (chord.inversion + 1) % totalNotes;
-      updatePreviewChord(card, chord);
-    });
-
-    invWrap.appendChild(leftBtn);
-    invWrap.appendChild(label);
-    invWrap.appendChild(rightBtn);
-    card.appendChild(invWrap);
-
-    // --- REMOVE BUTTON ---
-    const removeBtn = document.createElement("button");
-    removeBtn.textContent = "X";
-    removeBtn.className = "remove-chord";
-    removeBtn.addEventListener("click", () => {
-      chordsList.splice(index, 1);
-      boardsEl.dataset.chordsList = JSON.stringify(chordsList);
-      render();
-    });
-    card.appendChild(removeBtn);
-
-    boardsEl.appendChild(card);
-  });
-}
-
-// Always render preview mode
-render();
 
 function addChordToList(sym) {
   if (!sym) return;
@@ -506,9 +455,9 @@ function updateSuggestions() {
     matches.forEach((match) => {
       const btn = document.createElement("div");
       btn.className = "clickable-suggestion";
-      btn.textContent = match;
+      btn.innerHTML = formatChordSymbol(match); // use innerHTML instead of textContent
       btn.addEventListener("click", () => {
-        customChordNameInput.value = match; // put text into input
+        customChordNameInput.value = match; // keep raw value for input
       });
       suggestedEl.appendChild(btn);
     });
@@ -814,13 +763,51 @@ function renderSections() {
   }
 
   sections.forEach((section, sectionIndex) => {
+    // --- Section wrapper ---
     const sectionEl = document.createElement("div");
     sectionEl.className = "section";
+    sectionEl.dataset.sectionIndex = sectionIndex;
+
+    // --- Section header ---
+    const headerWrap = document.createElement("div");
+    headerWrap.className = "section-header";
 
     const header = document.createElement("h2");
+    header.className = "editable-section-name";
+    header.contentEditable = true;
+    header.spellcheck = false;
     header.textContent = section.name;
-    sectionEl.appendChild(header);
 
+    // Save changes on blur or Enter
+    header.addEventListener("blur", () => {
+      const secs = JSON.parse(boardsEl.dataset.sections || "[]");
+      secs[sectionIndex].name =
+        header.textContent.trim() ||
+        `Part ${String.fromCharCode(64 + sectionIndex + 1)}`;
+      boardsEl.dataset.sections = JSON.stringify(secs);
+    });
+    header.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        header.blur();
+      }
+    });
+
+    // Remove section button
+    const removeSectionBtn = document.createElement("button");
+    removeSectionBtn.className = "remove-section no-drag";
+    removeSectionBtn.textContent = "×";
+    removeSectionBtn.addEventListener("click", () => {
+      sections.splice(sectionIndex, 1);
+      boardsEl.dataset.sections = JSON.stringify(sections);
+      renderSections();
+    });
+
+    headerWrap.appendChild(header);
+    headerWrap.appendChild(removeSectionBtn);
+    sectionEl.appendChild(headerWrap);
+
+    // --- Chords container ---
     const chordsContainer = document.createElement("div");
     chordsContainer.className = "chords-container";
     chordsContainer.dataset.sectionIndex = sectionIndex;
@@ -829,9 +816,9 @@ function renderSections() {
       const card = document.createElement("div");
       card.className = "card preview";
       card.dataset.chordIndex = chordIndex;
-      card.innerHTML = `<h3>${chord.sym}</h3>`;
+      card.innerHTML = `<h3>${formatChordSymbol(chord.sym)}</h3>`;
 
-      // Build chord data
+      // --- Build chord piano ---
       let chordData;
       if (chord.customMIDIs) {
         chordData = {
@@ -850,33 +837,15 @@ function renderSections() {
         card.appendChild(piano);
       }
 
-      // --- REMOVE BUTTON ---
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "remove-chord-section";
-      removeBtn.textContent = "×"; // top-right cross
-      removeBtn.addEventListener("click", () => {
-        sections[sectionIndex].chords.splice(chordIndex, 1);
-        boardsEl.dataset.sections = JSON.stringify(sections);
-        renderSections();
-      });
-      card.appendChild(removeBtn);
-
-      // Append first so it can be positioned with CSS
-      card.appendChild(removeBtn);
-
-      // --- INVERSION CONTROLS ---
+      // --- Inversion controls ---
       const invWrap = document.createElement("div");
       invWrap.className = "inversion-control";
 
       const leftBtn = document.createElement("button");
-      leftBtn.innerHTML = "&#8592;"; // ←
-      const label = document.createElement("span");
-      label.className = "inv-label";
-      label.textContent = "inv.";
-      const rightBtn = document.createElement("button");
-      rightBtn.innerHTML = "&#8594;"; // →
-
-      leftBtn.addEventListener("click", () => {
+      leftBtn.className = "no-drag";
+      leftBtn.innerHTML = "&#8592;";
+      leftBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
         const totalNotes = chord.customMIDIs
           ? chord.customMIDIs.length
           : chordData.notes.length;
@@ -884,7 +853,11 @@ function renderSections() {
         updatePreviewChord(card, chord);
       });
 
-      rightBtn.addEventListener("click", () => {
+      const rightBtn = document.createElement("button");
+      rightBtn.className = "no-drag";
+      rightBtn.innerHTML = "&#8594;";
+      rightBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
         const totalNotes = chord.customMIDIs
           ? chord.customMIDIs.length
           : chordData.notes.length;
@@ -892,10 +865,27 @@ function renderSections() {
         updatePreviewChord(card, chord);
       });
 
+      const label = document.createElement("span");
+      label.className = "inv-label";
+      label.textContent = "inv.";
+
       invWrap.appendChild(leftBtn);
       invWrap.appendChild(label);
       invWrap.appendChild(rightBtn);
       card.appendChild(invWrap);
+
+      // --- Remove chord button ---
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "remove-chord-section no-drag";
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        section.chords.splice(chordIndex, 1);
+        boardsEl.dataset.sections = JSON.stringify(sections);
+        renderSections();
+      });
+
+      card.appendChild(removeBtn);
 
       chordsContainer.appendChild(card);
     });
@@ -904,12 +894,47 @@ function renderSections() {
     boardsEl.appendChild(sectionEl);
   });
 
-  enableDragAndDrop();
+  // --- Make sections draggable ---
+  Sortable.create(boardsEl, {
+    animation: 150,
+    handle: ".section-header", // only drag by header
+    onEnd: (evt) => {
+      const secs = JSON.parse(boardsEl.dataset.sections || "[]");
+      if (evt.oldIndex < 0 || evt.newIndex < 0) return;
+      const moved = secs.splice(evt.oldIndex, 1)[0];
+      secs.splice(evt.newIndex, 0, moved);
+      boardsEl.dataset.sections = JSON.stringify(secs);
+      renderSections();
+    },
+  });
+
+  // --- Enable drag for chords inside sections ---
+  document.querySelectorAll(".chords-container").forEach((container) => {
+    const idx = Number(container.dataset.sectionIndex);
+    Sortable.create(container, {
+      group: "sections",
+      animation: 150,
+      handle: ".card", // drag by card itself
+      filter: ".no-drag", // ignore buttons
+      onEnd: (evt) => {
+        const secs = JSON.parse(boardsEl.dataset.sections || "[]");
+        const fromSec = idx;
+        const toSec = Number(evt.to.dataset.sectionIndex);
+        const movedChord = secs[fromSec].chords.splice(evt.oldIndex, 1)[0];
+        secs[toSec].chords.splice(evt.newIndex, 0, movedChord);
+        boardsEl.dataset.sections = JSON.stringify(secs);
+        renderSections();
+      },
+    });
+  });
 }
 
-function addSection(name) {
+function addSection() {
+  sectionCounter++;
+  const name = `Part ${String.fromCharCode(64 + sectionCounter)}`; // 1 → A, 2 → B, etc.
+
   const sections = JSON.parse(boardsEl.dataset.sections || "[]");
-  sections.push({ name: name || `Section ${sections.length + 1}`, chords: [] });
+  sections.push({ name, chords: [] });
   boardsEl.dataset.sections = JSON.stringify(sections);
   renderSections();
 }
