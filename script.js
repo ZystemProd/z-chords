@@ -1,3 +1,42 @@
+document.addEventListener("DOMContentLoaded", () => {
+  const sectionModal = document.getElementById("sectionModal");
+  const closeSectionModal = document.getElementById("closeSectionModal");
+  const sectionNameInput = document.getElementById("sectionNameInput");
+  const saveSectionBtn = document.getElementById("saveSectionBtn");
+  const addSectionBtn = document.getElementById("addSectionBtn");
+
+  addSectionBtn.addEventListener("click", () => {
+    sectionModal.style.display = "block";
+    sectionNameInput.focus();
+  });
+
+  closeSectionModal.addEventListener("click", () => {
+    sectionModal.style.display = "none";
+  });
+
+  // Click save
+  saveSectionBtn.addEventListener("click", () => {
+    saveSection();
+  });
+
+  // Press Enter inside input
+  sectionNameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault(); // prevent form submit / accidental line breaks
+      saveSection();
+    }
+  });
+
+  function saveSection() {
+    const name = sectionNameInput.value.trim();
+    if (name) {
+      addSection(name); // your existing function
+      sectionModal.style.display = "none";
+      sectionNameInput.value = "";
+    }
+  }
+});
+
 const N_SHARP = [
   "C",
   "C#",
@@ -281,13 +320,13 @@ function render() {
 
     // --- INVERSION CONTROLS ---
     const invWrap = document.createElement("div");
-    invWrap.className = "inversion-control"; // use your CSS to style below piano
+    invWrap.className = "inversion-control";
 
     const leftBtn = document.createElement("button");
     leftBtn.innerHTML = "&#8592;"; // ←
     const label = document.createElement("span");
-    label.textContent = "inv.";
     label.className = "inv-label";
+    label.textContent = "inv.";
     const rightBtn = document.createElement("button");
     rightBtn.innerHTML = "&#8594;"; // →
 
@@ -344,11 +383,26 @@ function addChordToList(sym) {
 
 function addChordsFromInput(inputValue) {
   if (!inputValue) return;
+
   const chords = inputValue
     .split(",")
     .map((c) => c.trim())
     .filter((c) => c);
-  chords.forEach((c) => addChordToList(c));
+
+  let sections = boardsEl.dataset.sections
+    ? JSON.parse(boardsEl.dataset.sections)
+    : [];
+
+  if (sections.length === 0) {
+    sections.push({ name: "Untitled", chords: [] });
+  }
+
+  chords.forEach((c) => {
+    sections[sections.length - 1].chords.push({ sym: c, inversion: 0 });
+  });
+
+  boardsEl.dataset.sections = JSON.stringify(sections);
+  renderSections();
 }
 
 const chordInput = document.getElementById("chordInput");
@@ -375,38 +429,35 @@ chordInput.addEventListener("input", () => {
 });
 
 function transposeChords(amount) {
-  const chords = boardsEl.dataset.chordsList
-    ? JSON.parse(boardsEl.dataset.chordsList)
-    : [];
+  let sections = JSON.parse(boardsEl.dataset.sections || "[]");
 
-  chords.forEach((ch) => {
-    // Standard chords
-    const parsed = parseChordSymbol(ch.sym);
-    if (parsed) {
-      let rootIdx = nameToIndex(parsed.root);
-      if (rootIdx >= 0) {
-        rootIdx = (rootIdx + amount + 12) % 12;
-        const newRoot = N_SHARP[rootIdx];
-        ch.sym = newRoot + (parsed.quality || "");
-      }
-    }
-
-    // Custom chords
-    if (ch.customMIDIs) {
-      ch.customMIDIs = ch.customMIDIs.map((m) => m + amount); // shift MIDI numbers
-      if (ch.rootMidi !== undefined && ch.rootMidi !== null) {
-        ch.rootMidi += amount;
+  sections.forEach((section) => {
+    section.chords.forEach((ch) => {
+      // Standard chords
+      if (!ch.customMIDIs) {
+        const parsed = parseChordSymbol(ch.sym);
+        if (parsed) {
+          let rootIdx = nameToIndex(parsed.root);
+          if (rootIdx >= 0) {
+            rootIdx = (rootIdx + amount + 12) % 12;
+            const newRoot = N_SHARP[rootIdx];
+            ch.sym = newRoot + (parsed.quality || "");
+          }
+        }
       }
 
-      // Optional: update sym name to indicate transpose
-      if (!parsed) {
-        ch.sym = "TransposedChord";
+      // Custom chords
+      if (ch.customMIDIs) {
+        ch.customMIDIs = ch.customMIDIs.map((m) => m + amount); // shift MIDI numbers
+        if (ch.rootMidi !== undefined && ch.rootMidi !== null) {
+          ch.rootMidi += amount;
+        }
       }
-    }
+    });
   });
 
-  boardsEl.dataset.chordsList = JSON.stringify(chords);
-  render();
+  boardsEl.dataset.sections = JSON.stringify(sections);
+  renderSections();
 }
 
 document
@@ -418,6 +469,7 @@ document
 
 chordInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
+    e.preventDefault(); // stop form submission or focus jumps
     addChordsFromInput(chordInput.value);
     chordInput.value = "";
     suggestionsEl.innerHTML = "";
@@ -473,22 +525,28 @@ const customChordNameInput = document.getElementById("customChordName");
 
 let selectedMIDIs = new Set();
 
-// Open modal
-openModalBtn.addEventListener("click", () => {
-  customModal.style.display = "block";
-  renderCustomPiano();
-  selectedMIDIs.clear();
-  customChordNameInput.value = "";
-  suggestedEl.innerHTML = "";
-});
+document.addEventListener("DOMContentLoaded", () => {
+  const customModal = document.getElementById("customChordModal");
+  const openModalBtn = document.getElementById("openCustomChordModal");
+  const closeModalBtn = document.getElementById("closeModal");
 
-// Close modal
-closeModalBtn.addEventListener(
-  "click",
-  () => (customModal.style.display = "none")
-);
-window.addEventListener("click", (e) => {
-  if (e.target === customModal) customModal.style.display = "none";
+  if (!openModalBtn) return; // safety check
+
+  openModalBtn.addEventListener("click", () => {
+    customModal.style.display = "block";
+    renderCustomPiano();
+    selectedMIDIs.clear();
+    customChordNameInput.value = "";
+    suggestedEl.innerHTML = "";
+  });
+
+  closeModalBtn.addEventListener("click", () => {
+    customModal.style.display = "none";
+  });
+
+  window.addEventListener("click", (e) => {
+    if (e.target === customModal) customModal.style.display = "none";
+  });
 });
 
 // Tracks the current root and previous root element
@@ -630,16 +688,28 @@ addCustomChordBtn.addEventListener("click", () => {
     rootMidi: rootMID,
   };
 
-  const list = boardsEl.dataset.chordsList
-    ? JSON.parse(boardsEl.dataset.chordsList)
-    : [];
-  list.push(chordObj);
-  boardsEl.dataset.chordsList = JSON.stringify(list);
+  // --- ADD TO CURRENT SECTION ---
+  let sections = JSON.parse(boardsEl.dataset.sections || "[]");
 
-  render();
+  // If no sections exist, create one
+  if (sections.length === 0) {
+    sections.push({ name: "Default", chords: [] });
+  }
+
+  // Add to the **last section** (or you can define an active section index)
+  sections[sections.length - 1].chords.push(chordObj);
+
+  boardsEl.dataset.sections = JSON.stringify(sections);
+
+  // Re-render
+  renderSections();
+
+  // Close modal
   customModal.style.display = "none";
   selectedMIDIs.clear();
   rootMID = null;
+  customChordNameInput.value = "";
+  suggestedEl.innerHTML = "";
 });
 
 // Handle root toggling dynamically
@@ -734,8 +804,191 @@ function updatePreviewChord(card, chord) {
   card.insertBefore(newPiano, invWrap);
 }
 
+function renderSections() {
+  boardsEl.innerHTML = "";
+  const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+
+  if (!sections.length) {
+    boardsEl.innerHTML = "<p>No sections yet</p>";
+    return;
+  }
+
+  sections.forEach((section, sectionIndex) => {
+    const sectionEl = document.createElement("div");
+    sectionEl.className = "section";
+
+    const header = document.createElement("h2");
+    header.textContent = section.name;
+    sectionEl.appendChild(header);
+
+    const chordsContainer = document.createElement("div");
+    chordsContainer.className = "chords-container";
+    chordsContainer.dataset.sectionIndex = sectionIndex;
+
+    section.chords.forEach((chord, chordIndex) => {
+      const card = document.createElement("div");
+      card.className = "card preview";
+      card.dataset.chordIndex = chordIndex;
+      card.innerHTML = `<h3>${chord.sym}</h3>`;
+
+      // Build chord data
+      let chordData;
+      if (chord.customMIDIs) {
+        chordData = {
+          notes: applyInversionToMIDIs(chord.customMIDIs, chord.inversion),
+          rootMidi: chord.rootMidi ?? chord.customMIDIs[0],
+        };
+      } else {
+        const parsed = parseChordSymbol(chord.sym);
+        chordData = parsed
+          ? buildChordNotes(parsed.root, parsed.quality, chord.inversion)
+          : null;
+      }
+
+      if (chordData) {
+        const piano = makePiano(chordData);
+        card.appendChild(piano);
+      }
+
+      // --- REMOVE BUTTON ---
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "remove-chord-section";
+      removeBtn.textContent = "×"; // top-right cross
+      removeBtn.addEventListener("click", () => {
+        sections[sectionIndex].chords.splice(chordIndex, 1);
+        boardsEl.dataset.sections = JSON.stringify(sections);
+        renderSections();
+      });
+      card.appendChild(removeBtn);
+
+      // Append first so it can be positioned with CSS
+      card.appendChild(removeBtn);
+
+      // --- INVERSION CONTROLS ---
+      const invWrap = document.createElement("div");
+      invWrap.className = "inversion-control";
+
+      const leftBtn = document.createElement("button");
+      leftBtn.innerHTML = "&#8592;"; // ←
+      const label = document.createElement("span");
+      label.className = "inv-label";
+      label.textContent = "inv.";
+      const rightBtn = document.createElement("button");
+      rightBtn.innerHTML = "&#8594;"; // →
+
+      leftBtn.addEventListener("click", () => {
+        const totalNotes = chord.customMIDIs
+          ? chord.customMIDIs.length
+          : chordData.notes.length;
+        chord.inversion = (chord.inversion - 1 + totalNotes) % totalNotes;
+        updatePreviewChord(card, chord);
+      });
+
+      rightBtn.addEventListener("click", () => {
+        const totalNotes = chord.customMIDIs
+          ? chord.customMIDIs.length
+          : chordData.notes.length;
+        chord.inversion = (chord.inversion + 1) % totalNotes;
+        updatePreviewChord(card, chord);
+      });
+
+      invWrap.appendChild(leftBtn);
+      invWrap.appendChild(label);
+      invWrap.appendChild(rightBtn);
+      card.appendChild(invWrap);
+
+      chordsContainer.appendChild(card);
+    });
+
+    sectionEl.appendChild(chordsContainer);
+    boardsEl.appendChild(sectionEl);
+  });
+
+  enableDragAndDrop();
+}
+
+function addSection(name) {
+  const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+  sections.push({ name: name || `Section ${sections.length + 1}`, chords: [] });
+  boardsEl.dataset.sections = JSON.stringify(sections);
+  renderSections();
+}
+
+function addChordToSection(sym, sectionIndex = 0) {
+  const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+  if (!sections[sectionIndex]) return;
+
+  sections[sectionIndex].chords.push({ sym: sym.trim(), inversion: 0 });
+  boardsEl.dataset.sections = JSON.stringify(sections);
+  renderSections();
+}
+
+// keep track of created Sortable instances so we can destroy them before recreating
+let sortableInstances = [];
+
+function enableDragAndDrop() {
+  // destroy previous instances (if any)
+  sortableInstances.forEach((inst) => {
+    try {
+      inst.destroy();
+    } catch (e) {
+      /* ignore */
+    }
+  });
+  sortableInstances = [];
+
+  const containers = document.querySelectorAll(".chords-container");
+  containers.forEach((container) => {
+    // ensure sectionIndex exists
+    if (typeof container.dataset.sectionIndex === "undefined") {
+      // try to find parent section index if not directly set
+      const sec = container.closest(".section");
+      if (sec && typeof sec.dataset.sectionIndex !== "undefined")
+        container.dataset.sectionIndex = sec.dataset.sectionIndex;
+    }
+
+    const s = Sortable.create(container, {
+      group: "sections", // allows dragging between sections
+      animation: 150,
+      onEnd: (evt) => {
+        // guard: ensure sections exist
+        const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+        const fromSec = Number(evt.from.dataset.sectionIndex || 0);
+        const toSec = Number(evt.to.dataset.sectionIndex || 0);
+
+        // defensive checks
+        if (!sections[fromSec] || !sections[toSec]) return;
+
+        const movedChord = sections[fromSec].chords.splice(evt.oldIndex, 1)[0];
+        sections[toSec].chords.splice(evt.newIndex, 0, movedChord);
+
+        boardsEl.dataset.sections = JSON.stringify(sections);
+        renderSections(); // re-render to update indexes + UI
+      },
+    });
+
+    sortableInstances.push(s);
+  });
+}
+
 document.getElementById("addChord").addEventListener("click", () => {
-  addChordsFromInput(chordInput.value);
+  const chord = chordInput.value.trim();
+  if (!chord) return;
+
+  // Load current sections
+  let sections = JSON.parse(boardsEl.dataset.sections || "[]");
+
+  // Create a default section if none exist
+  if (!sections.length) {
+    addSection("Default");
+    sections = JSON.parse(boardsEl.dataset.sections || "[]"); // reload
+  }
+
+  // Add chord to first section
+  sections[0].chords.push({ sym: chord, inversion: 0 });
+  boardsEl.dataset.sections = JSON.stringify(sections);
+
+  renderSections();
   chordInput.value = "";
 });
 
@@ -744,17 +997,67 @@ document.getElementById("clearAll").addEventListener("click", () => {
   render();
 });
 
-const themeToggle = document.getElementById("themeToggle");
+// SVG icons (fill uses currentColor)
+const ICONS = {
+  sun: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-9h2V1h-2v3zm7.45 2.45l1.79-1.8-1.41-1.41-1.8 1.79 1.42 1.42zM20 11v2h3v-2h-3zM12 6a6 6 0 100 12 6 6 0 000-12zM4.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM17.66 19.16l1.42-1.42-1.79-1.8-1.41 1.41 1.78 1.81zM11 23h2v-3h-2v3z"/>
+  </svg>`,
+  moon: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M21.75 15.45A9 9 0 0 1 8.55 2.25 9 9 0 1 0 21.75 15.45z"/>
+  </svg>`,
+};
 
-themeToggle.addEventListener("click", () => {
-  document.body.classList.toggle("light-mode");
-
-  // Update button text depending on mode
-  if (document.body.classList.contains("light-mode")) {
-    themeToggle.textContent = "Dark mode";
+// Helper: set icon + tooltip
+function setThemeIcon(button, mode) {
+  if (!button) return;
+  if (mode === "light") {
+    button.innerHTML = ICONS.sun;
+    button.setAttribute("title", "Switch to dark mode");
+    button.setAttribute("aria-pressed", "false");
   } else {
-    themeToggle.textContent = "Light mode";
+    button.innerHTML = ICONS.moon;
+    button.setAttribute("title", "Switch to light mode");
+    button.setAttribute("aria-pressed", "true");
   }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const themeToggleBtn = document.getElementById("themeToggle");
+  if (!themeToggleBtn) return;
+
+  const saved = localStorage.getItem("cv-theme");
+  const prefersLight =
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: light)").matches;
+  let themeMode = saved || (prefersLight ? "light" : "dark");
+
+  // Apply initial mode
+  document.body.classList.toggle("light-mode", themeMode === "light");
+
+  // Helper: set icon using SVG files
+  function setThemeIconSVG(mode) {
+    if (!themeToggleBtn) return;
+    if (mode === "light") {
+      themeToggleBtn.innerHTML = `<img src="SVG/light_mode.svg" alt="Light Mode" />`;
+      themeToggleBtn.setAttribute("title", "Switch to dark mode");
+      themeToggleBtn.setAttribute("aria-pressed", "false");
+    } else {
+      themeToggleBtn.innerHTML = `<img src="SVG/dark_mode.svg" alt="Dark Mode" />`;
+      themeToggleBtn.setAttribute("title", "Switch to light mode");
+      themeToggleBtn.setAttribute("aria-pressed", "true");
+    }
+  }
+
+  // Set initial icon
+  setThemeIconSVG(themeMode);
+
+  // Toggle on click
+  themeToggleBtn.addEventListener("click", () => {
+    const isLight = document.body.classList.toggle("light-mode");
+    themeMode = isLight ? "light" : "dark";
+    setThemeIconSVG(themeMode);
+    localStorage.setItem("cv-theme", themeMode);
+  });
 });
 
 document.getElementById("downloadPdf").addEventListener("click", async () => {
@@ -794,4 +1097,5 @@ document.getElementById("downloadPdf").addEventListener("click", async () => {
   document.body.removeChild(hiddenContainer);
 });
 
-render();
+// render sections layout (not the old single-card render)
+renderSections();

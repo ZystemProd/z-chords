@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 
 </head>
 
@@ -20,26 +21,30 @@
         </header>
 
         <section class="controls">
-            <div class="controls-left">
+            <div class="controls-row">
                 <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
                     autocomplete="off" />
                 <datalist id="suggestions"></datalist>
                 <button id="addChord">Add chord</button>
-                <button id="clearAll">Clear</button>
-                <!-- Button to open modal -->
-                <button id="openCustomChordModal">Create Custom Chord</button>
-                <button id="previewBtn">Preview</button>
-
+                <button id="openCustomChordModal">Add Custom Chord</button>
+                <button id="addSectionBtn">Add Section</button>
             </div>
 
-            <div class="controls-right">
-                <button id="downloadPdf">Download PDF</button>
-                <button id="themeToggle">Light mode</button>
-                <span style="color:#9fb0c2;font-size:13px;">Transpose by:</span>
+            <div class="controls-row">
+                <button id="clearAll">Clear</button>
+                <span>Transpose:</span>
                 <button id="transposeDown">–1</button>
                 <button id="transposeUp">+1</button>
             </div>
+
+            <div class="controls-row">
+                <button id="downloadPdf">Download PDF</button>
+                <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" class="theme-btn"
+                    type="button"></button>
+
+            </div>
         </section>
+
 
         <section class="boards" id="boards"></section>
 
@@ -55,6 +60,16 @@
                 </div>
                 <div id="suggestedChords" style="margin:10px 0;"></div>
                 <button id="addCustomChord">Add Chord</button>
+            </div>
+        </div>
+
+        <!-- Section Modal -->
+        <div id="sectionModal" class="modal">
+            <div class="modal-content">
+                <span id="closeSectionModal" class="close">&times;</span>
+                <h3>Add Section</h3>
+                <input id="sectionNameInput" type="text" placeholder="e.g. Intro, Chorus" />
+                <button id="saveSectionBtn">Add</button>
             </div>
         </div>
     </div>
