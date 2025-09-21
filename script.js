@@ -435,38 +435,54 @@ chordInput.addEventListener("keydown", (e) => {
 
 function updateSuggestions() {
   suggestedEl.innerHTML = "";
+  if (selectedMIDIs.size < 2) return;
 
-  if (selectedMIDIs.size < 2) return; // need at least 2 notes for a suggestion
-
-  // Convert selected MIDIs to pitch classes
-  const pcs = Array.from(selectedMIDIs)
+  const selectedPCs = Array.from(selectedMIDIs)
     .map((m) => m % 12)
     .sort((a, b) => a - b);
-
-  // Find matching chords
   const matches = [];
+
   for (const [type, pattern] of Object.entries(CHORD_PATTERNS)) {
-    for (let root = 0; root < 12; root++) {
+    const rootsToCheck =
+      rootMID !== null
+        ? [rootMID % 12] // only the selected root
+        : [...Array(12).keys()]; // all roots if no root selected
+
+    rootsToCheck.forEach((rootPC) => {
       const chordPCs = pattern
-        .map((interval) => (root + interval) % 12)
+        .map((i) => (rootPC + i) % 12)
         .sort((a, b) => a - b);
-      if (pcs.every((pc) => chordPCs.includes(pc))) {
-        matches.push(N_SHARP[root] + (type || ""));
+
+      if (rootMID !== null) {
+        // **Exact match** if root is selected
+        if (
+          selectedPCs.length === chordPCs.length &&
+          selectedPCs.every((pc) => chordPCs.includes(pc))
+        ) {
+          const rootName = N_SHARP[rootPC];
+          matches.push(rootName + (type || ""));
+        }
+      } else {
+        // Partial match if no root is selected (don't multiply suggestions)
+        if (selectedPCs.every((pc) => chordPCs.includes(pc))) {
+          const rootName = N_SHARP[rootPC];
+          matches.push(rootName + (type || ""));
+        }
       }
-    }
+    });
   }
 
-  if (matches.length === 0) {
+  const uniqueMatches = [...new Set(matches)];
+
+  if (!uniqueMatches.length) {
     suggestedEl.textContent = "No matching chord found";
-    suggestedEl.classList.remove("clickable-suggestion");
   } else {
-    matches.forEach((match) => {
+    suggestedEl.innerHTML = "";
+    uniqueMatches.forEach((match) => {
       const btn = document.createElement("div");
       btn.className = "clickable-suggestion";
-      btn.innerHTML = formatChordSymbol(match); // use innerHTML instead of textContent
-      btn.addEventListener("click", () => {
-        customChordNameInput.value = match; // keep raw value for input
-      });
+      btn.innerHTML = formatChordSymbol(match);
+      btn.addEventListener("click", () => (customChordNameInput.value = match));
       suggestedEl.appendChild(btn);
     });
   }
@@ -499,10 +515,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   closeModalBtn.addEventListener("click", () => {
     customModal.style.display = "none";
+    resetCustomChordModal();
   });
 
   window.addEventListener("click", (e) => {
-    if (e.target === customModal) customModal.style.display = "none";
+    if (e.target === customModal) {
+      customModal.style.display = "none";
+      resetCustomChordModal();
+    }
   });
 });
 
@@ -552,6 +572,7 @@ function renderCustomPiano() {
       });
 
       wk.appendChild(rootLabel); // append inside the key
+      updateSuggestions(); // <-- update suggestions now
     }
 
     wk.addEventListener("click", () => toggleKey(midi, wk));
@@ -584,8 +605,9 @@ function renderCustomPiano() {
 
         rootLabel.addEventListener("click", (e) => {
           e.stopPropagation();
-          rootMID = blackMidi;
-          renderCustomPiano();
+          rootMID = blackMidi; // set the root
+          renderCustomPiano(); // re-render keys
+          updateSuggestions(); // update chord suggestions
         });
 
         bk.appendChild(rootLabel); // append inside black key
@@ -602,6 +624,14 @@ function renderCustomPiano() {
   });
 
   customPianoEl.appendChild(pianoWrap);
+}
+
+function resetCustomChordModal() {
+  selectedMIDIs.clear();
+  rootMID = null;
+  customChordNameInput.value = "";
+  suggestedEl.innerHTML = "";
+  customPianoEl.innerHTML = "";
 }
 
 function toggleKey(midi, el) {
@@ -712,11 +742,9 @@ addCustomChordBtn.addEventListener("click", () => {
   list.push(chordObj);
   boardsEl.dataset.chordsList = JSON.stringify(list);
 
-  // Re-render
-  render();
-
   // Close modal
   customModal.style.display = "none";
+  resetCustomChordModal();
 });
 
 function applyInversionToMIDIs(midiArray, inversion) {
