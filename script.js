@@ -135,11 +135,19 @@ function buildChordNotes(rootName, quality, inversion = 0, octave = false) {
   const baseMidi = 60;
   const origRootMidi = baseMidi + rootIdx;
 
-  // keep interval metadata so we can correctly label 9 (14 semitones) etc
-  let notes = pattern.map((interval) => ({
-    midi: origRootMidi + interval,
-    interval,
-  }));
+  // Interval numbers that correspond to the extensions
+  const EXTENDED_SEMITONES = [13, 14, 15, 17, 18, 20, 21, 22]; // matches your chord patterns
+
+  let notes = pattern.map((interval) => {
+    let midi = origRootMidi + interval;
+
+    // Shift extended intervals down an octave
+    if (EXTENDED_SEMITONES.includes(interval)) {
+      midi -= 12;
+    }
+
+    return { midi, interval };
+  });
 
   // Apply inversions (move lowest note up an octave for each inversion)
   for (let i = 0; i < inversion; i++) {
