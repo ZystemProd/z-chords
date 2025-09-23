@@ -738,3 +738,9 @@ body.light-mode .card.preview .piano {
     height: 160px;
   }
 }
+
+.fretboard {
+  background-color: #fff; /* or #f9f9f9 for soft white */
+  border: 1px solid #ccc; /* optional border */
+  border-radius: 6px; /* optional rounded corners */
+}

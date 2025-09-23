@@ -42,12 +42,14 @@
                     </button>
                     <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" class="btn"
                         type="button"></button>
+
                 </div>
             </div>
 
             <!-- Row 2 -->
             <div class="controls-row row-2">
                 <div class="right">
+                    <button id="toggleInstrument">Switch to Guitar</button>
                     <button id="clearAll">Clear</button>
                     <span>Transpose:</span>
                     <button id="transposeDown">–1</button>
@@ -60,6 +62,7 @@
 
 
         <section class="boards" id="boards"></section>
+
 
         <!-- Custom Chord Modal -->
         <div id="customChordModal" class="modal">
@@ -85,9 +88,75 @@
                 <button id="saveSectionBtn">Add</button>
             </div>
         </div>
+
+        <!-- Guitar Controls -->
+        <div id="guitarControls" style="display:none; margin:10px 0;">
+            <select id="guitarKey">
+                <option value="C">C</option>
+                <option value="C#">C#</option>
+                <option value="D">D</option>
+                <option value="Eb">Eb</option>
+                <option value="E">E</option>
+                <option value="F">F</option>
+                <option value="F#">F#</option>
+                <option value="G">G</option>
+                <option value="Ab">Ab</option>
+                <option value="A">A</option>
+                <option value="Bb">Bb</option>
+                <option value="B">B</option>
+            </select>
+
+            <select id="guitarMode">
+                <option value="pentatonic">Pentatonic</option>
+                <option value="blues">Blues</option>
+                <option value="major">Major (Ionian)</option>
+                <option value="dorian">Dorian</option>
+                <option value="phrygian">Phrygian</option>
+                <option value="lydian">Lydian</option>
+                <option value="mixolydian">Mixolydian</option>
+                <option value="aeolian">Natural Minor</option>
+                <option value="locrian">Locrian</option>
+            </select>
+
+            <button id="updateGuitar">Update</button>
+        </div>
+
+        <!-- Single guitar container -->
+        <div id="guitar" style="display:none"></div>
     </div>
 
+
+
+
+
+
+    <script type="module">
+        import { renderScaleSVG, SCALE_FORMULAS } from "./guitar.js";
+
+        const guitarEl = document.getElementById("guitar");
+        const keySel = document.getElementById("guitarKey");
+        const modeSel = document.getElementById("guitarMode");
+        const updateBtn = document.getElementById("updateGuitar");
+
+        function drawScale() {
+            const root = keySel.value;
+            const mode = modeSel.value;
+            const intervals = SCALE_FORMULAS[mode];
+            guitarEl.innerHTML = ""; // clear old diagram
+            const svg = renderScaleSVG(root, intervals, 3, 7); // start on 3rd fret by default
+            guitarEl.appendChild(svg);
+        }
+
+        updateBtn.addEventListener("click", drawScale);
+
+        // draw default (C pentatonic)
+        drawScale();
+    </script>
+
+
+
     <script src="script.js"></script>
+
 </body>
 
 </html>

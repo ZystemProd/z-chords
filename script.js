@@ -1158,5 +1158,30 @@ document.getElementById("downloadPdf").addEventListener("click", async () => {
   document.body.removeChild(hiddenContainer);
 });
 
+document.addEventListener("DOMContentLoaded", () => {
+  const toggleBtn = document.getElementById("toggleInstrument");
+  const pianoEl = document.getElementById("boards");
+  const guitarEl = document.getElementById("guitar");
+  const controlsEl = document.getElementById("guitarControls");
+
+  let mode = "piano";
+
+  toggleBtn.addEventListener("click", () => {
+    if (mode === "piano") {
+      pianoEl.style.display = "none";
+      guitarEl.style.display = "block";
+      controlsEl.style.display = "block";
+      toggleBtn.textContent = "Switch to Piano";
+      mode = "guitar";
+    } else {
+      pianoEl.style.display = "block";
+      guitarEl.style.display = "none";
+      controlsEl.style.display = "none";
+      toggleBtn.textContent = "Switch to Guitar";
+      mode = "piano";
+    }
+  });
+});
+
 // render sections layout (not the old single-card render)
 renderSections();
