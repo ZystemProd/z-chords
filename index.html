@@ -143,7 +143,7 @@
             const mode = modeSel.value;
             const intervals = SCALE_FORMULAS[mode];
             guitarEl.innerHTML = ""; // clear old diagram
-            const svg = renderScaleSVG(root, intervals, 3, 7); // start on 3rd fret by default
+            const svg = renderScaleSVG(root, intervals); // will use startFret=1, fretsWide=5
             guitarEl.appendChild(svg);
         }
 
