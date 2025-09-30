@@ -136,7 +136,9 @@ export function renderScaleSVG(root, intervals, startFret = 1, fretsWide = 5) {
 
     // Open string
     const openMidi = openStringMIDIs[stringIdx];
+    let notesOnString = [];
     if (scale.includes(openMidi % 12)) {
+      notesOnString.push({ fret: 0, midiNote: openMidi });
       const xOpen = paddingLeft - fretWidth / 2;
       const openCircle = document.createElementNS(svgNS, "circle");
       openCircle.setAttribute("cx", xOpen);
@@ -161,23 +163,34 @@ export function renderScaleSVG(root, intervals, startFret = 1, fretsWide = 5) {
       openCircle.appendChild(openTooltip);
     }
 
-    // Notes on frets
-    const notesOnString = [];
+    // Fretted notes
     for (let fret = startFret; fret <= startFret + fretsWide - 1; fret++) {
       const midiNote = openMidi + fret;
       const noteIdx = midiNote % 12;
-
       if (
         scale.includes(noteIdx) &&
         !isDuplicateOnLowerStrings(midiNote, stringIdx)
       ) {
-        notesOnString.push({ fret, noteIdx, midiNote });
+        notesOnString.push({ fret, midiNote });
       }
     }
 
-    // Render up to 3 notes per string
-    const notesToRender = notesOnString.slice(0, 3);
-    notesToRender.forEach(({ fret, noteIdx, midiNote }) => {
+    // Limit notes per string
+    let maxNotes =
+      intervals.length === SCALE_FORMULAS.pentatonic.length ? 2 : 3;
+    let notesToRender = [];
+    const openNote = notesOnString.find((n) => n.fret === 0);
+    const frettedNotes = notesOnString.filter((n) => n.fret !== 0);
+    if (openNote) {
+      notesToRender.push(openNote);
+      notesToRender.push(...frettedNotes.slice(0, maxNotes - 1));
+    } else {
+      notesToRender = frettedNotes.slice(0, maxNotes);
+    }
+
+    // Render notes
+    notesToRender.forEach(({ fret, midiNote }) => {
+      const noteIdx = midiNote % 12;
       const x = paddingLeft + fretWidth * (fret - startFret + 0.5);
       const circle = document.createElementNS(svgNS, "circle");
       circle.setAttribute("cx", x);
