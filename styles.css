@@ -18,6 +18,7 @@
   --card-gradient-2: #0b1116;
   --kbd-label: #9fb0c2;
   --modal-close: #aaa;
+  --white-key-width: 50px;
 }
 
 body.light-mode {
@@ -249,13 +250,14 @@ button:hover {
 
 .white-keys {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 50px);
+  grid-template-columns: repeat(auto-fill, var(--white-key-width));
   height: 100%;
   position: relative;
 }
 
 .white-key {
   position: relative;
+  width: var(--white-key-width);
   background: var(--white);
   border: 1px solid #000000;
   border-radius: 0 0 8px 8px;
@@ -653,6 +655,46 @@ body.light-mode .card.preview .piano {
   display: grid;
   grid-template-columns: repeat(2, 1fr); /* 2 columns for chords */
   gap: 15px;
+}
+
+#boards.two-hands-mode .chords-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+#boards.two-hands-mode .card.preview {
+  width: fit-content;
+  max-width: none;
+}
+
+.piano.two-hands {
+  width: max-content;
+  display: inline-block;
+  overflow-x: visible;
+}
+
+.piano.two-hands .white-keys {
+  width: max-content;
+}
+
+.white-key.left-hand {
+  background: linear-gradient(180deg, #2d4f84, #1d3255);
+  color: #fff;
+  font-weight: bold;
+}
+
+.white-key.left-hand .label {
+  color: #fff;
+}
+
+.black-key.left-hand {
+  background: linear-gradient(180deg, #1d3255, #0f1e36);
+  border-color: #0f1e36;
+}
+
+.interval.left-hand-label {
+  color: #fff;
 }
 
 .card.preview {
