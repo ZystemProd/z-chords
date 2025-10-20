@@ -1033,24 +1033,12 @@ function enableDragAndDrop() {
 }
 
 document.getElementById("addChord").addEventListener("click", () => {
-  const chord = chordInput.value.trim();
-  if (!chord) return;
+  const rawValue = chordInput.value;
+  if (!rawValue.trim()) return;
 
-  // Load current sections
-  let sections = JSON.parse(boardsEl.dataset.sections || "[]");
-
-  // Create a default section if none exist
-  if (!sections.length) {
-    addSection("Default");
-    sections = JSON.parse(boardsEl.dataset.sections || "[]"); // reload
-  }
-
-  // Add chord to first section
-  sections[0].chords.push({ sym: chord, inversion: 0 });
-  boardsEl.dataset.sections = JSON.stringify(sections);
-
-  renderSections();
+  addChordsFromInput(rawValue);
   chordInput.value = "";
+  suggestionsEl.innerHTML = "";
 });
 
 document.getElementById("clearAll").addEventListener("click", () => {

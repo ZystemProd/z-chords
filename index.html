@@ -136,21 +136,27 @@
         const guitarEl = document.getElementById("guitar");
         const keySel = document.getElementById("guitarKey");
         const modeSel = document.getElementById("guitarMode");
-        const updateBtn = document.getElementById("updateGuitar");
+        // const updateBtn = document.getElementById("updateGuitar"); // not needed
 
         function drawScale() {
-            const root = keySel.value;
-            const mode = modeSel.value;
-            const intervals = SCALE_FORMULAS[mode];
-            guitarEl.innerHTML = ""; // clear old diagram
-            const svg = renderScaleSVG(root, intervals); // will use startFret=1, fretsWide=5
-            guitarEl.appendChild(svg);
+        const root = keySel.value;
+        const mode = modeSel.value;
+        const intervals = SCALE_FORMULAS[mode];
+        guitarEl.innerHTML = ""; // clear old diagram
+        const svg = renderScaleSVG(root, intervals); 
+        guitarEl.appendChild(svg);
         }
 
-        updateBtn.addEventListener("click", drawScale);
+        // update when dropdowns change
+        keySel.addEventListener("change", drawScale);
+        modeSel.addEventListener("change", drawScale);
 
-        // draw default (C pentatonic)
+        // optional: remove the button entirely from HTML if you like
+        // updateBtn.addEventListener("click", drawScale);
+
+        // draw default
         drawScale();
+
     </script>
 
 
