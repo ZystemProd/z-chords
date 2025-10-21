@@ -34,6 +34,41 @@ export function computeCAGEDShapes(root, intervals) {
   const startMax = 13; // 17 - width + 1
   const inScale = new Set(intervals.map((x) => (x % 12 + 12) % 12));
 
+  // Special case: strict major scale → fixed CAGED starts (E-D-C-A-G mapping)
+  const MAJOR = [0, 2, 4, 5, 7, 9, 11];
+  const isMajor =
+    intervals.length === 7 &&
+    MAJOR.every((d) => inScale.has(d));
+  if (isMajor) {
+    // 6th-string open E pitch-class index
+    const E_PC = noteIndex("E");
+    const r = (rootIdx - E_PC + 12) % 12; // 6th-string root fret within 0..11
+    // Window start offsets from the 6th-string root (Position 1 E-shape):
+    // Pos1 (E) = r-1, Pos2 (D) = r+1, Pos3 (C) = r+4, Pos4 (A) = r+6, Pos5 (G) = r+9
+    const raw = [r - 1, r + 1, r + 4, r + 6, r + 9];
+    // Normalize to 1..13 start range and ascending order over the neck
+    const norm = raw.map((v) => {
+      let s = ((v % 12) + 12) % 12; // 0..11
+      s = s === 0 ? 12 : s; // map 0 → 12 (12th fret)
+      // convert to 1..13 window starts; clamp so window fully visible
+      let start = s;
+      if (start < startMin) start += 12;
+      if (start > startMax) start -= 12;
+      return start;
+    });
+    // Ensure ascending (wrap by adding 12 where needed)
+    for (let i = 1; i < norm.length; i++) {
+      while (norm[i] <= norm[i - 1]) norm[i] += 12;
+    }
+    // Bring into 1..13 range (mod 12) but keep spacing
+    const starts = norm.map((v) => {
+      while (v > startMax) v -= 12;
+      while (v < startMin) v += 12;
+      return v;
+    });
+    return starts;
+  }
+
   const notesByString = Array.from({ length: 6 }, (_, si) => {
     const open = OPEN[si];
     const arr = [];
@@ -327,68 +362,8 @@ export function renderScaleSVG(
     }
   }
 
-  // Ergonomic dedupe across adjacent strings ONLY.
-  // If the same degree appears on two adjacent strings in roughly the same area,
-  // keep the one that has a closer neighbor degree (d-1 or d+1) on the same string.
+  // Render notes in the window (no pruning); CAGED shape is determined by windowStart
   const toRemove = new Set();
-  const byString = Array.from({ length: 6 }, () => []);
-  for (const n of renderNotes) byString[n.stringIdx].push(n);
-  byString.forEach((arr) => arr.sort((a, b) => a.fret - b.fret));
-
-  function nearestSameDeg(target, candidates) {
-    let best = null;
-    let bestDiff = Infinity;
-    for (const c of candidates) {
-      const d = Math.abs(c.fret - target.fret);
-      if (d < bestDiff) {
-        bestDiff = d;
-        best = c;
-      }
-    }
-    return { best, diff: bestDiff };
-  }
-
-  function neighborDistOnString(stringIdx, fret, degPrev, degNext) {
-    const arr = byString[stringIdx] || [];
-    const candidates = arr.filter((n) => n.deg === degPrev || n.deg === degNext);
-    if (!candidates.length) return Infinity;
-    return Math.min(...candidates.map((n) => Math.abs(n.fret - fret)));
-  }
-
-  for (let si = 0; si < 5; si++) {
-    const A = byString[si];
-    const B = byString[si + 1];
-    if (!A.length || !B.length) continue;
-
-    // Compare per degree
-    const degrees = new Set(A.map((n) => n.deg).concat(B.map((n) => n.deg)));
-    degrees.forEach((deg) => {
-      const aList = A.filter((n) => n.deg === deg);
-      const bList = B.filter((n) => n.deg === deg);
-      if (!aList.length || !bList.length) return;
-      // Pair closest-in-fret occurrences
-      for (const a of aList) {
-        if (toRemove.has(a.id)) continue;
-        const { best: b, diff } = nearestSameDeg(a, bList.filter((n) => !toRemove.has(n.id)));
-        if (!b || diff > 5) continue; // far apart -> keep both
-
-        const dPrev = (deg + 11) % 12;
-        const dNext = (deg + 1) % 12;
-        const aNd = neighborDistOnString(si, a.fret, dPrev, dNext);
-        const bNd = neighborDistOnString(si + 1, b.fret, dPrev, dNext);
-
-        // lower score wins; Infinity means no neighbor on same string
-        const aScore = (Number.isFinite(aNd) ? aNd : 10) - si * 0.1;
-        const bScore = (Number.isFinite(bNd) ? bNd : 10) - (si + 1) * 0.1;
-
-        if (aScore <= bScore) {
-          toRemove.add(b.id);
-        } else {
-          toRemove.add(a.id);
-        }
-      }
-    });
-  }
 
   // Render
   for (const { x, y, noteIdx, midiNote, deg, id } of renderNotes) {
@@ -418,3 +393,4 @@ export function renderScaleSVG(
 
   return svg;
 }
+

@@ -183,9 +183,26 @@
             updateShapeUI();
 
             guitarEl.innerHTML = ""; // clear old diagram
+            let windowStart = shapeStarts[shapeIndex];
+            let windowWidth = 4;
+
+            // Major (Ionian) adjustments to match AGT CAGED diagrams
+            if (mode === 'major') {
+                if (shapeIndex === 1 || shapeIndex === 3) {
+                    windowWidth = 5; // Pos 2 and 4 span 5 frets
+                }
+                if (shapeIndex === 4) {
+                    windowWidth = 5; // Pos 5 spans 11–15 in G example
+                    windowStart = windowStart - 1;
+                }
+                // normalize 1..13
+                while (windowStart < 1) windowStart += 12;
+                while (windowStart > 13) windowStart -= 12;
+            }
+
             const svg = renderScaleSVG(root, intervals, 1, 17, {
-                windowStart: shapeStarts[shapeIndex],
-                windowWidth: 5,
+                windowStart,
+                windowWidth,
                 showOpen: false,
             });
             guitarEl.appendChild(svg);
