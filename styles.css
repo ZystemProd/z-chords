@@ -55,7 +55,7 @@ body {
   padding: 20px;
 }
 
-header {
+.app-header {
   text-align: center;
   margin-bottom: 14px;
 }
@@ -65,11 +65,27 @@ h1 {
   font-size: 20px;
 }
 
+.subtitle {
+  color: #9fb0c2;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
 .controls {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 10px;
+}
+
+/* Toolbar enhancements */
+.toolbar.sticky {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: color-mix(in oklab, var(--bg) 92%, black);
+  backdrop-filter: saturate(1.2) blur(8px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .controls-row {
@@ -98,6 +114,7 @@ input[type="text"] {
   border: 1px solid var(--input-border);
   background: var(--input-bg);
   color: var(--text);
+  min-width: 240px;
 }
 
 button,
@@ -108,10 +125,22 @@ select {
   padding: 8px 12px;
   border-radius: 8px;
   cursor: pointer;
+  transition: transform 0.05s ease, filter 0.15s ease, background 0.15s ease;
 }
 
 button:hover {
   filter: brightness(1.1);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--button-bg) 70%, white);
+  outline-offset: 2px;
 }
 
 .boards {
@@ -120,8 +149,26 @@ button:hover {
   gap: 30px; /* space between sections */
 }
 
-/* Theme icon button */
-.theme-btn {
+/* Empty state */
+.empty-state {
+  text-align: center;
+  color: var(--note-text);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 26px 18px;
+}
+.empty-state .empty-title {
+  color: var(--text);
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+.empty-state .empty-desc {
+  font-size: 13px;
+}
+
+/* Theme/icon button */
+.theme-btn,
+.icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -135,12 +182,38 @@ button:hover {
   cursor: pointer;
 }
 
-.theme-btn svg {
+.theme-btn svg,
+.icon-btn svg {
   width: 18px;
   height: 18px;
   display: block;
   pointer-events: none; /* ignore pointer inside the svg */
   fill: currentColor; /* inherit color from .theme-btn */
+}
+
+/* Material Symbols base */
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  font-size: 22px;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Override icon button sizing for hand toggle so two icons fit */
+#handModeToggle {
+  width: auto;
+  min-width: 38px;
+  height: 38px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+#handModeToggle .hand-mirror {
+  transform: scaleX(-1);
 }
 
 /* Theme icon button */
@@ -164,6 +237,22 @@ button:hover {
   display: block;
   pointer-events: none; /* ignore pointer inside the svg */
   fill: currentColor; /* inherit color from .theme-btn */
+}
+
+/* Transpose button group */
+.transpose-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 4px 6px;
+}
+.transpose-group .group-label {
+  color: var(--note-text);
+  font-size: 12px;
+  margin-right: 2px;
 }
 
 .card {
@@ -230,6 +319,59 @@ button:hover {
   gap: 6px;
   margin-top: 0px;
   padding-bottom: 15px;
+}
+
+/* Left-hand voicing control */
+.lh-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 8px;
+  margin: 0px 10px 0px 10px;
+  width: 30px;
+}
+.card.preview .lh-control {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.lh-control .lh-label {
+  font-size: 13px;
+  color: var(--note-text);
+  user-select: none;
+}
+.lh-control button {
+  border: none;
+  background: none;
+  color: var(--text);
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1;
+}
+.card.preview:hover .lh-control {
+  opacity: 1;
+}
+
+/* Layout wrapper to place LH control at left of piano */
+.lh-piano-wrap {
+  display: flex;
+  align-items: center; /* center LH control vertically with piano */
+  gap: 2px; /* tighter space between control and piano */
+}
+
+.lh-piano-wrap .lh-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+
+  margin-top: 0; /* reset, since it's now beside piano */
+}
+
+/* Hide LH control in one-hand mode */
+#boards:not(.two-hands-mode) .lh-control {
+  display: none;
 }
 
 /* Piano layout */
@@ -501,14 +643,15 @@ button:hover {
 
 .card.preview .piano {
   transform: scale(0.9);
-  transform-origin: top center;
-  width: 503px;
+  transform-origin: inherit; /* use base .piano or .piano.two-hands */
+  width: auto;
   height: auto;
 }
 
 /* In two-hands mode, let the preview piano expand to its full keybed width */
 .card.preview .piano.two-hands {
   width: max-content; /* override fixed preview width */
+  transform-origin: center left;
 }
 
 body.light-mode .card.preview .piano {
@@ -690,6 +833,7 @@ body.light-mode .card.preview .piano {
 #boards.two-hands-mode .card.preview {
   width: fit-content;
   max-width: none;
+  align-self: center;
 }
 
 .piano.two-hands {
@@ -795,6 +939,7 @@ body.light-mode .edit-chord-section:hover {
   height: 20px;
   line-height: 18px;
   text-align: center;
+  margin-right: 20px;
 }
 
 .card.preview:hover .remove-chord-section {
@@ -838,6 +983,19 @@ body.light-mode .edit-chord-section:hover {
 @media (max-width: 700px) {
   .piano {
     height: 160px;
+  }
+}
+
+@media (max-width: 720px) {
+  .controls-row .left {
+    flex-wrap: wrap;
+  }
+  .controls-row .right {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .chords-container {
+    grid-template-columns: 1fr;
   }
 }
 

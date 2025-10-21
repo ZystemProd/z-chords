@@ -1,5 +1,5 @@
 let sectionCounter = 0; // track part number
-let twoHandsMode = false; // track hand mode
+let twoHandsMode = localStorage.getItem("cv-twohands") === "true"; // track hand mode, persisted
 
 document.addEventListener("DOMContentLoaded", () => {
   const addSectionBtn = document.getElementById("addSectionBtn");
@@ -253,13 +253,16 @@ function computeLeftHandInfo(chord, chordData, useTwoHands) {
   const range = getPianoRange(true);
   let midi = null;
   let label = "";
+  const voicing = chord.lhVoicing || "root"; // 'root' | 'fifth' | 'seventh'
 
   if (chord.customMIDIs && chordData.notes.length) {
     const baseMidi = chordData.notes[0];
+    // For custom chords, respect existing behavior (root only)
+    // Future: could derive 5th/7th by parsing chord.sym if desired
     midi = normalizeMidiToRange(baseMidi - 12, range.low, range.high);
     if (midi === null) return null;
     label = getNoteNameNoOctave(midi);
-    return { midi, label };
+    return voicing === "root" ? { midi, label } : { leftHandMIDIs: [midi] };
   }
 
   const { main, bass } = splitChordParts(chord.sym);
@@ -273,14 +276,66 @@ function computeLeftHandInfo(chord, chordData, useTwoHands) {
   let baseMidi = 60 + bassIdx;
   if (chord.octave) baseMidi += 12;
 
-  midi = normalizeMidiToRange(baseMidi - 12, range.low, range.high);
-  if (midi === null) return null;
+  // Build per-voicing left-hand
+  if (voicing === "root") {
+    midi = normalizeMidiToRange(baseMidi - 12, range.low, range.high);
+    if (midi === null) return null;
+    label = formatNoteForDisplay(bassName);
+    return { midi, label };
+  }
 
-  label = formatNoteForDisplay(bassName);
-  return { midi, label };
+  const rootLH = normalizeMidiToRange(baseMidi - 12, range.low, range.high);
+  if (rootLH === null) return null;
+
+  if (voicing === "fifth") {
+    const fifth = normalizeMidiToRange(
+      baseMidi - 12 + 7,
+      range.low,
+      range.high
+    );
+    const arr = [rootLH];
+    if (fifth !== null) arr.push(fifth);
+    return { leftHandMIDIs: arr };
+  }
+
+  // seventh voicing: determine quality-specific 7th
+  let seventhSemis = 10; // default minor 7th
+  const pattern = CHORD_PATTERNS[parsed.quality || ""]; // may be undefined
+  if (pattern && pattern.includes(11)) seventhSemis = 11; // maj7 present
+  else if (pattern && pattern.includes(10))
+    seventhSemis = 10; // dom/min7 present
+  else if (pattern && pattern.includes(9)) seventhSemis = 9; // dim7 present
+  else {
+    // heuristic fallback if no 7th in pattern
+    if ((parsed.quality || "").includes("maj")) seventhSemis = 11;
+    else if ((parsed.quality || "").includes("dim")) seventhSemis = 9;
+    else seventhSemis = 10;
+  }
+  const seventh = normalizeMidiToRange(
+    baseMidi - 12 + seventhSemis,
+    range.low,
+    range.high
+  );
+  const arr = [rootLH];
+  if (seventh !== null) arr.push(seventh);
+  return { leftHandMIDIs: arr };
 }
 
 const boardsEl = document.getElementById("boards");
+
+// Persistence helpers
+function saveSections() {
+  try {
+    localStorage.setItem("cv-sections", boardsEl.dataset.sections || "[]");
+  } catch (_) {}
+}
+
+function loadSections() {
+  try {
+    const saved = localStorage.getItem("cv-sections");
+    if (saved) boardsEl.dataset.sections = saved;
+  } catch (_) {}
+}
 
 function getWhiteKeyWidth() {
   const value = parseFloat(
@@ -586,12 +641,23 @@ chordInput.addEventListener("keydown", (e) => {
   }
 });
 
+// One-hand / two-hands icons via Material Symbols 'back_hand'
+const HAND_ICONS = {
+  one: `<span class="material-symbols-outlined" aria-hidden="true">back_hand</span>`,
+  two: `<span class="material-symbols-outlined" aria-hidden="true">back_hand</span><span class="material-symbols-outlined hand-mirror" aria-hidden="true">back_hand</span>`,
+};
+
 if (handModeToggle) {
   const updateHandModeButton = () => {
-    handModeToggle.textContent = twoHandsMode ? "Two Hands Mode" : "One Hand Mode";
+    handModeToggle.innerHTML = twoHandsMode ? HAND_ICONS.two : HAND_ICONS.one;
+    handModeToggle.classList.add("icon-btn");
     handModeToggle.setAttribute(
       "title",
       twoHandsMode ? "Switch to one-hand layout" : "Switch to two-hands layout"
+    );
+    handModeToggle.setAttribute(
+      "aria-label",
+      twoHandsMode ? "Two hands mode" : "One hand mode"
     );
     handModeToggle.setAttribute("aria-pressed", String(twoHandsMode));
   };
@@ -601,6 +667,9 @@ if (handModeToggle) {
     boardsEl.classList.toggle("two-hands-mode", twoHandsMode);
     renderSections();
     updateHandModeButton();
+    try {
+      localStorage.setItem("cv-twohands", String(twoHandsMode));
+    } catch (_) {}
   });
 
   updateHandModeButton();
@@ -716,7 +785,9 @@ document.addEventListener("DOMContentLoaded", () => {
     editingContext = { active: false, sectionIndex: null, chordIndex: null };
     customMarkingHand = "right";
     updateHandToggleUI();
-    try { addCustomChordBtn.textContent = "Add Chord"; } catch (_) {}
+    try {
+      addCustomChordBtn.textContent = "Add Chord";
+    } catch (_) {}
     renderCustomPiano();
   });
 
@@ -779,7 +850,11 @@ function renderCustomPiano() {
     if (rootMID === midi) wk.classList.add("root");
 
     // Only show "R" on marked keys (selected or root)
-    if (selectedMIDIs.has(midi) || selectedLeftMIDIs.has(midi) || rootMID === midi) {
+    if (
+      selectedMIDIs.has(midi) ||
+      selectedLeftMIDIs.has(midi) ||
+      rootMID === midi
+    ) {
       const rootLabel = document.createElement("div");
       rootLabel.className = "root-label";
       rootLabel.textContent = "R";
@@ -824,7 +899,11 @@ function renderCustomPiano() {
       }
       if (rootMID === blackMidi) bk.classList.add("root");
 
-      if (selectedMIDIs.has(blackMidi) || selectedLeftMIDIs.has(blackMidi) || rootMID === blackMidi) {
+      if (
+        selectedMIDIs.has(blackMidi) ||
+        selectedLeftMIDIs.has(blackMidi) ||
+        rootMID === blackMidi
+      ) {
         const rootLabel = document.createElement("div");
         rootLabel.className = "root-label";
         rootLabel.textContent = "R";
@@ -862,7 +941,9 @@ function resetCustomChordModal() {
   suggestedEl.innerHTML = "";
   customPianoEl.innerHTML = "";
   customMarkingHand = "right";
-  try { addCustomChordBtn.textContent = "Add Chord"; } catch (_) {}
+  try {
+    addCustomChordBtn.textContent = "Add Chord";
+  } catch (_) {}
 }
 
 function toggleKey(midi, el) {
@@ -930,8 +1011,10 @@ addCustomChordBtn.addEventListener("click", () => {
     const sIdx = editingContext.sectionIndex;
     const cIdx = editingContext.chordIndex;
     if (
-      sIdx != null && cIdx != null &&
-      sections[sIdx] && sections[sIdx].chords[cIdx]
+      sIdx != null &&
+      cIdx != null &&
+      sections[sIdx] &&
+      sections[sIdx].chords[cIdx]
     ) {
       sections[sIdx].chords[cIdx] = chordObj;
     }
@@ -1010,15 +1093,37 @@ function updatePreviewChord(card, chord) {
     options.leftHandMIDIs = chord.leftHandMIDIs.slice();
   } else {
     leftHandInfo = computeLeftHandInfo(chord, chordData, twoHandsMode);
-    options.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
-    options.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+    if (leftHandInfo && Array.isArray(leftHandInfo.leftHandMIDIs)) {
+      options.leftHandMIDIs = leftHandInfo.leftHandMIDIs.slice();
+    } else {
+      options.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
+      options.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+    }
   }
 
   const newPiano = makePiano(chordData, options);
 
-  // Insert new piano above inversion controls
-  const invWrap = card.querySelector(".inversion-control");
-  card.insertBefore(newPiano, invWrap);
+  // Insert new piano into the lh-piano wrapper (to the right of LH control)
+  const container = card.querySelector(".lh-piano-wrap");
+  if (container) {
+    // remove any existing piano inside container
+    const oldInner = container.querySelector(".piano");
+    if (oldInner) oldInner.remove();
+    container.appendChild(newPiano);
+  } else {
+    // Fallback: place above inversion controls
+    const invWrap = card.querySelector(".inversion-control");
+    card.insertBefore(newPiano, invWrap);
+  }
+
+  // Update LH label if present
+  const lhLabel = card.querySelector(".lh-control .lh-label");
+  if (lhLabel) {
+    const mode = chord.lhVoicing || "root";
+    lhLabel.textContent = ` ${
+      mode === "root" ? "Root" : mode === "fifth" ? "5th" : "7th"
+    }`;
+  }
 }
 
 // Open custom chord modal prefilled with an existing chord for editing
@@ -1052,7 +1157,9 @@ function openCustomChordModalForEdit(sectionIndex, chordIndex) {
   if (!chordData) return;
 
   selectedMIDIs = new Set(chordData.notes);
-  selectedLeftMIDIs = new Set(Array.isArray(ch.leftHandMIDIs) ? ch.leftHandMIDIs : []);
+  selectedLeftMIDIs = new Set(
+    Array.isArray(ch.leftHandMIDIs) ? ch.leftHandMIDIs : []
+  );
   rootMID = chordData.rootMidi;
   customChordNameInput.value = ch.sym || "";
   editingContext = { active: true, sectionIndex, chordIndex };
@@ -1078,6 +1185,13 @@ function renderSections() {
   boardsEl.classList.toggle("two-hands-mode", twoHandsMode);
   boardsEl.innerHTML = "";
   const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+
+  // Persist and toggle empty state
+  try {
+    localStorage.setItem("cv-sections", boardsEl.dataset.sections || "[]");
+  } catch (_) {}
+  const emptyEl = document.getElementById("emptyState");
+  if (emptyEl) emptyEl.hidden = sections.length > 0;
 
   if (!sections.length) {
     boardsEl.innerHTML = "<p>No sections yet</p>";
@@ -1161,6 +1275,7 @@ function renderSections() {
           : null;
       }
 
+      let builtPiano = null;
       if (chordData) {
         let pianoOptions = { twoHands: twoHandsMode };
         if (Array.isArray(chord.leftHandMIDIs) && chord.leftHandMIDIs.length) {
@@ -1171,11 +1286,14 @@ function renderSections() {
             chordData,
             twoHandsMode
           );
-          pianoOptions.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
-          pianoOptions.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+          if (leftHandInfo && Array.isArray(leftHandInfo.leftHandMIDIs)) {
+            pianoOptions.leftHandMIDIs = leftHandInfo.leftHandMIDIs.slice();
+          } else {
+            pianoOptions.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
+            pianoOptions.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+          }
         }
-        const piano = makePiano(chordData, pianoOptions);
-        card.appendChild(piano);
+        builtPiano = makePiano(chordData, pianoOptions);
       }
 
       // --- Inversion controls ---
@@ -1214,6 +1332,65 @@ function renderSections() {
       invWrap.appendChild(label);
       invWrap.appendChild(rightBtn);
       card.appendChild(invWrap);
+
+      // --- Left-hand voicing control ---
+      const lhWrap = document.createElement("div");
+      lhWrap.className = "lh-control";
+
+      const lhModes = ["root", "fifth", "seventh"];
+      const setLHLabel = () => {
+        const mode = chord.lhVoicing || "root";
+        lhLabel.textContent = `${
+          mode === "root" ? "Root" : mode === "fifth" ? "5th" : "7th"
+        }`;
+      };
+
+      const lhLeft = document.createElement("button");
+      lhLeft.className = "no-drag";
+      lhLeft.innerHTML = "&#8593;";
+      lhLeft.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const cur = chord.lhVoicing || "root";
+        let idx = lhModes.indexOf(cur);
+        if (idx === -1) idx = 0;
+        // Up arrow cycles forward: root -> 5th -> 7th
+        idx = (idx + 1) % lhModes.length;
+        chord.lhVoicing = lhModes[idx];
+        setLHLabel();
+        updatePreviewChord(card, chord);
+        boardsEl.dataset.sections = JSON.stringify(sections);
+      });
+
+      const lhLabel = document.createElement("span");
+      lhLabel.className = "lh-label";
+      setLHLabel();
+
+      const lhRight = document.createElement("button");
+      lhRight.className = "no-drag";
+      lhRight.innerHTML = "&#8595;";
+      lhRight.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const cur = chord.lhVoicing || "root";
+        let idx = lhModes.indexOf(cur);
+        if (idx === -1) idx = 0;
+        // Down arrow cycles backward: 7th -> 5th -> root
+        idx = (idx - 1 + lhModes.length) % lhModes.length;
+        chord.lhVoicing = lhModes[idx];
+        setLHLabel();
+        updatePreviewChord(card, chord);
+        boardsEl.dataset.sections = JSON.stringify(sections);
+      });
+
+      lhWrap.appendChild(lhLeft);
+      lhWrap.appendChild(lhLabel);
+      lhWrap.appendChild(lhRight);
+      // Insert LH control to the left of the piano
+      const lpw = document.createElement("div");
+      lpw.className = "lh-piano-wrap";
+      lpw.appendChild(lhWrap);
+      if (builtPiano) lpw.appendChild(builtPiano);
+      // Place wrapper above inversion controls
+      card.insertBefore(lpw, invWrap);
 
       // --- Edit chord button ---
       const editBtn = document.createElement("button");
@@ -1358,8 +1535,13 @@ document.getElementById("addChord").addEventListener("click", () => {
 });
 
 document.getElementById("clearAll").addEventListener("click", () => {
-  boardsEl.dataset.chordsList = JSON.stringify([]);
-  render();
+  // Clear all sections and chords, reset counter, persist
+  boardsEl.dataset.sections = JSON.stringify([]);
+  sectionCounter = 0;
+  try {
+    localStorage.setItem("cv-sections", "[]");
+  } catch (_) {}
+  renderSections();
 });
 
 // SVG icons (fill uses currentColor)
@@ -1369,6 +1551,18 @@ const ICONS = {
   </svg>`,
   moon: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <path d="M21.75 15.45A9 9 0 0 1 8.55 2.25 9 9 0 1 0 21.75 15.45z"/>
+  </svg>`,
+};
+
+// Instrument icons: Material piano + inline SVG guitar
+const INSTRUMENT_ICONS = {
+  piano: `<span class="material-symbols-outlined" aria-hidden="true">piano</span>`,
+  // Lucide 'guitar' (MIT) for a cleaner silhouette
+  guitar: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="m11.9 12.1 4.514-4.514" />
+    <path d="M20.1 2.3a1 1 0 0 0-1.4 0l-1.114 1.114A2 2 0 0 0 17 4.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 17.828 7h1.344a2 2 0 0 0 1.414-.586L21.7 5.3a1 1 0 0 0 0-1.4z" />
+    <path d="m6 16 2 2" />
+    <path d="M8.23 9.85A3 3 0 0 1 11 8a5 5 0 0 1 5 5 3 3 0 0 1-1.85 2.77l-.92.38A2 2 0 0 0 12 18a4 4 0 0 1-4 4 6 6 0 0 1-6-6 4 4 0 0 1 4-4 2 2 0 0 0 1.85-1.23z" />
   </svg>`,
 };
 
@@ -1462,6 +1656,56 @@ document.getElementById("downloadPdf").addEventListener("click", async () => {
   document.body.removeChild(hiddenContainer);
 });
 
+// Help modal controls
+document.addEventListener("DOMContentLoaded", () => {
+  const helpBtn = document.getElementById("openHelpModal");
+  const helpModal = document.getElementById("helpModal");
+  const closeHelp = document.getElementById("closeHelpModal");
+  if (!helpBtn || !helpModal || !closeHelp) return;
+  const close = () => (helpModal.style.display = "none");
+  helpBtn.addEventListener("click", () => (helpModal.style.display = "block"));
+  closeHelp.addEventListener("click", close);
+  window.addEventListener("click", (e) => {
+    if (e.target === helpModal) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+  });
+});
+
+// Keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  const isMac = navigator.platform.toUpperCase().includes("MAC");
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  // Focus input: Ctrl/Cmd+K
+  if (mod && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    const input = document.getElementById("chordInput");
+    if (input) input.focus();
+  }
+  // Export PDF: Ctrl/Cmd+Shift+P
+  if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
+    e.preventDefault();
+    const btn = document.getElementById("downloadPdf");
+    if (btn) btn.click();
+  }
+  // Toggle two-hands: H
+  if (!mod && e.key.toLowerCase() === "h") {
+    const btn = document.getElementById("handModeToggle");
+    if (btn) btn.click();
+  }
+  // Toggle instrument: G
+  if (!mod && e.key.toLowerCase() === "g") {
+    const btn = document.getElementById("toggleInstrument");
+    if (btn) btn.click();
+  }
+  // Toggle theme: T
+  if (!mod && e.key.toLowerCase() === "t") {
+    const btn = document.getElementById("themeToggle");
+    if (btn) btn.click();
+  }
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   const toggleBtn = document.getElementById("toggleInstrument");
   const pianoEl = document.getElementById("boards");
@@ -1470,22 +1714,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let mode = "piano";
 
-  toggleBtn.addEventListener("click", () => {
+  const updateInstrumentUI = () => {
     if (mode === "piano") {
-      pianoEl.style.display = "none";
-      guitarEl.style.display = "block";
-      controlsEl.style.display = "block";
-      toggleBtn.textContent = "Switch to Piano";
-      mode = "guitar";
-    } else {
+      toggleBtn.innerHTML = INSTRUMENT_ICONS.guitar; // shows what you’ll switch to
+      toggleBtn.setAttribute("title", "Switch to guitar (G)");
       pianoEl.style.display = "block";
       guitarEl.style.display = "none";
       controlsEl.style.display = "none";
-      toggleBtn.textContent = "Switch to Guitar";
-      mode = "piano";
+    } else {
+      toggleBtn.innerHTML = INSTRUMENT_ICONS.piano;
+      toggleBtn.setAttribute("title", "Switch to piano (G)");
+      pianoEl.style.display = "none";
+      guitarEl.style.display = "block";
+      controlsEl.style.display = "block";
     }
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    mode = mode === "piano" ? "guitar" : "piano";
+    updateInstrumentUI();
   });
+
+  updateInstrumentUI();
 });
 
+// Initial load: restore sections then render
+loadSections();
 // render sections layout (not the old single-card render)
 renderSections();
