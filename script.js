@@ -1,5 +1,6 @@
 let sectionCounter = 0; // track part number
 let twoHandsMode = localStorage.getItem("cv-twohands") === "true"; // track hand mode, persisted
+let transposeOffset = 0; // current transpose amount shown in UI
 
 document.addEventListener("DOMContentLoaded", () => {
   const addSectionBtn = document.getElementById("addSectionBtn");
@@ -557,6 +558,11 @@ function addChordsFromInput(inputValue) {
 const chordInput = document.getElementById("chordInput");
 const suggestionsEl = document.getElementById("suggestions");
 const handModeToggle = document.getElementById("handModeToggle");
+const transposeValueEl = document.getElementById("transposeValue");
+
+function updateTransposeUI() {
+  if (transposeValueEl) transposeValueEl.textContent = String(transposeOffset);
+}
 
 chordInput.addEventListener("input", () => {
   const val = chordInput.value.trim().toUpperCase();
@@ -625,12 +631,16 @@ function transposeChords(amount) {
   renderSections();
 }
 
-document
-  .getElementById("transposeUp")
-  .addEventListener("click", () => transposeChords(1));
-document
-  .getElementById("transposeDown")
-  .addEventListener("click", () => transposeChords(-1));
+document.getElementById("transposeUp").addEventListener("click", () => {
+  transposeOffset += 1;
+  updateTransposeUI();
+  transposeChords(1);
+});
+document.getElementById("transposeDown").addEventListener("click", () => {
+  transposeOffset -= 1;
+  updateTransposeUI();
+  transposeChords(-1);
+});
 
 chordInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
@@ -644,7 +654,7 @@ chordInput.addEventListener("keydown", (e) => {
 // One-hand / two-hands icons via Material Symbols 'back_hand'
 const HAND_ICONS = {
   one: `<span class="material-symbols-outlined" aria-hidden="true">back_hand</span>`,
-  two: `<span class="material-symbols-outlined" aria-hidden="true">back_hand</span><span class="material-symbols-outlined hand-mirror" aria-hidden="true">back_hand</span>`,
+  two: `<span class="material-symbols-outlined hand-mirror" aria-hidden="true">back_hand</span><span class="material-symbols-outlined" aria-hidden="true">back_hand</span>`,
 };
 
 if (handModeToggle) {
@@ -1716,17 +1726,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const updateInstrumentUI = () => {
     if (mode === "piano") {
-      toggleBtn.innerHTML = INSTRUMENT_ICONS.guitar; // shows what you’ll switch to
+      toggleBtn.innerHTML = INSTRUMENT_ICONS.guitar; // shows what you'll switch to
       toggleBtn.setAttribute("title", "Switch to guitar (G)");
       pianoEl.style.display = "block";
       guitarEl.style.display = "none";
       controlsEl.style.display = "none";
+      if (handModeToggle) handModeToggle.style.display = "inline-flex";
     } else {
       toggleBtn.innerHTML = INSTRUMENT_ICONS.piano;
       toggleBtn.setAttribute("title", "Switch to piano (G)");
       pianoEl.style.display = "none";
       guitarEl.style.display = "block";
       controlsEl.style.display = "block";
+      if (handModeToggle) handModeToggle.style.display = "none"; // hide two-hands toggle in guitar mode
     }
   };
 
@@ -1737,6 +1749,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   updateInstrumentUI();
 });
+
+// Initialize transpose display
+updateTransposeUI();
 
 // Initial load: restore sections then render
 loadSections();

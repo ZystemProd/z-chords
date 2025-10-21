@@ -51,13 +51,13 @@
             <!-- Row 2 -->
             <div class="controls-row row-2">
                 <div class="right">
-                    <button id="toggleInstrument" class="btn icon-btn" aria-label="Toggle instrument" title="Toggle instrument (G)" type="button"></button>
                     <button id="handModeToggle" class="btn icon-btn" aria-label="Toggle two-hands mode" title="Toggle two-hands layout (H)" type="button"></button>
+                    <button id="toggleInstrument" class="btn icon-btn" aria-label="Toggle instrument" title="Toggle instrument (G)" type="button"></button>
                     <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
                     <div class="transpose-group" role="group" aria-label="Transpose">
-                        <span class="group-label">Transpose</span>
-                        <button id="transposeDown" aria-label="Transpose down one semitone" title="Transpose -1">-1</button>
-                        <button id="transposeUp" aria-label="Transpose up one semitone" title="Transpose +1">+1</button>
+                        <button id="transposeDown" class="stepper-btn" type="button" aria-label="Transpose down one semitone" title="Transpose -1">&minus;</button>
+                        <span id="transposeValue" class="stepper-value" aria-live="polite" aria-atomic="true">0</span>
+                        <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
                     </div>
                 </div>
             </div>

@@ -243,16 +243,41 @@ select:focus-visible {
 .transpose-group {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 4px 6px;
+  gap: 10px;
+  background: color-mix(in oklab, var(--white) 90%, var(--bg) 10%);
+  color: color-mix(in oklab, var(--black) 85%, var(--text) 15%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  padding: 6px 10px;
 }
-.transpose-group .group-label {
-  color: var(--note-text);
-  font-size: 12px;
-  margin-right: 2px;
+
+/* Stepper buttons inside transpose group */
+.transpose-group .stepper-btn {
+  background: transparent;
+  color: inherit;
+  border: none;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 22px;
+  line-height: 1;
+}
+.transpose-group .stepper-btn:hover {
+  background: color-mix(in oklab, var(--black) 6%, transparent);
+}
+.transpose-group .stepper-btn:active {
+  transform: translateY(0); /* cancel global button press effect */
+}
+
+.transpose-group .stepper-value {
+  min-width: 18px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 16px;
 }
 
 .card {
