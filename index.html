@@ -133,6 +133,13 @@
                 <option value="locrian">Locrian</option>
             </select>
 
+            <div class="transpose-group" id="shapeStepper" role="group" aria-label="Scale shape">
+                <span class="group-label" style="margin-right:6px;">Shape</span>
+                <button id="shapeDown" class="stepper-btn" type="button" aria-label="Previous shape" title="Previous shape">&minus;</button>
+                <span id="shapeValue" class="stepper-value" aria-live="polite" aria-atomic="true">1</span>
+                <button id="shapeUp" class="stepper-btn" type="button" aria-label="Next shape" title="Next shape">+</button>
+            </div>
+
             <button id="updateGuitar">Update</button>
         </div>
 
@@ -146,19 +153,41 @@
 
 
     <script type="module">
-        import { renderScaleSVG, SCALE_FORMULAS } from "./guitar.js";
+        import { renderScaleSVG, SCALE_FORMULAS, computeCAGEDShapes } from "./guitar.js";
 
         const guitarEl = document.getElementById("guitar");
         const keySel = document.getElementById("guitarKey");
         const modeSel = document.getElementById("guitarMode");
-        // const updateBtn = document.getElementById("updateGuitar"); // not needed
+        const shapeDown = document.getElementById("shapeDown");
+        const shapeUp = document.getElementById("shapeUp");
+        const shapeValue = document.getElementById("shapeValue");
+
+        let shapeIndex = 0; // 0..n-1
+        let shapeStarts = [1,4,7,10,13]; // fallback
+
+        function updateShapeUI(){ if(shapeValue) shapeValue.textContent = String(shapeIndex+1); }
 
         function drawScale() {
             const root = keySel.value;
             const mode = modeSel.value;
             const intervals = SCALE_FORMULAS[mode];
+
+            // recompute shape starts for current root/mode using computed CAGED positions
+            try {
+                shapeStarts = computeCAGEDShapes(root, intervals);
+            } catch (_) {
+                shapeStarts = [1,4,7,10,13];
+            }
+            if (shapeIndex >= shapeStarts.length) shapeIndex = shapeStarts.length - 1;
+            if (shapeIndex < 0) shapeIndex = 0;
+            updateShapeUI();
+
             guitarEl.innerHTML = ""; // clear old diagram
-            const svg = renderScaleSVG(root, intervals);
+            const svg = renderScaleSVG(root, intervals, 1, 17, {
+                windowStart: shapeStarts[shapeIndex],
+                windowWidth: 5,
+                showOpen: false,
+            });
             guitarEl.appendChild(svg);
         }
 
@@ -166,8 +195,9 @@
         keySel.addEventListener("change", drawScale);
         modeSel.addEventListener("change", drawScale);
 
-        // optional: remove the button entirely from HTML if you like
-        // updateBtn.addEventListener("click", drawScale);
+        // shape stepper
+        shapeDown.addEventListener("click", ()=>{ shapeIndex = Math.max(0, shapeIndex-1); updateShapeUI(); drawScale(); });
+        shapeUp.addEventListener("click", ()=>{ shapeIndex = Math.min(shapeStarts.length-1, shapeIndex+1); updateShapeUI(); drawScale(); });
 
         // draw default
         drawScale();

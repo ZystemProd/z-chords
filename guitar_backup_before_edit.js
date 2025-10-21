@@ -1,17 +1,16 @@
 // guitar.js
-const GUITAR_TUNING = ["E", "B", "G", "D", "A", "E"]; // strings 1..6 (top to bottom visually)
+const GUITAR_TUNING = ["E", "B", "G", "D", "A", "E"];
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const ENHARMONIC = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
-
 export const SCALE_FORMULAS = {
-  pentatonic: [0, 3, 5, 7, 10],
-  blues: [0, 3, 5, 6, 7, 10],
-  major: [0, 2, 4, 5, 7, 9, 11],
+  pentatonic: [0, 3, 5, 7, 10], // minor pentatonic
+  blues: [0, 3, 5, 6, 7, 10], // blues scale
+  major: [0, 2, 4, 5, 7, 9, 11], // ionian
   dorian: [0, 2, 3, 5, 7, 9, 10],
   phrygian: [0, 1, 3, 5, 7, 8, 10],
   lydian: [0, 2, 4, 6, 7, 9, 11],
   mixolydian: [0, 2, 4, 5, 7, 9, 10],
-  aeolian: [0, 2, 3, 5, 7, 8, 10],
+  aeolian: [0, 2, 3, 5, 7, 8, 10], // natural minor
   locrian: [0, 1, 3, 5, 6, 8, 10],
 };
 
@@ -25,15 +24,17 @@ function buildScale(root, intervals) {
   return intervals.map((i) => (rootIdx + i) % 12);
 }
 
-// Compute five playable windows (CAGED-like) over 17 frets
+// Compute five playable windows (CAGED-like) for a 17-fret board
+// Returns an array of start frets (1-based), each spanning 5 frets
 export function computeCAGEDShapes(root, intervals) {
   const rootIdx = noteIndex(root);
-  const OPEN = [64, 59, 55, 50, 45, 40];
+  const OPEN = [64, 59, 55, 50, 45, 40]; // strings 1..6
   const width = 5;
   const startMin = 1;
-  const startMax = 13; // 17 - width + 1
-  const inScale = new Set(intervals.map((x) => (x % 12 + 12) % 12));
+  const startMax = 17 - width + 1; // 13
+  const inScale = new Set(intervals.map((x) => ((x % 12) + 12) % 12));
 
+  // Precompute note lists per string for frets 1..17
   const notesByString = Array.from({ length: 6 }, (_, si) => {
     const open = OPEN[si];
     const arr = [];
@@ -42,7 +43,7 @@ export function computeCAGEDShapes(root, intervals) {
       const deg = (pc - rootIdx + 12) % 12;
       if (inScale.has(deg)) arr.push({ fret: f, deg });
     }
-    return arr;
+    return arr; // ascending by fret
   });
 
   function windowDegrees(s) {
@@ -50,7 +51,8 @@ export function computeCAGEDShapes(root, intervals) {
     const set = new Set();
     let hasRoot = false;
     for (let si = 0; si < 6; si++) {
-      for (const n of notesByString[si]) {
+      const notes = notesByString[si];
+      for (const n of notes) {
         if (n.fret < s) continue;
         if (n.fret > hi) break;
         set.add(n.deg);
@@ -61,27 +63,28 @@ export function computeCAGEDShapes(root, intervals) {
   }
 
   function rootDistance(s) {
-    const center = s + 2; // width=5
+    const center = s + Math.floor(width / 2); // s+2 for width=5
     let best = Infinity;
     for (let si = 0; si < 6; si++) {
       for (const n of notesByString[si]) {
         if (n.deg !== 0) continue;
-        if (n.fret < s || n.fret > s + 4) continue;
-        best = Math.min(best, Math.abs(n.fret - center));
+        if (n.fret < s || n.fret > s + width - 1) continue;
+        const d = Math.abs(n.fret - center);
+        if (d < best) best = d;
       }
     }
     return best;
   }
 
   function smoothness(s) {
-    const hi = s + 4;
+    const hi = s + width - 1;
     let sum = 0;
     let cnt = 0;
     for (let si = 1; si < 6; si++) {
       const a = notesByString[si - 1].filter((n) => n.fret >= s && n.fret <= hi);
       const b = notesByString[si].filter((n) => n.fret >= s && n.fret <= hi);
       if (!a.length || !b.length) {
-        sum += 4;
+        sum += 4; // penalty when one string has no note
         cnt++;
         continue;
       }
@@ -93,67 +96,90 @@ export function computeCAGEDShapes(root, intervals) {
     return cnt ? sum / cnt : 9;
   }
 
+  // Build candidate windows
   const candidates = [];
   for (let s = startMin; s <= startMax; s++) {
     const { set, hasRoot } = windowDegrees(s);
-    const coversAll = intervals.every((d) => set.has((d % 12 + 12) % 12));
+    const coversAll = intervals.every((d) => set.has(((d % 12) + 12) % 12));
     if (!hasRoot || !coversAll) continue;
     candidates.push({ s, rootDist: rootDistance(s), smooth: smoothness(s) });
   }
+
+  // If no strict candidates, relax to allow windows that at least contain root
   if (!candidates.length) {
     for (let s = startMin; s <= startMax; s++) {
-      const { hasRoot } = windowDegrees(s);
+      const { set, hasRoot } = windowDegrees(s);
       if (!hasRoot) continue;
       candidates.push({ s, rootDist: rootDistance(s), smooth: smoothness(s) });
     }
   }
 
-  candidates.sort((a, b) => a.s - b.s || a.rootDist - b.rootDist || a.smooth - b.smooth);
+  candidates.sort((a, b) => a.s - b.s || a.rootDist - b.rootDist);
   if (!candidates.length) return [1, 4, 7, 10, 13];
 
   const shapes = [];
   let last = -100;
   for (const c of candidates) {
-    if (!shapes.length || c.s >= last + 2) {
+    if (shapes.length === 0) {
+      shapes.push(c);
+      last = c.s;
+      continue;
+    }
+    if (c.s >= last + 2) {
+      // prefer not to jump more than 4 frets; if it does, still allow to keep coverage
       shapes.push(c);
       last = c.s;
       if (shapes.length === 5) break;
     }
   }
+
+  // If we still have fewer than 5, fill by spacing across range
   if (shapes.length < 5) {
     const desired = [1, 4, 7, 10, 13];
     for (const d of desired) {
       if (shapes.find((x) => Math.abs(x.s - d) <= 1)) continue;
+      // pick closest candidate to d not already used
       let best = null;
-      let diff = Infinity;
+      let bestDiff = Infinity;
       for (const c of candidates) {
         if (shapes.some((x) => x.s === c.s)) continue;
-        const df = Math.abs(c.s - d);
-        if (df < diff) {
+        const diff = Math.abs(c.s - d);
+        if (diff < bestDiff) {
+          bestDiff = diff;
           best = c;
-          diff = df;
         }
       }
       if (best) shapes.push(best);
       if (shapes.length === 5) break;
     }
   }
-  return shapes.sort((a, b) => a.s - b.s).slice(0, 5).map((x) => x.s);
+
+  // Ensure ascending order and map to starts
+  const starts = shapes
+    .sort((a, b) => a.s - b.s)
+    .slice(0, 5)
+    .map((x) => x.s);
+  return starts.length ? starts : [1, 4, 7, 10, 13];
 }
 
 export function renderScaleSVG(
   root,
   intervals,
   startFret = 1,
-  fretsWide = 17,
+  fretsWide = 5,
   opts = {}
 ) {
   const scale = buildScale(root, intervals);
   const rootIdx = noteIndex(root);
 
+  // Map semitone offsets from root to interval labels
   const isLydian = (() => {
     const lyd = SCALE_FORMULAS.lydian;
-    return Array.isArray(intervals) && intervals.length === lyd.length && lyd.every((v) => intervals.includes(v));
+    return (
+      Array.isArray(intervals) &&
+      intervals.length === lyd.length &&
+      lyd.every((v) => intervals.includes(v))
+    );
   })();
 
   function intervalLabel(semi) {
@@ -171,6 +197,7 @@ export function renderScaleSVG(
       case 5:
         return "4";
       case 6:
+        // Show #4 for Lydian, otherwise b5 (Blues/Locrian)
         return isLydian ? "#4" : "b5";
       case 7:
         return "5";
@@ -194,7 +221,8 @@ export function renderScaleSVG(
   const paddingLeft = 80;
   const paddingRight = 30;
   const width = paddingLeft + fretWidth * fretsWide + paddingRight;
-  const height = paddingTop + stringHeight * GUITAR_TUNING.length + paddingBottom;
+  const height =
+    paddingTop + stringHeight * GUITAR_TUNING.length + paddingBottom;
   const svgNS = "http://www.w3.org/2000/svg";
 
   const svg = document.createElementNS(svgNS, "svg");
@@ -205,8 +233,9 @@ export function renderScaleSVG(
     "font-family: sans-serif; background: linear-gradient(#fdf5e6, #f0e6d2); border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"
   );
 
-  // Window options
-  const windowStart = typeof opts.windowStart === "number" ? opts.windowStart : null; // 1-based
+  // Window/shape options (restrict which frets show notes)
+  const windowStart =
+    typeof opts.windowStart === "number" ? opts.windowStart : null; // 1-based
   const windowWidth = typeof opts.windowWidth === "number" ? opts.windowWidth : 5;
   const showOpen = opts.showOpen !== false; // default true
   const inWindow = (fret) => {
@@ -214,7 +243,7 @@ export function renderScaleSVG(
     return fret >= windowStart && fret <= windowStart + windowWidth - 1;
   };
 
-  const openStringMIDIs = [64, 59, 55, 50, 45, 40];
+  const openStringMIDIs = [64, 59, 55, 50, 45, 40]; // string 1 → 6
 
   function noteNameWithOctave(midiNote) {
     const noteName = NOTES[midiNote % 12];
@@ -242,7 +271,7 @@ export function renderScaleSVG(
     17: "XVII",
   };
 
-  // Frets and markers
+  // Draw frets
   for (let fret = startFret; fret <= startFret + fretsWide - 1; fret++) {
     const x = paddingLeft + fretWidth * (fret - startFret);
     const line = document.createElementNS(svgNS, "line");
@@ -257,7 +286,10 @@ export function renderScaleSVG(
     if ([3, 5, 7, 9, 12, 15, 17].includes(fret)) {
       const marker = document.createElementNS(svgNS, "circle");
       marker.setAttribute("cx", x + fretWidth / 2);
-      marker.setAttribute("cy", paddingTop + (stringHeight * GUITAR_TUNING.length) / 2);
+      marker.setAttribute(
+        "cy",
+        paddingTop + (stringHeight * GUITAR_TUNING.length) / 2
+      );
       marker.setAttribute("r", 5);
       marker.setAttribute("fill", "#ccc");
       svg.appendChild(marker);
@@ -275,13 +307,25 @@ export function renderScaleSVG(
     }
   }
 
-  // Strings and labels
-  const renderNotes = [];
-  let nid = 0;
+  // Duplicate check using full MIDI pitch
+  function isDuplicateOnLowerStrings(midiNote, stringIdx) {
+    if (midiNote === openStringMIDIs[stringIdx]) return false; // keep open note
+    for (let lower = stringIdx + 1; lower < GUITAR_TUNING.length; lower++) {
+      const lowerOpenMidi = openStringMIDIs[lower];
+      if (lowerOpenMidi === midiNote) return true;
+      for (let f = startFret; f <= startFret + fretsWide - 1; f++) {
+        if (lowerOpenMidi + f === midiNote) return true;
+      }
+    }
+    return false;
+  }
+
+  // Iterate strings top → bottom (string 1 → 6)
   for (let stringIdx = 0; stringIdx < GUITAR_TUNING.length; stringIdx++) {
     const stringNote = GUITAR_TUNING[stringIdx];
     const y = paddingTop + stringHeight * (stringIdx + 0.5);
 
+    // Draw string line
     const line = document.createElementNS(svgNS, "line");
     line.setAttribute("x1", paddingLeft);
     line.setAttribute("y1", y);
@@ -292,6 +336,7 @@ export function renderScaleSVG(
     line.setAttribute("stroke-width", strokeWidths[stringIdx] || 1.5);
     svg.appendChild(line);
 
+    // String name label at the left of each string
     const label = document.createElementNS(svgNS, "text");
     label.setAttribute("x", paddingLeft - 18);
     label.setAttribute("y", y + 4);
@@ -301,15 +346,37 @@ export function renderScaleSVG(
     label.textContent = stringNote;
     svg.appendChild(label);
 
+    // Open string
     const openMidi = openStringMIDIs[stringIdx];
-    const notesOnString = [];
+    let notesOnString = [];
     if (scale.includes(openMidi % 12) && showOpen && inWindow(0)) {
       notesOnString.push({ fret: 0, midiNote: openMidi });
       const xOpen = paddingLeft - fretWidth / 2;
-      const degOpen = (openMidi % 12 - rootIdx + 12) % 12;
-      renderNotes.push({ id: nid++, stringIdx, fret: 0, midiNote: openMidi, noteIdx: openMidi % 12, deg: degOpen, x: xOpen, y, open: true });
+      const openCircle = document.createElementNS(svgNS, "circle");
+      openCircle.setAttribute("cx", xOpen);
+      openCircle.setAttribute("cy", y);
+      openCircle.setAttribute("r", 14);
+      const deg = (openMidi % 12 - rootIdx + 12) % 12;
+      openCircle.setAttribute("fill", deg === 0 ? "#ff6347" : "#fff");
+      openCircle.setAttribute("stroke", "#333");
+      openCircle.setAttribute("stroke-width", 2);
+      svg.appendChild(openCircle);
+
+      const openText = document.createElementNS(svgNS, "text");
+      openText.setAttribute("x", xOpen);
+      openText.setAttribute("y", y + 5);
+      openText.setAttribute("text-anchor", "middle");
+      openText.setAttribute("fill", deg === 0 ? "#fff" : "#333");
+      openText.setAttribute("font-size", "12");
+      openText.textContent = intervalLabel(deg);
+      svg.appendChild(openText);
+
+      const openTooltip = document.createElementNS(svgNS, "title");
+      openTooltip.textContent = noteNameWithOctave(openMidi);
+      openCircle.appendChild(openTooltip);
     }
 
+    // Fretted notes
     for (let fret = startFret; fret <= startFret + fretsWide - 1; fret++) {
       const midiNote = openMidi + fret;
       const noteIdx = midiNote % 12;
@@ -318,102 +385,37 @@ export function renderScaleSVG(
       }
     }
 
-    // Collect all
-    for (const { fret, midiNote } of notesOnString) {
+    // Render all collected notes on this string (no artificial limit)
+    const notesToRender = notesOnString;
+
+    // Render notes
+    notesToRender.forEach(({ fret, midiNote }) => {
       const noteIdx = midiNote % 12;
-      const x = fret === 0 ? paddingLeft - fretWidth / 2 : paddingLeft + fretWidth * (fret - startFret + 0.5);
+      const x = paddingLeft + fretWidth * (fret - startFret + 0.5);
+      const circle = document.createElementNS(svgNS, "circle");
+      circle.setAttribute("cx", x);
+      circle.setAttribute("cy", y);
+      circle.setAttribute("r", 12);
+      circle.setAttribute("fill", noteIdx === rootIdx ? "#ff6347" : "#333");
+      circle.setAttribute("stroke", "#fff");
+      circle.setAttribute("stroke-width", 2);
+      svg.appendChild(circle);
+
+      const tooltip = document.createElementNS(svgNS, "title");
+      tooltip.textContent = noteNameWithOctave(midiNote);
+      circle.appendChild(tooltip);
+
+      // Interval label inside circle (R, 2, b3, 4, 5, 6, b7, etc.)
       const deg = (noteIdx - rootIdx + 12) % 12;
-      renderNotes.push({ id: nid++, stringIdx, fret, midiNote, noteIdx, deg, x, y });
-    }
-  }
-
-  // Ergonomic dedupe across adjacent strings ONLY.
-  // If the same degree appears on two adjacent strings in roughly the same area,
-  // keep the one that has a closer neighbor degree (d-1 or d+1) on the same string.
-  const toRemove = new Set();
-  const byString = Array.from({ length: 6 }, () => []);
-  for (const n of renderNotes) byString[n.stringIdx].push(n);
-  byString.forEach((arr) => arr.sort((a, b) => a.fret - b.fret));
-
-  function nearestSameDeg(target, candidates) {
-    let best = null;
-    let bestDiff = Infinity;
-    for (const c of candidates) {
-      const d = Math.abs(c.fret - target.fret);
-      if (d < bestDiff) {
-        bestDiff = d;
-        best = c;
-      }
-    }
-    return { best, diff: bestDiff };
-  }
-
-  function neighborDistOnString(stringIdx, fret, degPrev, degNext) {
-    const arr = byString[stringIdx] || [];
-    const candidates = arr.filter((n) => n.deg === degPrev || n.deg === degNext);
-    if (!candidates.length) return Infinity;
-    return Math.min(...candidates.map((n) => Math.abs(n.fret - fret)));
-  }
-
-  for (let si = 0; si < 5; si++) {
-    const A = byString[si];
-    const B = byString[si + 1];
-    if (!A.length || !B.length) continue;
-
-    // Compare per degree
-    const degrees = new Set(A.map((n) => n.deg).concat(B.map((n) => n.deg)));
-    degrees.forEach((deg) => {
-      const aList = A.filter((n) => n.deg === deg);
-      const bList = B.filter((n) => n.deg === deg);
-      if (!aList.length || !bList.length) return;
-      // Pair closest-in-fret occurrences
-      for (const a of aList) {
-        if (toRemove.has(a.id)) continue;
-        const { best: b, diff } = nearestSameDeg(a, bList.filter((n) => !toRemove.has(n.id)));
-        if (!b || diff > 5) continue; // far apart -> keep both
-
-        const dPrev = (deg + 11) % 12;
-        const dNext = (deg + 1) % 12;
-        const aNd = neighborDistOnString(si, a.fret, dPrev, dNext);
-        const bNd = neighborDistOnString(si + 1, b.fret, dPrev, dNext);
-
-        // lower score wins; Infinity means no neighbor on same string
-        const aScore = (Number.isFinite(aNd) ? aNd : 10) - si * 0.1;
-        const bScore = (Number.isFinite(bNd) ? bNd : 10) - (si + 1) * 0.1;
-
-        if (aScore <= bScore) {
-          toRemove.add(b.id);
-        } else {
-          toRemove.add(a.id);
-        }
-      }
+      const label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", x);
+      label.setAttribute("y", y + 5);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("fill", "#fff");
+      label.setAttribute("font-size", "12");
+      label.textContent = intervalLabel(deg);
+      svg.appendChild(label);
     });
-  }
-
-  // Render
-  for (const { x, y, noteIdx, midiNote, deg, id } of renderNotes) {
-    if (toRemove.has(id)) continue;
-    const circle = document.createElementNS(svgNS, "circle");
-    circle.setAttribute("cx", x);
-    circle.setAttribute("cy", y);
-    circle.setAttribute("r", 12);
-    circle.setAttribute("fill", noteIdx === rootIdx ? "#ff6347" : "#333");
-    circle.setAttribute("stroke", "#fff");
-    circle.setAttribute("stroke-width", 2);
-    svg.appendChild(circle);
-
-    const tooltip = document.createElementNS(svgNS, "title");
-    tooltip.textContent = noteNameWithOctave(midiNote);
-    circle.appendChild(tooltip);
-
-    const label = document.createElementNS(svgNS, "text");
-    label.setAttribute("x", x);
-    label.setAttribute("y", y + 5);
-    label.setAttribute("text-anchor", "middle");
-    label.setAttribute("fill", "#fff");
-    label.setAttribute("font-size", "12");
-    label.textContent = intervalLabel(deg);
-    svg.appendChild(label);
   }
 
   return svg;
