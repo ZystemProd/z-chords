@@ -4,8 +4,13 @@ const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const ENHARMONIC = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
 
 export const SCALE_FORMULAS = {
+  // Minor pentatonic (legacy key 'pentatonic') and blues (minor)
   pentatonic: [0, 3, 5, 7, 10],
+  minorPentatonic: [0, 3, 5, 7, 10],
   blues: [0, 3, 5, 6, 7, 10],
+  // Major pentatonic
+  majorPentatonic: [0, 2, 4, 7, 9],
+  // Heptatonic modes
   major: [0, 2, 4, 5, 7, 9, 11],
   dorian: [0, 2, 3, 5, 7, 9, 10],
   phrygian: [0, 1, 3, 5, 7, 8, 10],
@@ -174,6 +179,37 @@ export function computeCAGEDShapes(root, intervals) {
     }
   }
   return shapes.sort((a, b) => a.s - b.s).slice(0, 5).map((x) => x.s);
+}
+
+// Map a modal root back to its parent major root for CAGED windows.
+// Returns a note name using sharps.
+export function getParentMajorRoot(root, mode) {
+  const r = noteIndex(root);
+  if (r < 0) return root;
+  // Semitone shifts relative to the modal root to reach parent major
+  // Ionian/Major = 0; Dorian −2; Phrygian −4; Lydian −5; Mixolydian −7; Aeolian −9; Locrian −11
+  const SHIFT = {
+    major: 0,
+    ionian: 0,
+    majorPentatonic: 0,
+    dorian: -2,
+    phrygian: -4,
+    lydian: -5,
+    mixolydian: -7,
+    aeolian: -9,
+    minorPentatonic: -9,
+    blues: -9,
+    locrian: -11,
+  };
+  const s = SHIFT[mode] ?? 0;
+  const parentIdx = (r + s + 12) % 12;
+  return NOTES[parentIdx];
+}
+
+// Convenience: compute CAGED starts directly for a given key+mode
+export function getCAGEDStartsForMode(root, mode) {
+  const parent = getParentMajorRoot(root, mode);
+  return computeCAGEDShapes(parent, SCALE_FORMULAS.major);
 }
 
 export function renderScaleSVG(

@@ -122,8 +122,9 @@
             </select>
 
             <select id="guitarMode">
-                <option value="pentatonic">Pentatonic</option>
-                <option value="blues">Blues</option>
+                <option value="majorPentatonic">Major Pentatonic</option>
+                <option value="minorPentatonic">Minor Pentatonic</option>
+                <option value="blues">Blues (Minor)</option>
                 <option value="major">Major (Ionian)</option>
                 <option value="dorian">Dorian</option>
                 <option value="phrygian">Phrygian</option>
@@ -153,7 +154,7 @@
 
 
     <script type="module">
-        import { renderScaleSVG, SCALE_FORMULAS, computeCAGEDShapes } from "./guitar.js";
+        import { renderScaleSVG, SCALE_FORMULAS, computeCAGEDShapes, getParentMajorRoot } from "./guitar.js";
 
         const guitarEl = document.getElementById("guitar");
         const keySel = document.getElementById("guitarKey");
@@ -171,10 +172,16 @@
             const root = keySel.value;
             const mode = modeSel.value;
             const intervals = SCALE_FORMULAS[mode];
+        const isCAGEDMode = ['major','dorian','phrygian','lydian','mixolydian','aeolian','locrian','majorPentatonic','minorPentatonic','blues'].includes(mode);
 
-            // recompute shape starts for current root/mode using computed CAGED positions
+            // recompute shape starts for parent major (for modes) or major itself
             try {
-                shapeStarts = computeCAGEDShapes(root, intervals);
+                if (isCAGEDMode) {
+                    const parentRoot = getParentMajorRoot(root, mode);
+                    shapeStarts = computeCAGEDShapes(parentRoot, SCALE_FORMULAS['major']);
+                } else {
+                    shapeStarts = computeCAGEDShapes(root, intervals);
+                }
             } catch (_) {
                 shapeStarts = [1,4,7,10,13];
             }
@@ -186,8 +193,8 @@
             let windowStart = shapeStarts[shapeIndex];
             let windowWidth = 4;
 
-            // Major (Ionian) adjustments to match AGT CAGED diagrams
-            if (mode === 'major') {
+            // CAGED shape width/start adjustments (apply for major and modal views)
+            if (isCAGEDMode) {
                 if (shapeIndex === 1 || shapeIndex === 3) {
                     windowWidth = 5; // Pos 2 and 4 span 5 frets
                 }
