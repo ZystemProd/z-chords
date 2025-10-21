@@ -18,7 +18,7 @@
   --card-gradient-2: #0b1116;
   --kbd-label: #9fb0c2;
   --modal-close: #aaa;
-  --white-key-width: 50px;
+  --white-key-width: 36px;
 }
 
 body.light-mode {
@@ -295,7 +295,7 @@ button:hover {
 
 .black-key {
   position: absolute;
-  width: 28px;
+  width: 24px;
   height: 45%;
   top: 18px;
   background: var(--black);
@@ -352,6 +352,25 @@ button:hover {
   width: 90%;
   max-width: 1000px;
   position: relative;
+  color: var(--text);
+  overflow-x: auto; /* allow wide 2-hands keyboard to scroll */
+}
+
+/* Hand toggle in custom chord modal */
+.hand-toggle {
+  display: inline-flex;
+  gap: 8px;
+}
+.hand-toggle button {
+  background: transparent;
+  color: var(--note-text);
+  border: 1px solid var(--input-border);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.hand-toggle button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text);
 }
 
@@ -485,6 +504,11 @@ button:hover {
   transform-origin: top center;
   width: 503px;
   height: auto;
+}
+
+/* In two-hands mode, let the preview piano expand to its full keybed width */
+.card.preview .piano.two-hands {
+  width: max-content; /* override fixed preview width */
 }
 
 body.light-mode .card.preview .piano {
@@ -725,6 +749,38 @@ body.light-mode .card.preview .piano {
   margin-top: 5px;
 }
 
+/* Edit button on chord card */
+.edit-chord-section {
+  position: absolute;
+  top: 8px;
+  right: 44px; /* leave comfortable space from delete */
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--note-text);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  display: none; /* hidden by default */
+  border-radius: 6px;
+  padding: 2px 6px;
+  height: auto;
+  width: auto;
+  line-height: 1.2;
+  text-align: center;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.edit-chord-section:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+body.light-mode .edit-chord-section:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: #999999;
+}
+
 .remove-section {
   top: 0px;
   display: none;
@@ -742,6 +798,10 @@ body.light-mode .card.preview .piano {
 }
 
 .card.preview:hover .remove-chord-section {
+  display: block;
+}
+
+.card.preview:hover .edit-chord-section {
   display: block;
 }
 

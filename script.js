@@ -294,7 +294,12 @@ function getWhiteKeyWidth() {
 function makePiano(chord, options = {}) {
   if (!chord) return document.createElement("div");
 
-  const { twoHands = false, leftHandMidi = null, leftHandLabel = "" } = options;
+  const {
+    twoHands = false,
+    leftHandMidi = null,
+    leftHandLabel = "",
+    leftHandMIDIs = null,
+  } = options;
   const midiNotes = chord.notes || [];
   const rootMidi = chord.rootMidi;
   const { low: LOW, high: HIGH } = getPianoRange(twoHands);
@@ -338,13 +343,22 @@ function makePiano(chord, options = {}) {
     });
   });
 
-  if (twoHands && typeof leftHandMidi === "number") {
-    const normalized = normalizeMidiToRange(leftHandMidi, LOW, HIGH);
-    if (normalized !== null) {
-      highlightMap.set(normalized, {
-        type: "left",
-        label: leftHandLabel || "LH",
+  if (twoHands) {
+    if (Array.isArray(leftHandMIDIs) && leftHandMIDIs.length) {
+      leftHandMIDIs.forEach((lh) => {
+        const normalized = normalizeMidiToRange(lh, LOW, HIGH);
+        if (normalized !== null) {
+          highlightMap.set(normalized, { type: "left", label: "LH" });
+        }
       });
+    } else if (typeof leftHandMidi === "number") {
+      const normalized = normalizeMidiToRange(leftHandMidi, LOW, HIGH);
+      if (normalized !== null) {
+        highlightMap.set(normalized, {
+          type: "left",
+          label: leftHandLabel || "LH",
+        });
+      }
     }
   }
 
@@ -545,6 +559,9 @@ function transposeChords(amount) {
         if (ch.rootMidi !== undefined && ch.rootMidi !== null) {
           ch.rootMidi += amount;
         }
+        if (Array.isArray(ch.leftHandMIDIs)) {
+          ch.leftHandMIDIs = ch.leftHandMIDIs.map((m) => m + amount);
+        }
       }
     });
   });
@@ -651,8 +668,13 @@ const customPianoEl = document.getElementById("customPiano");
 const addCustomChordBtn = document.getElementById("addCustomChord");
 const suggestedEl = document.getElementById("suggestedChords");
 const customChordNameInput = document.getElementById("customChordName");
+const markRightBtn = document.getElementById("markRight");
+const markLeftBtn = document.getElementById("markLeft");
 
-let selectedMIDIs = new Set();
+let selectedMIDIs = new Set(); // right-hand selections in modal
+let selectedLeftMIDIs = new Set(); // left-hand selections in modal
+let customMarkingHand = "right"; // which hand new clicks mark in modal
+let editingContext = { active: false, sectionIndex: null, chordIndex: null };
 
 document.addEventListener("DOMContentLoaded", () => {
   const customModal = document.getElementById("customChordModal");
@@ -661,12 +683,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (!openModalBtn) return; // safety check
 
+  function updateHandToggleUI() {
+    if (markRightBtn && markLeftBtn) {
+      markRightBtn.setAttribute(
+        "aria-pressed",
+        String(customMarkingHand === "right")
+      );
+      markLeftBtn.setAttribute(
+        "aria-pressed",
+        String(customMarkingHand === "left")
+      );
+    }
+  }
+
+  if (markRightBtn && markLeftBtn) {
+    markRightBtn.addEventListener("click", () => {
+      customMarkingHand = "right";
+      updateHandToggleUI();
+    });
+    markLeftBtn.addEventListener("click", () => {
+      customMarkingHand = "left";
+      updateHandToggleUI();
+    });
+  }
+
   openModalBtn.addEventListener("click", () => {
     customModal.style.display = "block";
-    renderCustomPiano();
     selectedMIDIs.clear();
+    selectedLeftMIDIs.clear();
     customChordNameInput.value = "";
     suggestedEl.innerHTML = "";
+    editingContext = { active: false, sectionIndex: null, chordIndex: null };
+    customMarkingHand = "right";
+    updateHandToggleUI();
+    try { addCustomChordBtn.textContent = "Add Chord"; } catch (_) {}
+    renderCustomPiano();
   });
 
   closeModalBtn.addEventListener("click", () => {
@@ -687,16 +738,23 @@ let rootMID = null; // tracks the chosen root
 
 function renderCustomPiano() {
   customPianoEl.innerHTML = "";
-  const LOW = 60,
-    HIGH = 83;
+  // Use 3-octave range and two-hands layout for custom modal
+  const { low: LOW, high: HIGH } = getPianoRange(true);
   const whiteMIDIs = [];
   for (let m = LOW; m <= HIGH; m++)
     if (!N_SHARP[m % 12].includes("#")) whiteMIDIs.push(m);
 
   const pianoWrap = document.createElement("div");
-  pianoWrap.className = "piano";
+  pianoWrap.className = "piano two-hands";
   const whiteGrid = document.createElement("div");
   whiteGrid.className = "white-keys";
+
+  // Explicit grid so black keys position correctly in wide layouts
+  const keyWidth = getWhiteKeyWidth();
+  whiteGrid.style.gridTemplateColumns = `repeat(${whiteMIDIs.length}, ${keyWidth}px)`;
+  whiteGrid.style.width = `${whiteMIDIs.length * keyWidth}px`;
+
+  // Left hand is user-selected; no auto-derivation
 
   // White keys
   whiteMIDIs.forEach((midi) => {
@@ -710,11 +768,18 @@ function renderCustomPiano() {
     wk.appendChild(label);
 
     // Apply classes instead of inline styles to match main piano
-    if (selectedMIDIs.has(midi)) wk.classList.add("pressed");
+    if (selectedMIDIs.has(midi)) wk.classList.add("pressed"); // right hand
+    if (selectedLeftMIDIs.has(midi)) {
+      wk.classList.add("pressed", "left-hand");
+      const lh = document.createElement("div");
+      lh.className = "interval left-hand-label";
+      lh.textContent = "LH";
+      wk.appendChild(lh);
+    }
     if (rootMID === midi) wk.classList.add("root");
 
     // Only show "R" on marked keys (selected or root)
-    if (selectedMIDIs.has(midi) || rootMID === midi) {
+    if (selectedMIDIs.has(midi) || selectedLeftMIDIs.has(midi) || rootMID === midi) {
       const rootLabel = document.createElement("div");
       rootLabel.className = "root-label";
       rootLabel.textContent = "R";
@@ -749,10 +814,17 @@ function renderCustomPiano() {
       bk.className = "black-key";
       bk.dataset.midi = blackMidi;
 
-      if (selectedMIDIs.has(blackMidi)) bk.classList.add("pressed");
+      if (selectedMIDIs.has(blackMidi)) bk.classList.add("pressed"); // right hand
+      if (selectedLeftMIDIs.has(blackMidi)) {
+        bk.classList.add("pressed", "left-hand");
+        const lh = document.createElement("div");
+        lh.className = "interval left-hand-label";
+        lh.textContent = "LH";
+        bk.appendChild(lh);
+      }
       if (rootMID === blackMidi) bk.classList.add("root");
 
-      if (selectedMIDIs.has(blackMidi) || rootMID === blackMidi) {
+      if (selectedMIDIs.has(blackMidi) || selectedLeftMIDIs.has(blackMidi) || rootMID === blackMidi) {
         const rootLabel = document.createElement("div");
         rootLabel.className = "root-label";
         rootLabel.textContent = "R";
@@ -784,35 +856,52 @@ function renderCustomPiano() {
 
 function resetCustomChordModal() {
   selectedMIDIs.clear();
+  selectedLeftMIDIs.clear();
   rootMID = null;
   customChordNameInput.value = "";
   suggestedEl.innerHTML = "";
   customPianoEl.innerHTML = "";
+  customMarkingHand = "right";
+  try { addCustomChordBtn.textContent = "Add Chord"; } catch (_) {}
 }
 
 function toggleKey(midi, el) {
-  if (selectedMIDIs.has(midi)) {
-    selectedMIDIs.delete(midi);
-    if (rootMID === midi) rootMID = null;
-    el.classList.remove("selected");
+  const isLeft = customMarkingHand === "left";
+  const addSet = isLeft ? selectedLeftMIDIs : selectedMIDIs;
+  const otherSet = isLeft ? selectedMIDIs : selectedLeftMIDIs;
+
+  if (addSet.has(midi)) {
+    // Remove from the active hand
+    addSet.delete(midi);
+    if (
+      rootMID === midi &&
+      !selectedMIDIs.has(midi) &&
+      !selectedLeftMIDIs.has(midi)
+    ) {
+      rootMID = null;
+    }
   } else {
-    selectedMIDIs.add(midi);
-    el.classList.add("selected");
+    // Overwrite rule: ensure membership is exclusive between hands
+    otherSet.delete(midi);
+    addSet.add(midi);
   }
+
   renderCustomPiano();
   updateSuggestions();
 }
 
 addCustomChordBtn.addEventListener("click", () => {
-  if (selectedMIDIs.size === 0) return;
+  if (selectedMIDIs.size === 0 && selectedLeftMIDIs.size === 0) return;
 
   let name = customChordNameInput.value.trim();
-  if (!name)
+  if (!name) {
     name =
       suggestedEl.textContent.split(":")[1]?.split(",")[0]?.trim() ||
       "CustomChord";
+  }
 
   const midiArray = Array.from(selectedMIDIs).sort((a, b) => a - b);
+  const leftArray = Array.from(selectedLeftMIDIs).sort((a, b) => a - b);
 
   // Ensure chosen root is first
   if (rootMID !== null) {
@@ -823,36 +912,41 @@ addCustomChordBtn.addEventListener("click", () => {
     }
   }
 
+  let sections = JSON.parse(boardsEl.dataset.sections || "[]");
+  if (sections.length === 0) {
+    sections.push({ name: "Default", chords: [] });
+  }
+
   const chordObj = {
     sym: name,
     inversion: 0,
     octave: false,
     customMIDIs: midiArray,
     rootMidi: rootMID,
+    leftHandMIDIs: leftArray,
   };
 
-  // --- ADD TO CURRENT SECTION ---
-  let sections = JSON.parse(boardsEl.dataset.sections || "[]");
-
-  // If no sections exist, create one
-  if (sections.length === 0) {
-    sections.push({ name: "Default", chords: [] });
+  if (editingContext.active) {
+    const sIdx = editingContext.sectionIndex;
+    const cIdx = editingContext.chordIndex;
+    if (
+      sIdx != null && cIdx != null &&
+      sections[sIdx] && sections[sIdx].chords[cIdx]
+    ) {
+      sections[sIdx].chords[cIdx] = chordObj;
+    }
+  } else {
+    // Add to the last section by default
+    sections[sections.length - 1].chords.push(chordObj);
   }
 
-  // Add to the **last section** (or you can define an active section index)
-  sections[sections.length - 1].chords.push(chordObj);
-
   boardsEl.dataset.sections = JSON.stringify(sections);
-
-  // Re-render
   renderSections();
 
-  // Close modal
+  // Close and reset modal state
   customModal.style.display = "none";
-  selectedMIDIs.clear();
-  rootMID = null;
-  customChordNameInput.value = "";
-  suggestedEl.innerHTML = "";
+  resetCustomChordModal();
+  editingContext = { active: false, sectionIndex: null, chordIndex: null };
 });
 
 // Handle root toggling dynamically
@@ -869,39 +963,7 @@ function toggleRoot(midi, labelEl) {
   }
 }
 
-addCustomChordBtn.addEventListener("click", () => {
-  if (selectedMIDIs.size === 0) return; // nothing selected
-
-  // Get a name from the input or generate one from suggestions
-  let name = customChordNameInput.value.trim();
-  if (!name) {
-    name =
-      suggestedEl.textContent.split(":")[1]?.split(",")[0]?.trim() ||
-      "CustomChord";
-  }
-
-  // Convert selected MIDIs to a sorted array
-  const midiArray = Array.from(selectedMIDIs).sort((a, b) => a - b);
-
-  // Build a chord object compatible with your boardsEl list
-  const chordObj = {
-    sym: name,
-    inversion: 0,
-    octave: false,
-    customMIDIs: midiArray, // store the actual MIDI notes for this custom chord
-  };
-
-  // Add to the existing chords list
-  const list = boardsEl.dataset.chordsList
-    ? JSON.parse(boardsEl.dataset.chordsList)
-    : [];
-  list.push(chordObj);
-  boardsEl.dataset.chordsList = JSON.stringify(list);
-
-  // Close modal
-  customModal.style.display = "none";
-  resetCustomChordModal();
-});
+// Removed legacy add-to-list handler; unified above
 
 function applyInversionToMIDIs(midiArray, inversion) {
   if (!midiArray || midiArray.length === 0) return [];
@@ -942,18 +1004,74 @@ function updatePreviewChord(card, chord) {
 
   if (!chordData) return;
 
-  const leftHandInfo = computeLeftHandInfo(chord, chordData, twoHandsMode);
+  let leftHandInfo = null;
+  let options = { twoHands: twoHandsMode };
+  if (Array.isArray(chord.leftHandMIDIs) && chord.leftHandMIDIs.length) {
+    options.leftHandMIDIs = chord.leftHandMIDIs.slice();
+  } else {
+    leftHandInfo = computeLeftHandInfo(chord, chordData, twoHandsMode);
+    options.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
+    options.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+  }
 
-  // Rebuild piano
-  const newPiano = makePiano(chordData, {
-    twoHands: twoHandsMode,
-    leftHandMidi: leftHandInfo ? leftHandInfo.midi : null,
-    leftHandLabel: leftHandInfo ? leftHandInfo.label : "",
-  });
+  const newPiano = makePiano(chordData, options);
 
   // Insert new piano above inversion controls
   const invWrap = card.querySelector(".inversion-control");
   card.insertBefore(newPiano, invWrap);
+}
+
+// Open custom chord modal prefilled with an existing chord for editing
+function openCustomChordModalForEdit(sectionIndex, chordIndex) {
+  const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+  const section = sections[sectionIndex];
+  if (!section || !section.chords || !section.chords[chordIndex]) return;
+
+  const ch = section.chords[chordIndex];
+  let chordData = null;
+
+  if (ch.customMIDIs) {
+    const notes = applyInversionToMIDIs(ch.customMIDIs, ch.inversion || 0);
+    chordData = {
+      notes,
+      rootMidi: ch.rootMidi != null ? ch.rootMidi : notes[0],
+    };
+  } else {
+    const { main } = splitChordParts(ch.sym);
+    const parsed = parseChordSymbol(main);
+    chordData = parsed
+      ? buildChordNotes(
+          parsed.root,
+          parsed.quality,
+          ch.inversion || 0,
+          ch.octave
+        )
+      : null;
+  }
+
+  if (!chordData) return;
+
+  selectedMIDIs = new Set(chordData.notes);
+  selectedLeftMIDIs = new Set(Array.isArray(ch.leftHandMIDIs) ? ch.leftHandMIDIs : []);
+  rootMID = chordData.rootMidi;
+  customChordNameInput.value = ch.sym || "";
+  editingContext = { active: true, sectionIndex, chordIndex };
+  suggestedEl.innerHTML = "";
+
+  customModal.style.display = "block";
+  customMarkingHand = "right";
+  // if toggle buttons exist, reflect current state
+  try {
+    const mr = document.getElementById("markRight");
+    const ml = document.getElementById("markLeft");
+    if (mr && ml) {
+      mr.setAttribute("aria-pressed", "true");
+      ml.setAttribute("aria-pressed", "false");
+    }
+    addCustomChordBtn.textContent = "Update Chord";
+  } catch (_) {}
+  renderCustomPiano();
+  updateSuggestions();
 }
 
 function renderSections() {
@@ -1044,16 +1162,19 @@ function renderSections() {
       }
 
       if (chordData) {
-        const leftHandInfo = computeLeftHandInfo(
-          chord,
-          chordData,
-          twoHandsMode
-        );
-        const piano = makePiano(chordData, {
-          twoHands: twoHandsMode,
-          leftHandMidi: leftHandInfo ? leftHandInfo.midi : null,
-          leftHandLabel: leftHandInfo ? leftHandInfo.label : "",
-        });
+        let pianoOptions = { twoHands: twoHandsMode };
+        if (Array.isArray(chord.leftHandMIDIs) && chord.leftHandMIDIs.length) {
+          pianoOptions.leftHandMIDIs = chord.leftHandMIDIs.slice();
+        } else {
+          const leftHandInfo = computeLeftHandInfo(
+            chord,
+            chordData,
+            twoHandsMode
+          );
+          pianoOptions.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
+          pianoOptions.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+        }
+        const piano = makePiano(chordData, pianoOptions);
         card.appendChild(piano);
       }
 
@@ -1094,6 +1215,16 @@ function renderSections() {
       invWrap.appendChild(rightBtn);
       card.appendChild(invWrap);
 
+      // --- Edit chord button ---
+      const editBtn = document.createElement("button");
+      editBtn.className = "edit-chord-section no-drag";
+      editBtn.textContent = "Edit";
+      editBtn.title = "Edit chord";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCustomChordModalForEdit(sectionIndex, chordIndex);
+      });
+
       // --- Remove chord button ---
       const removeBtn = document.createElement("button");
       removeBtn.className = "remove-chord-section no-drag";
@@ -1105,6 +1236,7 @@ function renderSections() {
         renderSections();
       });
 
+      card.appendChild(editBtn);
       card.appendChild(removeBtn);
 
       chordsContainer.appendChild(card);

@@ -70,6 +70,10 @@
             <div class="modal-content">
                 <span id="closeModal" class="close">&times;</span>
                 <h3>Create Custom Chord</h3>
+                <div id="handToggle" class="hand-toggle" style="margin:8px 0 12px 0;">
+                    <button id="markLeft" type="button" aria-pressed="false">Left Hand</button>
+                    <button id="markRight" type="button" aria-pressed="true">Right Hand</button>
+                </div>
                 <div id="customPiano"></div>
                 <div>
                     <label>Chord Name: </label>
@@ -140,12 +144,12 @@
         // const updateBtn = document.getElementById("updateGuitar"); // not needed
 
         function drawScale() {
-        const root = keySel.value;
-        const mode = modeSel.value;
-        const intervals = SCALE_FORMULAS[mode];
-        guitarEl.innerHTML = ""; // clear old diagram
-        const svg = renderScaleSVG(root, intervals); 
-        guitarEl.appendChild(svg);
+            const root = keySel.value;
+            const mode = modeSel.value;
+            const intervals = SCALE_FORMULAS[mode];
+            guitarEl.innerHTML = ""; // clear old diagram
+            const svg = renderScaleSVG(root, intervals);
+            guitarEl.appendChild(svg);
         }
 
         // update when dropdowns change
