@@ -28,6 +28,48 @@ export function renderScaleSVG(root, intervals, startFret = 1, fretsWide = 5) {
   const scale = buildScale(root, intervals);
   const rootIdx = noteIndex(root);
 
+  // Map semitone offsets from root to interval labels
+  const isLydian = (() => {
+    const lyd = SCALE_FORMULAS.lydian;
+    return (
+      Array.isArray(intervals) &&
+      intervals.length === lyd.length &&
+      lyd.every((v) => intervals.includes(v))
+    );
+  })();
+
+  function intervalLabel(semi) {
+    switch (semi) {
+      case 0:
+        return "R";
+      case 1:
+        return "b2";
+      case 2:
+        return "2";
+      case 3:
+        return "b3";
+      case 4:
+        return "3";
+      case 5:
+        return "4";
+      case 6:
+        // Show #4 for Lydian, otherwise b5 (Blues/Locrian)
+        return isLydian ? "#4" : "b5";
+      case 7:
+        return "5";
+      case 8:
+        return "b6";
+      case 9:
+        return "6";
+      case 10:
+        return "b7";
+      case 11:
+        return "7";
+      default:
+        return "";
+    }
+  }
+
   const fretWidth = 60;
   const stringHeight = 40;
   const paddingTop = 30;
@@ -144,7 +186,8 @@ export function renderScaleSVG(root, intervals, startFret = 1, fretsWide = 5) {
       openCircle.setAttribute("cx", xOpen);
       openCircle.setAttribute("cy", y);
       openCircle.setAttribute("r", 14);
-      openCircle.setAttribute("fill", "#fff");
+      const deg = (openMidi % 12 - rootIdx + 12) % 12;
+      openCircle.setAttribute("fill", deg === 0 ? "#ff6347" : "#fff");
       openCircle.setAttribute("stroke", "#333");
       openCircle.setAttribute("stroke-width", 2);
       svg.appendChild(openCircle);
@@ -153,9 +196,9 @@ export function renderScaleSVG(root, intervals, startFret = 1, fretsWide = 5) {
       openText.setAttribute("x", xOpen);
       openText.setAttribute("y", y + 5);
       openText.setAttribute("text-anchor", "middle");
-      openText.setAttribute("fill", "#333");
+      openText.setAttribute("fill", deg === 0 ? "#fff" : "#333");
       openText.setAttribute("font-size", "12");
-      openText.textContent = stringNote;
+      openText.textContent = intervalLabel(deg);
       svg.appendChild(openText);
 
       const openTooltip = document.createElementNS(svgNS, "title");
@@ -205,16 +248,16 @@ export function renderScaleSVG(root, intervals, startFret = 1, fretsWide = 5) {
       tooltip.textContent = noteNameWithOctave(midiNote);
       circle.appendChild(tooltip);
 
-      if (noteIdx === rootIdx) {
-        const rootText = document.createElementNS(svgNS, "text");
-        rootText.setAttribute("x", x);
-        rootText.setAttribute("y", y + 5);
-        rootText.setAttribute("text-anchor", "middle");
-        rootText.setAttribute("fill", "#fff");
-        rootText.setAttribute("font-size", "12");
-        rootText.textContent = "R";
-        svg.appendChild(rootText);
-      }
+      // Interval label inside circle (R, 2, b3, 4, 5, 6, b7, etc.)
+      const deg = (noteIdx - rootIdx + 12) % 12;
+      const label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", x);
+      label.setAttribute("y", y + 5);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("fill", "#fff");
+      label.setAttribute("font-size", "12");
+      label.textContent = intervalLabel(deg);
+      svg.appendChild(label);
     });
   }
 
