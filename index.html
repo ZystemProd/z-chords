@@ -122,16 +122,31 @@
             </select>
 
             <select id="guitarMode">
-                <option value="majorPentatonic">Major Pentatonic</option>
-                <option value="minorPentatonic">Minor Pentatonic</option>
-                <option value="blues">Blues (Minor)</option>
-                <option value="major">Major (Ionian)</option>
-                <option value="dorian">Dorian</option>
-                <option value="phrygian">Phrygian</option>
-                <option value="lydian">Lydian</option>
-                <option value="mixolydian">Mixolydian</option>
-                <option value="aeolian">Natural Minor</option>
-                <option value="locrian">Locrian</option>
+                <optgroup label="Major & Modal Family">
+                    <option value="major">Major (Ionian)</option>
+                    <option value="dorian">Dorian</option>
+                    <option value="phrygian">Phrygian</option>
+                    <option value="lydian">Lydian</option>
+                    <option value="mixolydian">Mixolydian</option>
+                    <option value="aeolian">Aeolian (Natural Minor)</option>
+                    <option value="locrian">Locrian</option>
+                </optgroup>
+                <optgroup label="Pentatonic & Blues">
+                    <option value="majorPentatonic">Major Pentatonic</option>
+                    <option value="minorPentatonic">Minor Pentatonic</option>
+                    <option value="majorBlues">Major Blues</option>
+                    <option value="minorBlues">Minor Blues</option>
+                </optgroup>
+                <optgroup label="Harmonic / Melodic Variants">
+                    <option value="harmonicMinor">Harmonic Minor</option>
+                    <option value="melodicMinor">Melodic Minor</option>
+                    <option value="harmonicMajor">Harmonic Major</option>
+                </optgroup>
+                <optgroup label="Symmetric Scales">
+                    <option value="wholeTone">Whole Tone</option>
+                    <option value="diminishedHalfWhole">Diminished (Half–Whole)</option>
+                    <option value="diminishedWholeHalf">Diminished (Whole–Half)</option>
+                </optgroup>
             </select>
 
             <div class="transpose-group" id="shapeStepper" role="group" aria-label="Scale shape">
@@ -172,11 +187,27 @@
             const root = keySel.value;
             const mode = modeSel.value;
             const intervals = SCALE_FORMULAS[mode];
-        const isCAGEDMode = ['major','dorian','phrygian','lydian','mixolydian','aeolian','locrian','majorPentatonic','minorPentatonic','blues'].includes(mode);
+        const isCAGEDMode = ['major','dorian','phrygian','lydian','mixolydian','aeolian','harmonicMinor','melodicMinor','harmonicMajor','locrian','majorPentatonic','minorPentatonic','majorBlues','minorBlues','blues'].includes(mode);
 
             // recompute shape starts for parent major (for modes) or major itself
             try {
-                if (isCAGEDMode) {
+                if (mode === 'wholeTone') {
+                    // Build 6 starts repeating every 2 frets, anchored to 6th-string root
+                    const E_PC = noteIdx('E');
+                    const rI = noteIdx(root);
+                    const r = (rI - E_PC + 12) % 12; // 6th-string root fret (0..11)
+                    let s = r; // start at the root so string 6 shows 1-2-3 across
+                    const starts = [];
+                    for (let k = 0; k < 6; k++) {
+                        let v = ((s + 2 * k) % 12);
+                        v = v === 0 ? 12 : v; // map 0 to 12th fret
+                        // normalize to 1..13 range
+                        while (v < 1) v += 12;
+                        while (v > 13) v -= 12;
+                        starts.push(v);
+                    }
+                    shapeStarts = starts;
+                } else if (isCAGEDMode) {
                     const parentRoot = getParentMajorRoot(root, mode);
                     shapeStarts = computeCAGEDShapes(parentRoot, SCALE_FORMULAS['major']);
                 } else {
@@ -202,7 +233,23 @@
                     windowWidth = 5; // Pos 5 spans 11–15 in G example
                     windowStart = windowStart - 1;
                 }
+                // Harmonic minor tweaks to include/exclude specific tones as per shapes
+                if (mode === 'harmonicMinor') {
+                    if (shapeIndex === 0) {
+                        // Shape 1: include Δ7 on D string -> extend window one fret lower
+                        windowStart = windowStart - 1;
+                    }
+                    if (shapeIndex === 2) {
+                        // Shape 3: include Δ7 on A string (one fret below)
+                        windowStart = windowStart - 1;
+                    }
+                }
                 // normalize 1..13
+                while (windowStart < 1) windowStart += 12;
+                while (windowStart > 13) windowStart -= 12;
+            } else if (mode === 'wholeTone') {
+                windowWidth = 5; // to show 1-2-3 on each E string within one box
+                // normalize
                 while (windowStart < 1) windowStart += 12;
                 while (windowStart > 13) windowStart -= 12;
             }

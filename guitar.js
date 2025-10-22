@@ -8,8 +8,11 @@ export const SCALE_FORMULAS = {
   pentatonic: [0, 3, 5, 7, 10],
   minorPentatonic: [0, 3, 5, 7, 10],
   blues: [0, 3, 5, 6, 7, 10],
+  minorBlues: [0, 3, 5, 6, 7, 10],
   // Major pentatonic
   majorPentatonic: [0, 2, 4, 7, 9],
+  // Major blues (hexatonic): 1 2 b3 3 5 6
+  majorBlues: [0, 2, 3, 4, 7, 9],
   // Heptatonic modes
   major: [0, 2, 4, 5, 7, 9, 11],
   dorian: [0, 2, 3, 5, 7, 9, 10],
@@ -18,6 +21,17 @@ export const SCALE_FORMULAS = {
   mixolydian: [0, 2, 4, 5, 7, 9, 10],
   aeolian: [0, 2, 3, 5, 7, 8, 10],
   locrian: [0, 1, 3, 5, 6, 8, 10],
+  // Symmetric
+  wholeTone: [0, 2, 4, 6, 8, 10],
+  // Harmonic minor (Aeolian with raised 7th)
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  // Melodic minor (ascending)
+  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  // Harmonic major (major with b6)
+  harmonicMajor: [0, 2, 4, 5, 7, 8, 11],
+  // Diminished (octatonic)
+  diminishedHalfWhole: [0, 1, 3, 4, 6, 7, 9, 10],
+  diminishedWholeHalf: [0, 2, 3, 5, 6, 8, 9, 11],
 };
 
 function noteIndex(name) {
@@ -192,6 +206,7 @@ export function getParentMajorRoot(root, mode) {
     major: 0,
     ionian: 0,
     majorPentatonic: 0,
+    majorBlues: 0,
     dorian: -2,
     phrygian: -4,
     lydian: -5,
@@ -199,6 +214,10 @@ export function getParentMajorRoot(root, mode) {
     aeolian: -9,
     minorPentatonic: -9,
     blues: -9,
+    minorBlues: -9,
+    harmonicMinor: -9, // same CAGED windows as natural minor
+    melodicMinor: -9, // use Aeolian windows
+    harmonicMajor: 0, // use Ionian windows
     locrian: -11,
   };
   const s = SHIFT[mode] ?? 0;
@@ -226,6 +245,14 @@ export function renderScaleSVG(
     const lyd = SCALE_FORMULAS.lydian;
     return Array.isArray(intervals) && intervals.length === lyd.length && lyd.every((v) => intervals.includes(v));
   })();
+  const isWholeTone = (() => {
+    const wt = SCALE_FORMULAS.wholeTone;
+    return Array.isArray(intervals) && intervals.length === wt.length && wt.every((v) => intervals.includes(v));
+  })();
+  const isHarmMinor = (() => {
+    const hm = SCALE_FORMULAS.harmonicMinor;
+    return Array.isArray(intervals) && intervals.length === hm.length && hm.every((v) => intervals.includes(v));
+  })();
 
   function intervalLabel(semi) {
     switch (semi) {
@@ -242,17 +269,17 @@ export function renderScaleSVG(
       case 5:
         return "4";
       case 6:
-        return isLydian ? "#4" : "b5";
+        return isWholeTone || isLydian ? "#4" : "b5";
       case 7:
         return "5";
       case 8:
-        return "b6";
+        return isWholeTone ? "#5" : "b6";
       case 9:
         return "6";
       case 10:
         return "b7";
       case 11:
-        return "7";
+        return isHarmMinor ? "Δ7" : "7";
       default:
         return "";
     }
@@ -401,9 +428,24 @@ export function renderScaleSVG(
   // Render notes in the window (no pruning); CAGED shape is determined by windowStart
   const toRemove = new Set();
 
+  // Harmonic minor per-shape fixups: Shape 2 remove Δ7 on B string
+  if (isHarmMinor && typeof windowStart === 'number') {
+    try {
+      const parent = getParentMajorRoot(root, 'harmonicMinor');
+      const starts = computeCAGEDShapes(parent, SCALE_FORMULAS.major);
+      const normStart = ((windowStart - 1) % 12 + 12) % 12 + 1;
+      const idx = starts.findIndex((s) => ((s - 1) % 12) === ((normStart - 1) % 12));
+      if (idx === 1) {
+        for (const n of renderNotes) {
+          if (n.stringIdx === 1 && n.deg === 11) n._remove = true;
+        }
+      }
+    } catch (_) {}
+  }
+
   // Render
-  for (const { x, y, noteIdx, midiNote, deg, id } of renderNotes) {
-    if (toRemove.has(id)) continue;
+  for (const { x, y, noteIdx, midiNote, deg, id, _remove } of renderNotes) {
+    if (toRemove.has(id) || _remove) continue;
     const circle = document.createElementNS(svgNS, "circle");
     circle.setAttribute("cx", x);
     circle.setAttribute("cy", y);
