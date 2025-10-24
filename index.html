@@ -29,13 +29,19 @@
         <section class="controls toolbar sticky">
             <!-- Row 1 -->
             <div class="controls-row row-1">
-                <div class="left">
-                    <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
-                        autocomplete="off" />
+                <div class="left"></div>
+                <div class="center">
+                    <div class="input-with-action">
+                        <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
+                            autocomplete="off" />
+                        <!-- Inline add button positioned inside the input field -->
+                        <button id="addChord" class="input-action-btn" type="button" aria-label="Add chord from input" title="Add chord (Enter)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+                        </button>
+                        <!-- Custom suggestions dropdown -->
+                        <div id="inputSuggestions" class="suggestions-menu" role="listbox" aria-label="Chord suggestions" hidden></div>
+                    </div>
                     <datalist id="suggestions"></datalist>
-                    <button id="addChord" aria-label="Add chord from input" title="Add chord (Enter)">Add Chord</button>
-                    <button id="openCustomChordModal" aria-label="Create a custom chord" title="Create a custom chord">Add Custom Chord</button>
-                    <button id="addSectionBtn" aria-label="Add a new section" title="Add a new section">Add Section</button>
                 </div>
                 <div class="right">
                     <button id="downloadPdf" class="btn icon-btn" aria-label="Download as PDF" title="Download as PDF">
@@ -50,6 +56,7 @@
 
             <!-- Row 2 -->
             <div class="controls-row row-2">
+                <div class="left"></div>
                 <div class="right">
                     <button id="handModeToggle" class="btn icon-btn" aria-label="Toggle two-hands mode" title="Toggle two-hands layout (H)" type="button"></button>
                     <button id="toggleInstrument" class="btn icon-btn" aria-label="Toggle instrument" title="Toggle instrument (G)" type="button"></button>
@@ -67,6 +74,11 @@
 
 
         <section class="boards" id="boards"></section>
+
+        <!-- Add Section CTA -->
+        <button id="addSectionCta" class="add-section-cta" type="button" aria-label="Add section" title="Add section">
+            <span class="add-section-plus" aria-hidden="true">+</span>
+        </button>
 
         <!-- Empty state placeholder -->
         <div id="emptyState" class="empty-state" hidden>

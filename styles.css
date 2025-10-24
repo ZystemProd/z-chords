@@ -50,7 +50,7 @@ body {
 }
 
 .app {
-  max-width: 1100px;
+  max-width: 1160px;
   margin: 28px auto;
   padding: 20px;
 }
@@ -74,7 +74,7 @@ h1 {
 .controls {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 25px;
   padding: 10px;
 }
 
@@ -86,12 +86,37 @@ h1 {
   background: color-mix(in oklab, var(--bg) 92%, black);
   backdrop-filter: saturate(1.2) blur(8px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 25px;
 }
 
 .controls-row {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Layout: Row 1 becomes a 3-column grid to truly center the input */
+.controls-row.row-1 {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+.controls-row.row-1 .left {
+  display: block;
+}
+.controls-row.row-1 .center {
+  display: flex;
+  justify-content: center;
+}
+.controls-row.row-1 .right {
+  justify-self: end;
+  display: flex;
+  gap: 8px;
+}
+
+/* Make the center input wide but responsive */
+.controls-row.row-1 .center .input-with-action {
+  width: clamp(360px, 50vw, 680px);
 }
 
 /* left/right alignment */
@@ -115,6 +140,243 @@ input[type="text"] {
   background: var(--input-bg);
   color: var(--text);
   min-width: 240px;
+}
+
+/* Input with inline action (e.g., + add chord) */
+.input-with-action {
+  position: relative; /* anchor the inline button to this wrapper */
+  display: inline-block; /* shrink to input height, works inside flex */
+  flex: 1 1 320px;
+  min-width: 220px;
+}
+.input-with-action input[type="text"] {
+  width: 100%;
+  height: 46px; /* bigger input */
+  padding-right: 48px; /* make room for the icon button */
+  font-size: 16px;
+  border-radius: 22px; /* pill-like */
+}
+.input-with-action .input-action-btn {
+  position: absolute; /* sit over the input on the right */
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kbd-label);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+.input-with-action .input-action-btn:hover,
+.input-with-action .input-action-btn:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+.input-with-action .input-action-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+/* Suggestions dropdown for the input */
+.suggestions-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: color-mix(in oklab, var(--bg) 94%, black);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 6px 0;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+  z-index: 5;
+  max-height: 260px;
+  overflow: auto;
+}
+.suggestions-menu .suggestion {
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+.suggestions-menu .suggestion:hover,
+.suggestions-menu .suggestion.highlight {
+  background: rgba(255, 255, 255, 0.08);
+}
+.suggestions-menu .add-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.suggestions-menu .add-custom .plus {
+  font-size: 18px;
+  opacity: 0.9;
+}
+.suggestions-menu .menu-divider {
+  margin: 6px 0;
+  border-top: 2px solid rgba(255, 255, 255, 0.2); /* stronger divider */
+}
+
+/* Make the input occupy the full row on small viewports */
+@media (max-width: 720px) {
+  .controls-row .left .input-with-action {
+    flex-basis: 100%;
+  }
+  .controls-row.row-1 {
+    grid-template-columns: 1fr; /* stack: center area only */
+  }
+  .controls-row.row-1 .right {
+    justify-self: start;
+    margin-top: 8px;
+  }
+}
+
+/* Mobile and small tablets responsiveness */
+@media (max-width: 768px) {
+  .app {
+    padding: 14px;
+  }
+  h1 {
+    font-size: 18px;
+  }
+  .subtitle {
+    font-size: 12px;
+  }
+  /* compact icon buttons */
+  .icon-btn,
+  .theme-btn {
+    width: 34px;
+    height: 34px;
+    padding: 10px;
+  }
+  /* shorter transpose group */
+  .transpose-group {
+    gap: 8px;
+    padding: 4px 8px;
+  }
+  .transpose-group .stepper-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+  }
+  .transpose-group .stepper-value {
+    font-size: 14px;
+  }
+  /* slightly smaller white keys */
+  :root {
+    --white-key-width: 30px;
+  }
+  .add-section-cta {
+    min-height: 100px;
+  }
+}
+
+@media (max-width: 600px) {
+  .app {
+    padding: 12px;
+  }
+  .controls-row {
+    gap: 6px;
+  }
+  .controls-row.row-2 {
+    flex-wrap: wrap;
+  }
+  .controls-row.row-2 .right {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .controls-row.row-1 .center .input-with-action {
+    width: 100%;
+  }
+  .input-with-action input[type="text"] {
+    height: 42px;
+    border-radius: 20px;
+  }
+  .input-with-action .input-action-btn {
+    right: 6px;
+    width: 28px;
+    height: 28px;
+  }
+  :root {
+    --white-key-width: 28px;
+  }
+  .card {
+    padding: 12px;
+  }
+  .card.preview h3 {
+    font-size: 24px;
+  }
+  .add-section-cta {
+    min-height: 90px;
+  }
+  /* shrink preview pianos and keep them within card bounds */
+  .card.preview {
+    align-self: stretch;
+  }
+  #boards.two-hands-mode .chords-container {
+    align-items: center;
+  }
+  .card.preview .white-keys {
+    height: 96px;
+  }
+  .card.preview .black-key {
+    top: 14px;
+    height: 42%;
+    width: 18px;
+  }
+  .card.preview .piano.two-hands {
+    width: 100%;
+    max-width: 100%;
+    transform: none; /* avoid layout overflow from transform scaling */
+    overflow: hidden;
+  }
+  .card.preview .white-key {
+    width: auto;
+  } /* let grid track size dictate width */
+}
+
+@media (max-width: 480px) {
+  .subtitle {
+    display: none;
+  }
+  :root {
+    --white-key-width: 24px;
+  }
+  .icon-btn,
+  .theme-btn {
+    width: 32px;
+    height: 32px;
+    padding: 8px;
+  }
+  .transpose-group {
+    padding: 3px 6px;
+  }
+  .transpose-group .stepper-btn {
+    width: 26px;
+    height: 26px;
+  }
+  .add-section-cta {
+    min-height: 80px;
+  }
+  .card.preview .white-keys {
+    height: 86px;
+  }
+  .card.preview .black-key {
+    top: 12px;
+    height: 40%;
+    width: 16px;
+  }
+  .card.preview .piano.two-hands {
+    transform: none;
+  }
 }
 
 button,
@@ -146,7 +408,56 @@ select:focus-visible {
 .boards {
   display: flex;
   flex-direction: column; /* stack sections vertically */
-  gap: 30px; /* space between sections */
+  gap: 40px; /* more space between sections */
+}
+
+/* Sections: clickable, with soft active outline */
+#boards .section {
+  border-radius: 12px;
+  padding: 8px 4px 2px 4px; /* tiny breathing room around header/cards */
+  transition: box-shadow 0.15s ease, outline-color 0.15s ease;
+  overflow-x: hidden; /* prevent pianos from bleeding horizontally on mobile */
+}
+#boards .section.active {
+  outline: 2px solid color-mix(in oklab, var(--button-bg) 35%, white);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(30, 110, 240, 0.12);
+  margin: 20px 0 20px 0;
+}
+#boards .section .section-header {
+  position: relative;
+  padding: 10px 36px 4px 8px; /* room for absolute remove button */
+}
+
+/* Add Section CTA */
+.add-section-cta {
+  width: 100%;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0 32px 0; /* extra spacing from the last section */
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--bg) 96%, black); /* de-emphasized */
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: transform 0.05s ease, filter 0.15s ease, background 0.15s ease,
+    border-color 0.15s ease, color 0.15s ease;
+}
+.add-section-cta:hover {
+  background: color-mix(in oklab, var(--bg) 92%, black);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+.add-section-cta:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--button-bg) 70%, white);
+  outline-offset: 3px;
+}
+.add-section-plus {
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 500;
 }
 
 /* Empty state */
@@ -383,6 +694,7 @@ select:focus-visible {
   display: flex;
   align-items: center; /* center LH control vertically with piano */
   gap: 2px; /* tighter space between control and piano */
+  justify-content: center; /* keep the whole row centered */
 }
 
 .lh-piano-wrap .lh-control {
@@ -859,6 +1171,7 @@ body.light-mode .card.preview .piano {
   width: fit-content;
   max-width: none;
   align-self: center;
+  padding-right: 20px;
 }
 
 .piano.two-hands {
@@ -869,6 +1182,32 @@ body.light-mode .card.preview .piano {
 
 .piano.two-hands .white-keys {
   width: max-content;
+}
+
+/* Strong mobile overrides placed after general rules to win cascade */
+@media (max-width: 600px) {
+  #boards.two-hands-mode .card.preview {
+    width: 100%;
+    max-width: 100%;
+    align-self: stretch;
+  }
+  .card.preview .piano.two-hands {
+    width: 100%;
+    max-width: 100%;
+    transform: none;
+    overflow: hidden;
+  }
+  .card.preview .white-key {
+    width: auto;
+  }
+  .lh-piano-wrap {
+    justify-content: center;
+  }
+}
+@media (max-width: 480px) {
+  .card.preview .piano.two-hands {
+    transform: none;
+  }
 }
 
 .white-key.left-hand {
@@ -951,7 +1290,9 @@ body.light-mode .edit-chord-section:hover {
 }
 
 .remove-section {
-  top: 0px;
+  position: absolute;
+  top: 10px; /* equal offset to the right for symmetry */
+  right: 10px;
   display: none;
   background: red;
   color: white;
@@ -964,7 +1305,6 @@ body.light-mode .edit-chord-section:hover {
   height: 20px;
   line-height: 18px;
   text-align: center;
-  margin-right: 20px;
 }
 
 .card.preview:hover .remove-chord-section {
@@ -990,8 +1330,10 @@ body.light-mode .edit-chord-section:hover {
 }
 
 .editable-section-name {
+  display: inline-block; /* limit click/edit area to text bounds */
   cursor: text;
   outline: none;
+  margin: 0; /* avoid margins extending click area */
   padding: 4px 0;
   border-bottom: 1px dashed transparent;
   transition: border-color 0.2s;
@@ -1028,4 +1370,20 @@ body.light-mode .edit-chord-section:hover {
   background-color: #fff; /* or #f9f9f9 for soft white */
   border: 1px solid #ccc; /* optional border */
   border-radius: 6px; /* optional rounded corners */
+}
+
+/* Horizontal scroll support for two-hands pianos */
+.piano-scroll {
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+#boards.two-hands-mode .piano-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+#boards.two-hands-mode .piano-scroll .piano.two-hands {
+  width: max-content;
+  max-width: none;
+  transform: none;
 }
