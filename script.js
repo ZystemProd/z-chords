@@ -597,6 +597,35 @@ function addChordsFromInput(inputValue) {
 }
 
 const chordInput = document.getElementById("chordInput");
+// Hover glow for the chord input wrapper (radial gradient that follows mouse)
+(() => {
+  const inputWrap = document.querySelector('.input-with-action');
+  if (!inputWrap) return;
+
+  const RADIUS = 140; // px
+
+  function setGlowVisible(visible) {
+    // keep size constant for smoother fade; only animate opacity
+    inputWrap.style.setProperty('--glow-opacity', visible ? '1' : '0');
+  }
+
+  inputWrap.addEventListener('mouseenter', () => setGlowVisible(true));
+  inputWrap.addEventListener('mouseleave', () => setGlowVisible(false));
+  inputWrap.addEventListener('mousemove', (e) => {
+    const rect = inputWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    inputWrap.style.setProperty('--glow-x', `${x}px`);
+    inputWrap.style.setProperty('--glow-y', `${y}px`);
+  });
+
+  // initialize hidden and set base size/color
+  inputWrap.style.setProperty('--glow-size', `${RADIUS}px`);
+  if (!getComputedStyle(inputWrap).getPropertyValue('--glow-color')) {
+    inputWrap.style.setProperty('--glow-color', 'rgba(30,110,240,0.55)');
+  }
+  setGlowVisible(false);
+})();
 const suggestionsEl = document.getElementById("suggestions"); // legacy datalist (unused for UI)
 const inputSuggestions = document.getElementById("inputSuggestions");
 const handModeToggle = document.getElementById("handModeToggle");

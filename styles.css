@@ -19,6 +19,8 @@
   --kbd-label: #9fb0c2;
   --modal-close: #aaa;
   --white-key-width: 36px;
+  /* UI accent glow color, derived from primary button color */
+  --glow-color: color-mix(in oklab, var(--button-bg) 70%, transparent);
 }
 
 body.light-mode {
@@ -36,6 +38,7 @@ body.light-mode {
   --card-gradient-2: #e9ecf1;
   --kbd-label: #555555;
   --modal-close: #444;
+  --glow-color: color-mix(in oklab, var(--button-bg) 60%, transparent);
 }
 
 * {
@@ -148,6 +151,42 @@ input[type="text"] {
   display: inline-block; /* shrink to input height, works inside flex */
   flex: 1 1 320px;
   min-width: 220px;
+
+  /* Glow ring container around the input */
+  padding: 2px; /* visible ring around input */
+  border-radius: 24px; /* slightly larger than input (22px) */
+  isolation: isolate; /* create stacking context for ::before */
+}
+
+/* Radial glow layer that we can fade via opacity */
+.input-with-action::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 2px; /* ring thickness */
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    var(--glow-size, 0px) circle at var(--glow-x, 50%) var(--glow-y, 50%),
+    var(--glow-color, rgba(30, 110, 240, 0.55)),
+    transparent 80%
+  );
+  opacity: var(--glow-opacity, 0);
+  transition: opacity 500ms ease, background 150ms ease;
+
+  /* Show only the border area of this layer */
+  -webkit-mask: 
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Ensure the actual input is layered above the glow ring */
+.input-with-action input[type="text"] {
+  position: relative;
+  z-index: 1;
 }
 .input-with-action input[type="text"] {
   width: 100%;
