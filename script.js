@@ -139,6 +139,29 @@ const CHORD_RE = new RegExp(
   "^[ ]*([A-Ga-g])([#b]?)(?:(" + TYPE_RE + "))?[ ]*$"
 );
 
+// Scale formulas for piano scales (mirrors guitar.js)
+const SCALE_FORMULAS_PIANO = {
+  pentatonic: [0, 3, 5, 7, 10],
+  minorPentatonic: [0, 3, 5, 7, 10],
+  blues: [0, 3, 5, 6, 7, 10],
+  minorBlues: [0, 3, 5, 6, 7, 10],
+  majorPentatonic: [0, 2, 4, 7, 9],
+  majorBlues: [0, 2, 3, 4, 7, 9],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  aeolian: [0, 2, 3, 5, 7, 8, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10],
+  wholeTone: [0, 2, 4, 6, 8, 10],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  harmonicMajor: [0, 2, 4, 5, 7, 8, 11],
+  diminishedHalfWhole: [0, 1, 3, 4, 6, 7, 9, 10],
+  diminishedWholeHalf: [0, 2, 3, 5, 6, 8, 9, 11],
+};
+
 function normalizeRoot(r) {
   if (!r) return r;
   r = r.split(" ").join("");
@@ -1954,10 +1977,9 @@ document.addEventListener("keydown", (e) => {
     const btn = document.getElementById("handModeToggle");
     if (btn) btn.click();
   }
-  // Toggle instrument: G
+  // Cycle instruments: G
   if (!mod && e.key.toLowerCase() === "g") {
-    const btn = document.getElementById("toggleInstrument");
-    if (btn) btn.click();
+    cycleInstrument();
   }
   // Toggle theme: T
   if (!mod && e.key.toLowerCase() === "t") {
@@ -1966,42 +1988,224 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-document.addEventListener("DOMContentLoaded", () => {
-  const toggleBtn = document.getElementById("toggleInstrument");
-  const pianoEl = document.getElementById("boards");
-  const guitarEl = document.getElementById("guitar");
-  const controlsEl = document.getElementById("guitarControls");
-  const addSectionCta = document.getElementById("addSectionCta");
+// Instrument + Sub-tab state and UI
+let currentInstrument = "piano";
+let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat" };
 
-  let mode = "piano";
-
-  const updateInstrumentUI = () => {
-    if (mode === "piano") {
-      toggleBtn.innerHTML = INSTRUMENT_ICONS.guitar; // shows what you'll switch to
-      toggleBtn.setAttribute("title", "Switch to guitar (G)");
-      pianoEl.style.display = "block";
-      guitarEl.style.display = "none";
-      controlsEl.style.display = "none";
-      if (addSectionCta) addSectionCta.style.display = "block";
-      if (handModeToggle) handModeToggle.style.display = "inline-flex";
-    } else {
-      toggleBtn.innerHTML = INSTRUMENT_ICONS.piano;
-      toggleBtn.setAttribute("title", "Switch to piano (G)");
-      pianoEl.style.display = "none";
-      guitarEl.style.display = "block";
-      controlsEl.style.display = "block";
-      if (addSectionCta) addSectionCta.style.display = "none"; // hide CTA in guitar mode
-      if (handModeToggle) handModeToggle.style.display = "none"; // hide two-hands toggle in guitar mode
+function loadInstrumentState() {
+  try {
+    const savedInst = localStorage.getItem("cv-instrument");
+    if (savedInst) currentInstrument = savedInst;
+    const savedSub = localStorage.getItem("cv-subtabs");
+    if (savedSub) {
+      const parsed = JSON.parse(savedSub);
+      currentSubtab = { ...currentSubtab, ...parsed };
     }
-  };
+  } catch (_) {}
+}
 
-  toggleBtn.addEventListener("click", () => {
-    mode = mode === "piano" ? "guitar" : "piano";
-    updateInstrumentUI();
+function saveInstrumentState() {
+  try {
+    localStorage.setItem("cv-instrument", currentInstrument);
+    localStorage.setItem("cv-subtabs", JSON.stringify(currentSubtab));
+  } catch (_) {}
+}
+
+function setInstrument(inst) {
+  currentInstrument = inst;
+  saveInstrumentState();
+  updateTabsUI({ animateSubTabs: false });
+}
+
+function setSubtab(inst, sub) {
+  currentSubtab[inst] = sub;
+  saveInstrumentState();
+  updateTabsUI({ animateSubTabs: true });
+}
+
+function cycleInstrument() {
+  const order = ["piano", "guitar", "drums"];
+  const idx = order.indexOf(currentInstrument);
+  const next = order[(idx + 1) % order.length];
+  setInstrument(next);
+}
+
+function updateTabsUI(opts = {}) {
+  const { animateSubTabs = true } = opts;
+  // Instrument tabs aria-selected
+  const instTabs = document.querySelectorAll('.instrument-tabs .tab');
+  instTabs.forEach(btn => {
+    const inst = btn.getAttribute('data-instrument');
+    btn.setAttribute('aria-selected', String(inst === currentInstrument));
   });
 
-  updateInstrumentUI();
+  // Sub-tabs: show only those matching instrument
+  const allSubTabs = document.querySelectorAll('#instrumentSubTabs .tab');
+  allSubTabs.forEach(btn => {
+    const inst = btn.getAttribute('data-instrument');
+    const sub = btn.getAttribute('data-subtab');
+    const isVisible = inst === currentInstrument;
+    btn.style.display = isVisible ? 'inline-flex' : 'none';
+    const selected = currentSubtab[currentInstrument] === sub && isVisible;
+    btn.setAttribute('aria-selected', String(selected));
+  });
+
+  // Content + control visibility
+  const boardsEl = document.getElementById('boards');
+  const guitarEl = document.getElementById('guitar');
+  const guitarControls = document.getElementById('guitarControls');
+  const pianoControls = document.getElementById('pianoChordControls');
+  const pianoScaleControls = document.getElementById('pianoScaleControls');
+  const drumsControls = document.getElementById('drumsControls');
+  const addSectionCta = document.getElementById('addSectionCta');
+  const pianoScaleEl = document.getElementById('pianoScale');
+
+  // defaults
+  if (boardsEl) boardsEl.style.display = 'none';
+  if (guitarEl) guitarEl.style.display = 'none';
+  if (guitarControls) guitarControls.style.display = 'none';
+  if (pianoControls) pianoControls.style.display = 'none';
+  if (pianoScaleControls) pianoScaleControls.style.display = 'none';
+  if (drumsControls) drumsControls.style.display = 'none';
+  if (handModeToggle) handModeToggle.style.display = 'none';
+  if (addSectionCta) addSectionCta.style.display = 'none';
+  if (pianoScaleEl) pianoScaleEl.style.display = 'none';
+
+  if (currentInstrument === 'piano') {
+    const sub = currentSubtab.piano;
+    if (sub === 'chord') {
+      if (boardsEl) boardsEl.style.display = 'block';
+      if (pianoControls) pianoControls.style.display = 'inline-flex';
+      if (handModeToggle) handModeToggle.style.display = 'inline-flex';
+      if (addSectionCta) addSectionCta.style.display = 'block';
+    } else {
+      // Piano → Scales
+      if (pianoScaleControls) pianoScaleControls.style.display = 'inline-flex';
+      if (pianoScaleEl) {
+        pianoScaleEl.style.display = 'block';
+        drawPianoScale();
+      }
+    }
+  } else if (currentInstrument === 'guitar') {
+    const sub = currentSubtab.guitar;
+    if (sub === 'scale') {
+      if (guitarControls) guitarControls.style.display = 'inline-flex';
+      if (guitarEl) guitarEl.style.display = 'block';
+    } else {
+      // Guitar → Chord (placeholder)
+      if (guitarEl) guitarEl.style.display = 'none';
+    }
+  } else if (currentInstrument === 'drums') {
+    if (drumsControls) drumsControls.style.display = 'inline-flex';
+  }
+
+  // Move the animated highlights
+  positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), true);
+  positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), animateSubTabs);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadInstrumentState();
+
+  // Click handlers: instrument tabs
+  document.querySelectorAll('.instrument-tabs .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setInstrument(btn.getAttribute('data-instrument'));
+    });
+  });
+
+  // Click handlers: sub-tabs
+  document.querySelectorAll('#instrumentSubTabs .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inst = btn.getAttribute('data-instrument');
+      const sub = btn.getAttribute('data-subtab');
+      setInstrument(inst); // ensure instrument context
+      setSubtab(inst, sub);
+    });
+  });
+
+  // Keyboard support for tabs (Left/Right)
+  const instContainer = document.querySelector('.instrument-tabs');
+  if (instContainer) {
+    instContainer.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const order = ['piano','guitar','drums'];
+      const idx = order.indexOf(currentInstrument);
+      const next = e.key === 'ArrowRight' ? (idx + 1) % order.length : (idx - 1 + order.length) % order.length;
+      setInstrument(order[next]);
+      const btn = document.querySelector(`.instrument-tabs .tab[data-instrument="${order[next]}"]`);
+      if (btn) btn.focus();
+    });
+  }
+  const subContainer = document.getElementById('instrumentSubTabs');
+  if (subContainer) {
+    subContainer.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const visible = Array.from(subContainer.querySelectorAll('.tab'))
+        .filter(b => b.style.display !== 'none' && b.getAttribute('data-instrument') === currentInstrument);
+      const idx = visible.findIndex(b => b.getAttribute('aria-selected') === 'true');
+      if (idx === -1) return;
+      const next = e.key === 'ArrowRight' ? (idx + 1) % visible.length : (idx - 1 + visible.length) % visible.length;
+      const nextBtn = visible[next];
+      setSubtab(currentInstrument, nextBtn.getAttribute('data-subtab'));
+      nextBtn.focus();
+    });
+  }
+
+  updateTabsUI({ animateSubTabs: false });
+  // Initial highlight positioning after layout/paint
+  setTimeout(() => {
+    positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), false);
+    positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), false);
+  }, 0);
+  window.addEventListener('resize', () => {
+    positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), false);
+    positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), false);
+  });
+  const instTabsEl = document.querySelector('.instrument-tabs.segmented');
+  const subTabsEl = document.getElementById('instrumentSubTabs');
+  if (instTabsEl) instTabsEl.addEventListener('scroll', () => positionSegmentedHighlight(instTabsEl, false));
+  if (subTabsEl) subTabsEl.addEventListener('scroll', () => positionSegmentedHighlight(subTabsEl, false));
+
+  // Piano scale controls
+  const pianoKeySel = document.getElementById('pianoScaleKey');
+  const pianoModeSel = document.getElementById('pianoScaleMode');
+  const pianoUpdateBtn = document.getElementById('updatePianoScale');
+  if (pianoKeySel && pianoModeSel) {
+    pianoKeySel.addEventListener('change', () => drawPianoScale());
+    pianoModeSel.addEventListener('change', () => drawPianoScale());
+  }
+  if (pianoUpdateBtn) pianoUpdateBtn.addEventListener('click', () => drawPianoScale());
 });
+
+// Highlight animation helper for segmented tabs
+function positionSegmentedHighlight(container, animate = true) {
+  if (!container) return;
+  const highlight = container.querySelector('.segmented-highlight');
+  if (!highlight) return;
+  const tabs = Array.from(container.querySelectorAll('.tab'));
+  // pick visible tab with aria-selected = true
+  const target = tabs.find(btn => btn.getAttribute('aria-selected') === 'true' && btn.style.display !== 'none');
+  if (!target) { highlight.style.width = '0px'; return; }
+  const left = target.offsetLeft - container.scrollLeft; // absolute pos inside container
+  const width = target.offsetWidth;
+  // toggle transition
+  if (!animate) {
+    const prev = highlight.style.transition;
+    highlight.style.transition = 'none';
+    // set position
+    highlight.style.width = width + 'px';
+    highlight.style.left = left + 'px';
+    // force reflow then restore transition for future animations
+    void highlight.offsetWidth;
+    highlight.style.transition = prev || '';
+  } else {
+    highlight.style.width = width + 'px';
+    highlight.style.left = left + 'px';
+  }
+}
 
 // Initialize transpose display
 updateTransposeUI();
@@ -2010,3 +2214,67 @@ updateTransposeUI();
 loadSections();
 // render sections layout (not the old single-card render)
 renderSections();
+
+// Drums placeholder controls
+document.addEventListener('DOMContentLoaded', () => {
+  const playBtn = document.getElementById('drumsPlayStop');
+  const clearBtn = document.getElementById('drumsClear');
+  const tempoDown = document.getElementById('tempoDown');
+  const tempoUp = document.getElementById('tempoUp');
+  const tempoVal = document.getElementById('tempoValue');
+  let tempo = 120;
+  if (tempoVal) tempo = Number(tempoVal.textContent || '120') || 120;
+
+  if (playBtn) playBtn.addEventListener('click', () => {
+    const pressed = playBtn.getAttribute('aria-pressed') === 'true';
+    const next = !pressed;
+    playBtn.setAttribute('aria-pressed', String(next));
+    playBtn.textContent = next ? 'Stop' : 'Play';
+  });
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    // Placeholder – integrate with drum grid when available
+    console.log('Drums cleared');
+  });
+  if (tempoDown) tempoDown.addEventListener('click', () => {
+    tempo = Math.max(20, tempo - 5);
+    if (tempoVal) tempoVal.textContent = String(tempo);
+  });
+  if (tempoUp) tempoUp.addEventListener('click', () => {
+    tempo = Math.min(260, tempo + 5);
+    if (tempoVal) tempoVal.textContent = String(tempo);
+  });
+});
+
+// Draw a two-octave piano with scale tones highlighted (one-hand)
+function drawPianoScale() {
+  const el = document.getElementById('pianoScale');
+  const keySel = document.getElementById('pianoScaleKey');
+  const modeSel = document.getElementById('pianoScaleMode');
+  if (!el || !keySel || !modeSel) return;
+
+  const root = keySel.value;
+  const mode = modeSel.value;
+  const intervals = SCALE_FORMULAS_PIANO[mode] || SCALE_FORMULAS_PIANO.major;
+
+  const { low: LOW, high: HIGH } = getPianoRange(false); // 2 octaves
+  const rootIdx = nameToIndex(root);
+  if (rootIdx < 0) return;
+
+  // Find the lowest root within range
+  let rootMidiInRange = null;
+  for (let m = LOW; m <= HIGH; m++) {
+    if (m % 12 === rootIdx) { rootMidiInRange = m; break; }
+  }
+  if (rootMidiInRange === null) rootMidiInRange = 60 + rootIdx; // fallback
+
+  const inScale = new Set(intervals.map(x => ((x % 12) + 12) % 12));
+  const midis = [];
+  for (let m = LOW; m <= HIGH; m++) {
+    const deg = (m % 12 - rootIdx + 12) % 12;
+    if (inScale.has(deg)) midis.push(m);
+  }
+
+  const chordLike = { notes: midis, rootMidi: rootMidiInRange };
+  el.innerHTML = '';
+  el.appendChild(makePiano(chordLike, { twoHands: false }));
+}

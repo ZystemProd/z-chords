@@ -50,6 +50,7 @@ body {
   font-family: Inter, system-ui, Arial;
   background: var(--bg);
   color: var(--text);
+  scrollbar-gutter: stable; /* prevent horizontal shift when vertical scrollbar appears */
 }
 
 .app {
@@ -136,6 +137,68 @@ h1 {
   flex: 1;
 }
 
+/* Segmented tab controls */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--bg) 94%, black);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: auto; /* allow horizontal scroll on mobile */
+  position: relative;
+}
+.segmented .tab {
+  background: transparent;
+  color: var(--kbd-label);
+  border: 1px solid transparent;
+  padding: 6px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1; /* above highlight */
+}
+.segmented .tab[aria-selected="true"] {
+  color: var(--button-text);
+}
+.segmented .segmented-highlight {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  height: calc(100% - 8px);
+  width: 0;
+  background: var(--button-bg);
+  border-radius: 10px;
+  transition: left 200ms ease, width 200ms ease;
+  z-index: 0;
+}
+.instrument-tabs {
+  max-width: 100%;
+}
+.sub-tabs {
+  margin-right: 8px;
+  max-width: 50vw;
+  flex: 0 0 auto;
+}
+
+/* Divider between sub-tabs and control clusters */
+.toolbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 10px;
+  align-self: center;
+}
+
+/* Inline control clusters after sub-tabs */
+.control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 input[type="text"] {
   padding: 8px 10px;
   border-radius: 8px;
@@ -176,9 +239,7 @@ input[type="text"] {
   transition: opacity 500ms ease, background 150ms ease;
 
   /* Show only the border area of this layer */
-  -webkit-mask: 
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
 }
@@ -236,7 +297,7 @@ input[type="text"] {
   border-radius: 10px;
   padding: 6px 0;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
-  z-index: 5;
+  z-index: 9999;
   max-height: 260px;
   overflow: auto;
 }
@@ -597,8 +658,9 @@ select:focus-visible {
   background: color-mix(in oklab, var(--white) 90%, var(--bg) 10%);
   color: color-mix(in oklab, var(--black) 85%, var(--text) 15%);
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 14px;
-  padding: 6px 10px;
+  border-radius: 12px;
+  height: 38px; /* match button height */
+  padding: 4px 8px; /* centers 28px steppers in 38px group */
 }
 
 /* Stepper buttons inside transpose group */
@@ -607,13 +669,13 @@ select:focus-visible {
   color: inherit;
   border: none;
   padding: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 .transpose-group .stepper-btn:hover {
@@ -1247,6 +1309,19 @@ body.light-mode .card.preview .piano {
   .card.preview .piano.two-hands {
     transform: none;
   }
+}
+
+/* Additional mobile tweaks for tabs */
+@media (max-width: 600px) {
+  .segmented {
+    max-width: 100%;
+  }
+  /* sub-tabs naturally size to content on mobile */
+}
+
+/* Reduce vertical jank when switching instruments */
+.controls-row.row-2 {
+  min-height: 44px;
 }
 
 .white-key.left-hand {

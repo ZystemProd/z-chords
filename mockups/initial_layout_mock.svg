@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1160" height="360" viewBox="0 0 1160 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1160" height="360" fill="#0B0F15"/>
+
+  <!-- App container -->
+  <g transform="translate(20,20)">
+    <!-- Header -->
+    <text x="560" y="18" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" fill="#E6EEF8">Chord Viewer</text>
+    <text x="560" y="40" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" fill="#9FB0C2">Type a chord and click Add. Switch inversion per chord.</text>
+
+    <!-- Sticky toolbar background -->
+    <g transform="translate(0,54)">
+      <rect x="0" y="0" width="1120" height="120" rx="10" fill="#0D131C" stroke="rgba(255,255,255,0.06)"/>
+
+      <!-- Row 1: centered input and right utilities -->
+      <!-- Center input wrapper with subtle glow ring -->
+      <g transform="translate(220,16)">
+        <!-- Glow ring -->
+        <rect x="0" y="0" width="680" height="50" rx="24" fill="#0B0F15"/>
+        <rect x="0" y="0" width="680" height="50" rx="24" stroke="rgba(30,110,240,0.5)" stroke-width="2"/>
+        <!-- Input body -->
+        <rect x="4" y="4" width="672" height="42" rx="21" fill="#0F1621" stroke="#242832"/>
+        <text x="18" y="30" font-family="Inter, Arial, sans-serif" font-size="15" fill="#9FB0C2">e.g. C, Dm, Bbmaj7, F#7</text>
+        <!-- Add (+) button -->
+        <g transform="translate(636,8)">
+          <circle cx="16" cy="16" r="16" fill="#1E6EF0"/>
+          <rect x="15" y="7" width="2" height="18" rx="1" fill="#FFFFFF"/>
+          <rect x="7" y="15" width="18" height="2" rx="1" fill="#FFFFFF"/>
+        </g>
+      </g>
+
+      <!-- Row 1 right: PDF, Help, Theme -->
+      <g transform="translate(936,14)">
+        <g transform="translate(0,0)">
+          <rect x="0" y="0" width="42" height="42" rx="8" fill="#12141A" stroke="rgba(255,255,255,0.1)"/>
+          <text x="21" y="26" text-anchor="middle" font-family="Inter, Arial" font-size="11" fill="#E6EEF8">PDF</text>
+        </g>
+        <g transform="translate(50,0)">
+          <rect x="0" y="0" width="66" height="42" rx="8" fill="#12141A" stroke="rgba(255,255,255,0.1)"/>
+          <text x="33" y="26" text-anchor="middle" font-family="Inter, Arial" font-size="12" fill="#E6EEF8">Help</text>
+        </g>
+        <g transform="translate(122,0)">
+          <rect x="0" y="0" width="42" height="42" rx="8" fill="#12141A" stroke="rgba(255,255,255,0.1)"/>
+          <circle cx="21" cy="21" r="9" fill="#E6EEF8"/>
+        </g>
+      </g>
+
+      <!-- Row 2: instrument tabs (left) and sub-tabs + controls (right) -->
+      <!-- Instrument tabs left -->
+      <g transform="translate(12,72)">
+        <!-- Piano (active) -->
+        <rect x="0" y="0" width="88" height="34" rx="17" fill="#1E6EF0"/>
+        <text x="44" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#FFFFFF">Piano</text>
+        <!-- Guitar -->
+        <rect x="98" y="0" width="90" height="34" rx="17" fill="#0F1621" stroke="#242832"/>
+        <text x="143" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#9FB0C2">Guitar</text>
+        <!-- Drums -->
+        <rect x="200" y="0" width="92" height="34" rx="17" fill="#0F1621" stroke="#242832"/>
+        <text x="246" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#9FB0C2">Drums</text>
+      </g>
+
+      <!-- Sub-tabs + controls right -->
+      <g transform="translate(700,72)">
+        <!-- Sub-tabs: Chord (active), Scales -->
+        <rect x="0" y="0" width="84" height="34" rx="17" fill="#1E6EF0"/>
+        <text x="42" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#FFFFFF">Chord</text>
+        <rect x="92" y="0" width="86" height="34" rx="17" fill="#0F1621" stroke="#242832"/>
+        <text x="135" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#9FB0C2">Scales</text>
+
+        <!-- Controls cluster for Piano → Chord -->
+        <!-- Two-hands toggle -->
+        <g transform="translate(190,0)">
+          <rect x="0" y="0" width="42" height="34" rx="10" fill="#12141A" stroke="rgba(255,255,255,0.1)"/>
+          <text x="21" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="11" fill="#E6EEF8">2H</text>
+        </g>
+        <!-- Transpose group -->
+        <g transform="translate(238,0)">
+          <rect x="0" y="0" width="120" height="34" rx="10" fill="#0F1621" stroke="#242832"/>
+          <rect x="6" y="6" width="22" height="22" rx="6" fill="#12141A" stroke="rgba(255,255,255,0.1)"/>
+          <text x="17" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="16" fill="#E6EEF8">−</text>
+          <text x="60" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#E6EEF8">0</text>
+          <rect x="92" y="6" width="22" height="22" rx="6" fill="#12141A" stroke="rgba(255,255,255,0.1)"/>
+          <text x="103" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="16" fill="#E6EEF8">+</text>
+        </g>
+        <!-- Clear (primary) -->
+        <g transform="translate(366,0)">
+          <rect x="0" y="0" width="76" height="34" rx="10" fill="#1E6EF0"/>
+          <text x="38" y="22" text-anchor="middle" font-family="Inter, Arial" font-size="13" fill="#FFFFFF">Clear</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- Boards area placeholder -->
+    <g transform="translate(0,192)">
+      <rect x="0" y="0" width="1120" height="136" rx="10" fill="#12141A" stroke="rgba(255,255,255,0.06)"/>
+      <text x="560" y="72" text-anchor="middle" font-family="Inter, Arial" font-size="14" fill="#9FB0C2">Chord boards appear here…</text>
+    </g>
+  </g>
+</svg>
+
