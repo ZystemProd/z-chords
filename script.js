@@ -1956,38 +1956,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// Keyboard shortcuts
-document.addEventListener("keydown", (e) => {
-  const isMac = navigator.platform.toUpperCase().includes("MAC");
-  const mod = isMac ? e.metaKey : e.ctrlKey;
-  // Focus input: Ctrl/Cmd+K
-  if (mod && e.key.toLowerCase() === "k") {
-    e.preventDefault();
-    const input = document.getElementById("chordInput");
-    if (input) input.focus();
-  }
-  // Export PDF: Ctrl/Cmd+Shift+P
-  if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
-    e.preventDefault();
-    const btn = document.getElementById("downloadPdf");
-    if (btn) btn.click();
-  }
-  // Toggle two-hands: H
-  if (!mod && e.key.toLowerCase() === "h") {
-    const btn = document.getElementById("handModeToggle");
-    if (btn) btn.click();
-  }
-  // Cycle instruments: G
-  if (!mod && e.key.toLowerCase() === "g") {
-    cycleInstrument();
-  }
-  // Toggle theme: T
-  if (!mod && e.key.toLowerCase() === "t") {
-    const btn = document.getElementById("themeToggle");
-    if (btn) btn.click();
-  }
-});
-
 // Instrument + Sub-tab state and UI
 let currentInstrument = "piano";
 let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat" };
@@ -2021,13 +1989,6 @@ function setSubtab(inst, sub) {
   currentSubtab[inst] = sub;
   saveInstrumentState();
   updateTabsUI({ animateSubTabs: true });
-}
-
-function cycleInstrument() {
-  const order = ["piano", "guitar", "drums"];
-  const idx = order.indexOf(currentInstrument);
-  const next = order[(idx + 1) % order.length];
-  setInstrument(next);
 }
 
 function updateTabsUI(opts = {}) {
