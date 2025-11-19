@@ -29,13 +29,19 @@
         <section class="controls toolbar sticky">
             <!-- Row 1 -->
             <div class="controls-row row-1">
-                <div class="left">
-                    <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
-                        autocomplete="off" />
+                <div class="left"></div>
+                <div class="center">
+                    <div class="input-with-action">
+                        <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
+                            autocomplete="off" />
+                        <!-- Inline add button positioned inside the input field -->
+                        <button id="addChord" class="input-action-btn" type="button" aria-label="Add chord from input" title="Add chord (Enter)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+                        </button>
+                        <!-- Custom suggestions dropdown -->
+                        <div id="inputSuggestions" class="suggestions-menu" role="listbox" aria-label="Chord suggestions" hidden></div>
+                    </div>
                     <datalist id="suggestions"></datalist>
-                    <button id="addChord" aria-label="Add chord from input" title="Add chord (Enter)">Add Chord</button>
-                    <button id="openCustomChordModal" aria-label="Create a custom chord" title="Create a custom chord">Add Custom Chord</button>
-                    <button id="addSectionBtn" aria-label="Add a new section" title="Add a new section">Add Section</button>
                 </div>
                 <div class="right">
                     <button id="downloadPdf" class="btn icon-btn" aria-label="Download as PDF" title="Download as PDF">
@@ -50,14 +56,152 @@
 
             <!-- Row 2 -->
             <div class="controls-row row-2">
+                <div class="left">
+                    <!-- Instrument tabs -->
+                    <div class="instrument-tabs segmented" role="tablist" aria-label="Instrument">
+                        <div class="segmented-highlight" aria-hidden="true"></div>
+                        <button class="tab" role="tab" id="tab-instrument-piano" data-instrument="piano" aria-selected="true">Piano</button>
+                        <button class="tab" role="tab" id="tab-instrument-guitar" data-instrument="guitar" aria-selected="false">Guitar</button>
+                        <button class="tab" role="tab" id="tab-instrument-drums" data-instrument="drums" aria-selected="false">Drums</button>
+                    </div>
+                    <span class="toolbar-divider" aria-hidden="true"></span>
+                    <!-- Instrument sub-tabs (moved to left) -->
+                    <div id="instrumentSubTabs" class="sub-tabs segmented" role="tablist" aria-label="Category">
+                        <div class="segmented-highlight" aria-hidden="true"></div>
+                        <!-- Piano -->
+                        <button class="tab" role="tab" data-instrument="piano" data-subtab="chord" id="subtab-piano-chord" aria-selected="true">Chord</button>
+                        <button class="tab" role="tab" data-instrument="piano" data-subtab="scales" id="subtab-piano-scales" aria-selected="false">Scales</button>
+                        <!-- Guitar -->
+                        <button class="tab" role="tab" data-instrument="guitar" data-subtab="chord" id="subtab-guitar-chord" aria-selected="false">Chord</button>
+                        <button class="tab" role="tab" data-instrument="guitar" data-subtab="scale" id="subtab-guitar-scale" aria-selected="false">Scales</button>
+                        <!-- Drums -->
+                        <button class="tab" role="tab" data-instrument="drums" data-subtab="beat" id="subtab-drums-beat" aria-selected="false">Beat</button>
+                    </div>
+                </div>
                 <div class="right">
-                    <button id="handModeToggle" class="btn icon-btn" aria-label="Toggle two-hands mode" title="Toggle two-hands layout (H)" type="button"></button>
-                    <button id="toggleInstrument" class="btn icon-btn" aria-label="Toggle instrument" title="Toggle instrument (G)" type="button"></button>
-                    <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
-                    <div class="transpose-group" role="group" aria-label="Transpose">
-                        <button id="transposeDown" class="stepper-btn" type="button" aria-label="Transpose down one semitone" title="Transpose -1">&minus;</button>
-                        <span id="transposeValue" class="stepper-value" aria-live="polite" aria-atomic="true">0</span>
-                        <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
+
+                    <!-- Piano → Chord controls -->
+                    <div id="pianoChordControls" class="control-group">
+                        <button id="handModeToggle" class="btn icon-btn" aria-label="Toggle two-hands mode" title="Toggle two-hands layout (H)" type="button"></button>
+                        <div class="transpose-group" role="group" aria-label="Transpose">
+                            <button id="transposeDown" class="stepper-btn" type="button" aria-label="Transpose down one semitone" title="Transpose -1">&minus;</button>
+                            <span id="transposeValue" class="stepper-value" aria-live="polite" aria-atomic="true">0</span>
+                            <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
+                        </div>
+                        <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
+                    </div>
+
+                    <!-- Guitar → Scale controls (moved from below) -->
+                    <!-- Piano → Scales controls -->
+                    <div id="pianoScaleControls" class="control-group" style="display:none;">
+                        <select id="pianoScaleKey">
+                            <option value="C">C</option>
+                            <option value="C#">C#</option>
+                            <option value="D">D</option>
+                            <option value="Eb">Eb</option>
+                            <option value="E">E</option>
+                            <option value="F">F</option>
+                            <option value="F#">F#</option>
+                            <option value="G">G</option>
+                            <option value="Ab">Ab</option>
+                            <option value="A">A</option>
+                            <option value="Bb">Bb</option>
+                            <option value="B">B</option>
+                        </select>
+                        <select id="pianoScaleMode">
+                            <optgroup label="Major & Modal Family">
+                                <option value="major">Major (Ionian)</option>
+                                <option value="dorian">Dorian</option>
+                                <option value="phrygian">Phrygian</option>
+                                <option value="lydian">Lydian</option>
+                                <option value="mixolydian">Mixolydian</option>
+                                <option value="aeolian">Aeolian (Natural Minor)</option>
+                                <option value="locrian">Locrian</option>
+                            </optgroup>
+                            <optgroup label="Pentatonic & Blues">
+                                <option value="majorPentatonic">Major Pentatonic</option>
+                                <option value="minorPentatonic">Minor Pentatonic</option>
+                                <option value="majorBlues">Major Blues</option>
+                                <option value="minorBlues">Minor Blues</option>
+                            </optgroup>
+                            <optgroup label="Harmonic / Melodic Variants">
+                                <option value="harmonicMinor">Harmonic Minor</option>
+                                <option value="melodicMinor">Melodic Minor</option>
+                                <option value="harmonicMajor">Harmonic Major</option>
+                            </optgroup>
+                            <optgroup label="Symmetric Scales">
+                                <option value="wholeTone">Whole Tone</option>
+                                <option value="diminishedHalfWhole">Diminished (Half-Whole)</option>
+                                <option value="diminishedWholeHalf">Diminished (Whole-Half)</option>
+                            </optgroup>
+                        </select>
+                        <button id="updatePianoScale">Update</button>
+                    </div>
+
+                    <div id="guitarControls" class="control-group" style="display:none; margin:0;">
+                        <select id="guitarKey">
+                            <option value="C">C</option>
+                            <option value="C#">C#</option>
+                            <option value="D">D</option>
+                            <option value="Eb">Eb</option>
+                            <option value="E">E</option>
+                            <option value="F">F</option>
+                            <option value="F#">F#</option>
+                            <option value="G">G</option>
+                            <option value="Ab">Ab</option>
+                            <option value="A">A</option>
+                            <option value="Bb">Bb</option>
+                            <option value="B">B</option>
+                        </select>
+
+                        <select id="guitarMode">
+                            <optgroup label="Major & Modal Family">
+                                <option value="major">Major (Ionian)</option>
+                                <option value="dorian">Dorian</option>
+                                <option value="phrygian">Phrygian</option>
+                                <option value="lydian">Lydian</option>
+                                <option value="mixolydian">Mixolydian</option>
+                                <option value="aeolian">Aeolian (Natural Minor)</option>
+                                <option value="locrian">Locrian</option>
+                            </optgroup>
+                            <optgroup label="Pentatonic & Blues">
+                                <option value="majorPentatonic">Major Pentatonic</option>
+                                <option value="minorPentatonic">Minor Pentatonic</option>
+                                <option value="majorBlues">Major Blues</option>
+                                <option value="minorBlues">Minor Blues</option>
+                            </optgroup>
+                            <optgroup label="Harmonic / Melodic Variants">
+                                <option value="harmonicMinor">Harmonic Minor</option>
+                                <option value="melodicMinor">Melodic Minor</option>
+                                <option value="harmonicMajor">Harmonic Major</option>
+                            </optgroup>
+                            <optgroup label="Symmetric Scales">
+                                <option value="wholeTone">Whole Tone</option>
+                                <option value="diminishedHalfWhole">Diminished (Half-Whole)</option>
+                                <option value="diminishedWholeHalf">Diminished (Whole-Half)</option>
+                            </optgroup>
+                        </select>
+
+                        <div class="transpose-group" id="shapeStepper" role="group" aria-label="Scale shape">
+                            <span class="group-label" style="margin-right:6px;">Shape</span>
+                            <button id="shapeDown" class="stepper-btn" type="button" aria-label="Previous shape" title="Previous shape">&minus;</button>
+                            <span id="shapeValue" class="stepper-value" aria-live="polite" aria-atomic="true">1</span>
+                            <button id="shapeUp" class="stepper-btn" type="button" aria-label="Next shape" title="Next shape">+</button>
+                        </div>
+
+                        <button id="updateGuitar">Update</button>
+                    </div>
+
+                    <!-- Drums → Beat (placeholder) -->
+                    <div id="drumsControls" class="control-group" style="display:none;">
+                        <button id="drumsPlayStop" aria-pressed="false">Play</button>
+                        <button id="drumsClear">Clear</button>
+                        <div class="transpose-group" role="group" aria-label="Tempo">
+                            <span class="group-label" style="margin-right:6px;">Tempo</span>
+                            <button id="tempoDown" class="stepper-btn" type="button" aria-label="Decrease tempo" title="Tempo -">&minus;</button>
+                            <span id="tempoValue" class="stepper-value" aria-live="polite" aria-atomic="true">120</span>
+                            <button id="tempoUp" class="stepper-btn" type="button" aria-label="Increase tempo" title="Tempo +">+</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -67,6 +211,11 @@
 
 
         <section class="boards" id="boards"></section>
+
+        <!-- Add Section CTA -->
+        <button id="addSectionCta" class="add-section-cta" type="button" aria-label="Add section" title="Add section">
+            <span class="add-section-plus" aria-hidden="true">+</span>
+        </button>
 
         <!-- Empty state placeholder -->
         <div id="emptyState" class="empty-state" hidden>
@@ -104,63 +253,13 @@
             </div>
         </div>
 
-        <!-- Guitar Controls -->
-        <div id="guitarControls" style="display:none; margin:10px 0;">
-            <select id="guitarKey">
-                <option value="C">C</option>
-                <option value="C#">C#</option>
-                <option value="D">D</option>
-                <option value="Eb">Eb</option>
-                <option value="E">E</option>
-                <option value="F">F</option>
-                <option value="F#">F#</option>
-                <option value="G">G</option>
-                <option value="Ab">Ab</option>
-                <option value="A">A</option>
-                <option value="Bb">Bb</option>
-                <option value="B">B</option>
-            </select>
-
-            <select id="guitarMode">
-                <optgroup label="Major & Modal Family">
-                    <option value="major">Major (Ionian)</option>
-                    <option value="dorian">Dorian</option>
-                    <option value="phrygian">Phrygian</option>
-                    <option value="lydian">Lydian</option>
-                    <option value="mixolydian">Mixolydian</option>
-                    <option value="aeolian">Aeolian (Natural Minor)</option>
-                    <option value="locrian">Locrian</option>
-                </optgroup>
-                <optgroup label="Pentatonic & Blues">
-                    <option value="majorPentatonic">Major Pentatonic</option>
-                    <option value="minorPentatonic">Minor Pentatonic</option>
-                    <option value="majorBlues">Major Blues</option>
-                    <option value="minorBlues">Minor Blues</option>
-                </optgroup>
-                <optgroup label="Harmonic / Melodic Variants">
-                    <option value="harmonicMinor">Harmonic Minor</option>
-                    <option value="melodicMinor">Melodic Minor</option>
-                    <option value="harmonicMajor">Harmonic Major</option>
-                </optgroup>
-                <optgroup label="Symmetric Scales">
-                    <option value="wholeTone">Whole Tone</option>
-                    <option value="diminishedHalfWhole">Diminished (Half–Whole)</option>
-                    <option value="diminishedWholeHalf">Diminished (Whole–Half)</option>
-                </optgroup>
-            </select>
-
-            <div class="transpose-group" id="shapeStepper" role="group" aria-label="Scale shape">
-                <span class="group-label" style="margin-right:6px;">Shape</span>
-                <button id="shapeDown" class="stepper-btn" type="button" aria-label="Previous shape" title="Previous shape">&minus;</button>
-                <span id="shapeValue" class="stepper-value" aria-live="polite" aria-atomic="true">1</span>
-                <button id="shapeUp" class="stepper-btn" type="button" aria-label="Next shape" title="Next shape">+</button>
-            </div>
-
-            <button id="updateGuitar">Update</button>
-        </div>
+        
 
         <!-- Single guitar container -->
         <div id="guitar" style="display:none"></div>
+
+        <!-- Piano Scale container -->
+        <div id="pianoScale" style="display:none"></div>
     </div>
 
 
@@ -190,7 +289,7 @@
                 <li>Enter: Add chord from input</li>
                 <li>Ctrl/Cmd+K: Focus chord input</li>
                 <li>H: Toggle two-hands mode</li>
-                <li>G: Toggle instrument (Piano/Guitar)</li>
+                <li>G: Cycle instrument (Piano/Guitar/Drums)</li>
                 <li>T: Toggle theme</li>
                 <li>Ctrl/Cmd+Shift+P: Export to PDF</li>
             </ul>

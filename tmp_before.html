@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chord Viewer – Piano Notes Highlighter</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Material Symbols for hand/piano icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=back_hand,piano" />
+    <!-- SVG Favicon -->
+    <link rel="icon" type="image/svg+xml" href="SVG/zchord-logo-96px.svg">
+    <link rel="alternate icon" type="image/png" href="SVG/zchord-logo-96px.png">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
+
+</head>
+
+<body>
+    <div class="app">
+        <header class="app-header">
+            <h1>Chord Viewer</h1>
+            <div class="subtitle">Type a chord (e.g. C, Dm, Bbmaj7, G7) and click Add. You can switch inversion per chord.</div>
+        </header>
+
+        <section class="controls toolbar sticky">
+            <!-- Row 1 -->
+            <div class="controls-row row-1">
+                <div class="left"></div>
+                <div class="center">
+                    <div class="input-with-action">
+                        <input id="chordInput" type="text" placeholder="e.g. C, Dm, Bbmaj7, F#7" list="suggestions"
+                            autocomplete="off" />
+                        <!-- Inline add button positioned inside the input field -->
+                        <button id="addChord" class="input-action-btn" type="button" aria-label="Add chord from input" title="Add chord (Enter)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+                        </button>
+                        <!-- Custom suggestions dropdown -->
+                        <div id="inputSuggestions" class="suggestions-menu" role="listbox" aria-label="Chord suggestions" hidden></div>
+                    </div>
+                    <datalist id="suggestions"></datalist>
+                </div>
+                <div class="right">
+                    <button id="downloadPdf" class="btn icon-btn" aria-label="Download as PDF" title="Download as PDF">
+                        <img src="SVG/downloadpdf.svg" alt="Download PDF" />
+                    </button>
+                    <button id="openHelpModal" class="btn" aria-label="Open help" title="Open help">Help</button>
+                    <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" class="btn icon-btn"
+                        type="button"></button>
+
+                </div>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="controls-row row-2">
+                <div class="left">
+                    <!-- Instrument tabs -->
+                    <div class="instrument-tabs segmented" role="tablist" aria-label="Instrument">
+                        <div class="segmented-highlight" aria-hidden="true"></div>
+                        <button class="tab" role="tab" id="tab-instrument-piano" data-instrument="piano" aria-selected="true">Piano</button>
+                        <button class="tab" role="tab" id="tab-instrument-guitar" data-instrument="guitar" aria-selected="false">Guitar</button>
+                        <button class="tab" role="tab" id="tab-instrument-drums" data-instrument="drums" aria-selected="false">Drums</button>
+                    </div>
+                    <span class="toolbar-divider" aria-hidden="true"></span>
+                    <!-- Instrument sub-tabs (moved to left) -->
+                    <div id="instrumentSubTabs" class="sub-tabs segmented" role="tablist" aria-label="Category">
+                        <div class="segmented-highlight" aria-hidden="true"></div>
+                        <!-- Piano -->
+                        <button class="tab" role="tab" data-instrument="piano" data-subtab="chord" id="subtab-piano-chord" aria-selected="true">Chord</button>
+                        <button class="tab" role="tab" data-instrument="piano" data-subtab="scales" id="subtab-piano-scales" aria-selected="false">Scales</button>
+                        <!-- Guitar -->
+                        <button class="tab" role="tab" data-instrument="guitar" data-subtab="chord" id="subtab-guitar-chord" aria-selected="false">Chord</button>
+                        <button class="tab" role="tab" data-instrument="guitar" data-subtab="scale" id="subtab-guitar-scale" aria-selected="false">Scales</button>
+                        <!-- Drums -->
+                        <button class="tab" role="tab" data-instrument="drums" data-subtab="beat" id="subtab-drums-beat" aria-selected="false">Beat</button>
+                    </div>
+                </div>
+                <div class="right">
+
+                    <!-- Piano → Chord controls -->
+                    <div id="pianoChordControls" class="control-group">
+                        <button id="handModeToggle" class="btn icon-btn" aria-label="Toggle two-hands mode" title="Toggle two-hands layout (H)" type="button"></button>
+                        <div class="transpose-group" role="group" aria-label="Transpose">
+                            <button id="transposeDown" class="stepper-btn" type="button" aria-label="Transpose down one semitone" title="Transpose -1">&minus;</button>
+                            <span id="transposeValue" class="stepper-value" aria-live="polite" aria-atomic="true">0</span>
+                            <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
+                        </div>
+                        <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
+                    </div>
+
+                    <!-- Guitar → Scale controls (moved from below) -->
+                    

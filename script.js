@@ -1,19 +1,48 @@
 let sectionCounter = 0; // track part number
+let activeSectionIndex = null; // which section receives new chords
 let twoHandsMode = localStorage.getItem("cv-twohands") === "true"; // track hand mode, persisted
 let transposeOffset = 0; // current transpose amount shown in UI
 
 document.addEventListener("DOMContentLoaded", () => {
-  const addSectionBtn = document.getElementById("addSectionBtn");
+  const addSectionCta = document.getElementById("addSectionCta");
+  if (addSectionCta) {
+    addSectionCta.addEventListener("click", () => {
+      addSection();
+    });
+  }
 
-  addSectionBtn.addEventListener("click", () => {
-    sectionCounter++;
-    const name = `Part ${String.fromCharCode(64 + sectionCounter)}`; // 1 -> A, 2 -> B, etc.
+  // Click outside any section clears active selection.
+  // Use capture so CTA clicks can set a new active after this runs.
+  document.addEventListener(
+    "click",
+    (e) => {
+      const boards = document.getElementById("boards");
+      if (!boards) return;
+      const target = e.target;
+      // Hide input suggestions if clicking outside the input wrapper
+      const inputWrap = document.querySelector('.input-with-action');
+      if (inputWrap && !inputWrap.contains(target)) {
+        hideInputSuggestions();
+      }
+      const closestSection = target && target.closest ? target.closest("#boards .section") : null;
+      if (closestSection) return; // clicked inside a section — keep selection
 
-    const sections = JSON.parse(boardsEl.dataset.sections || "[]");
-    sections.push({ name, chords: [] });
-    boardsEl.dataset.sections = JSON.stringify(sections);
-    renderSections();
-  });
+      // ignore clicks that originate from UI that will set an active section immediately after (CTA)
+      const ignore = target && target.closest && target.closest("#addSectionCta");
+      if (ignore) return;
+
+      if (activeSectionIndex !== null) {
+        activeSectionIndex = null;
+        try {
+          localStorage.removeItem("cv-active-section");
+        } catch (_) {}
+        document
+          .querySelectorAll("#boards .section.active")
+          .forEach((el) => el.classList.remove("active"));
+      }
+    },
+    true
+  );
 });
 
 const N_SHARP = [
@@ -109,6 +138,29 @@ const TYPE_RE = typesSorted.join("|");
 const CHORD_RE = new RegExp(
   "^[ ]*([A-Ga-g])([#b]?)(?:(" + TYPE_RE + "))?[ ]*$"
 );
+
+// Scale formulas for piano scales (mirrors guitar.js)
+const SCALE_FORMULAS_PIANO = {
+  pentatonic: [0, 3, 5, 7, 10],
+  minorPentatonic: [0, 3, 5, 7, 10],
+  blues: [0, 3, 5, 6, 7, 10],
+  minorBlues: [0, 3, 5, 6, 7, 10],
+  majorPentatonic: [0, 2, 4, 7, 9],
+  majorBlues: [0, 2, 3, 4, 7, 9],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  aeolian: [0, 2, 3, 5, 7, 8, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10],
+  wholeTone: [0, 2, 4, 6, 8, 10],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  harmonicMajor: [0, 2, 4, 5, 7, 8, 11],
+  diminishedHalfWhole: [0, 1, 3, 4, 6, 7, 9, 10],
+  diminishedWholeHalf: [0, 2, 3, 5, 6, 8, 9, 11],
+};
 
 function normalizeRoot(r) {
   if (!r) return r;
@@ -335,6 +387,11 @@ function loadSections() {
   try {
     const saved = localStorage.getItem("cv-sections");
     if (saved) boardsEl.dataset.sections = saved;
+    const savedActive = localStorage.getItem("cv-active-section");
+    if (savedActive !== null) {
+      const idx = Number(savedActive);
+      if (!Number.isNaN(idx)) activeSectionIndex = idx;
+    }
   } catch (_) {}
 }
 
@@ -547,8 +604,15 @@ function addChordsFromInput(inputValue) {
     sections.push({ name: "Untitled", chords: [] });
   }
 
+  const targetIdx =
+    typeof activeSectionIndex === "number" &&
+    activeSectionIndex >= 0 &&
+    activeSectionIndex < sections.length
+      ? activeSectionIndex
+      : sections.length - 1;
+
   chords.forEach((c) => {
-    sections[sections.length - 1].chords.push({ sym: c, inversion: 0 });
+    sections[targetIdx].chords.push({ sym: c, inversion: 0 });
   });
 
   boardsEl.dataset.sections = JSON.stringify(sections);
@@ -556,7 +620,37 @@ function addChordsFromInput(inputValue) {
 }
 
 const chordInput = document.getElementById("chordInput");
-const suggestionsEl = document.getElementById("suggestions");
+// Hover glow for the chord input wrapper (radial gradient that follows mouse)
+(() => {
+  const inputWrap = document.querySelector('.input-with-action');
+  if (!inputWrap) return;
+
+  const RADIUS = 140; // px
+
+  function setGlowVisible(visible) {
+    // keep size constant for smoother fade; only animate opacity
+    inputWrap.style.setProperty('--glow-opacity', visible ? '1' : '0');
+  }
+
+  inputWrap.addEventListener('mouseenter', () => setGlowVisible(true));
+  inputWrap.addEventListener('mouseleave', () => setGlowVisible(false));
+  inputWrap.addEventListener('mousemove', (e) => {
+    const rect = inputWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    inputWrap.style.setProperty('--glow-x', `${x}px`);
+    inputWrap.style.setProperty('--glow-y', `${y}px`);
+  });
+
+  // initialize hidden and set base size/color
+  inputWrap.style.setProperty('--glow-size', `${RADIUS}px`);
+  if (!getComputedStyle(inputWrap).getPropertyValue('--glow-color')) {
+    inputWrap.style.setProperty('--glow-color', 'rgba(30,110,240,0.55)');
+  }
+  setGlowVisible(false);
+})();
+const suggestionsEl = document.getElementById("suggestions"); // legacy datalist (unused for UI)
+const inputSuggestions = document.getElementById("inputSuggestions");
 const handModeToggle = document.getElementById("handModeToggle");
 const transposeValueEl = document.getElementById("transposeValue");
 
@@ -564,24 +658,93 @@ function updateTransposeUI() {
   if (transposeValueEl) transposeValueEl.textContent = String(transposeOffset);
 }
 
-chordInput.addEventListener("input", () => {
-  const val = chordInput.value.trim().toUpperCase();
-  suggestionsEl.innerHTML = "";
-  if (!val) return;
-
+function buildInputMatches(val) {
   const matches = [];
+  if (!val) return matches;
+  const u = val.toUpperCase();
   N_SHARP.forEach((note) => {
     CHORD_TYPES.forEach((type) => {
       const chord = note + type;
-      if (chord.toUpperCase().startsWith(val)) matches.push(chord);
+      if (chord.toUpperCase().startsWith(u)) matches.push(chord);
     });
   });
+  return matches.slice(0, 10);
+}
 
-  matches.slice(0, 10).forEach((chord) => {
-    const option = document.createElement("option");
-    option.value = chord;
-    suggestionsEl.appendChild(option);
+function showInputSuggestions() {
+  if (!inputSuggestions) return;
+  const val = chordInput.value.trim();
+  const matches = buildInputMatches(val);
+  inputSuggestions.innerHTML = "";
+
+  // Always first: Add Custom Chord
+  const custom = document.createElement("div");
+  custom.className = "suggestion add-custom";
+  custom.setAttribute("role", "option");
+  custom.innerHTML = '<span class="plus">+</span> Add Custom Chord';
+  custom.addEventListener("click", () => {
+    openCustomChordModal();
+    hideInputSuggestions();
   });
+  inputSuggestions.appendChild(custom);
+
+  // Divider
+  const div = document.createElement("div");
+  div.className = "menu-divider";
+  inputSuggestions.appendChild(div);
+
+  if (matches.length) {
+    matches.forEach((m) => {
+      const item = document.createElement("div");
+      item.className = "suggestion";
+      item.setAttribute("role", "option");
+      item.textContent = m;
+      item.addEventListener("click", () => {
+        chordInput.value = m;
+        addChordsFromInput(m);
+        chordInput.value = "";
+        hideInputSuggestions();
+      });
+      inputSuggestions.appendChild(item);
+    });
+  }
+
+  inputSuggestions.hidden = false;
+}
+
+function hideInputSuggestions() {
+  if (inputSuggestions) inputSuggestions.hidden = true;
+}
+
+chordInput.addEventListener("focus", () => {
+  showInputSuggestions();
+});
+
+chordInput.addEventListener("input", () => {
+  showInputSuggestions();
+});
+
+chordInput.addEventListener("keydown", (e) => {
+  if (!inputSuggestions || inputSuggestions.hidden) return;
+  const items = Array.from(inputSuggestions.querySelectorAll('.suggestion'));
+  const current = inputSuggestions.querySelector('.suggestion.highlight');
+  let idx = current ? items.indexOf(current) : -1;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    idx = Math.min(items.length - 1, idx + 1);
+    items.forEach(el => el.classList.remove('highlight'));
+    if (idx >= 0) items[idx].classList.add('highlight');
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    idx = Math.max(0, idx - 1);
+    items.forEach(el => el.classList.remove('highlight'));
+    if (idx >= 0) items[idx].classList.add('highlight');
+  } else if (e.key === 'Enter' && idx >= 0) {
+    e.preventDefault();
+    items[idx].click();
+  } else if (e.key === 'Escape') {
+    hideInputSuggestions();
+  }
 });
 
 function transposeChords(amount) {
@@ -755,12 +918,30 @@ let selectedLeftMIDIs = new Set(); // left-hand selections in modal
 let customMarkingHand = "right"; // which hand new clicks mark in modal
 let editingContext = { active: false, sectionIndex: null, chordIndex: null };
 
+function openCustomChordModal() {
+  if (!customModal) return;
+  customModal.style.display = "block";
+  selectedMIDIs.clear();
+  selectedLeftMIDIs.clear();
+  customChordNameInput.value = "";
+  suggestedEl.innerHTML = "";
+  editingContext = { active: false, sectionIndex: null, chordIndex: null };
+  customMarkingHand = "right";
+  if (markRightBtn && markLeftBtn) {
+    markRightBtn.setAttribute("aria-pressed", "true");
+    markLeftBtn.setAttribute("aria-pressed", "false");
+  }
+  try {
+    addCustomChordBtn.textContent = "Add Chord";
+  } catch (_) {}
+  renderCustomPiano();
+  updateSuggestions();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const customModal = document.getElementById("customChordModal");
   const openModalBtn = document.getElementById("openCustomChordModal");
   const closeModalBtn = document.getElementById("closeModal");
-
-  if (!openModalBtn) return; // safety check
 
   function updateHandToggleUI() {
     if (markRightBtn && markLeftBtn) {
@@ -786,20 +967,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  openModalBtn.addEventListener("click", () => {
-    customModal.style.display = "block";
-    selectedMIDIs.clear();
-    selectedLeftMIDIs.clear();
-    customChordNameInput.value = "";
-    suggestedEl.innerHTML = "";
-    editingContext = { active: false, sectionIndex: null, chordIndex: null };
-    customMarkingHand = "right";
-    updateHandToggleUI();
-    try {
-      addCustomChordBtn.textContent = "Add Chord";
-    } catch (_) {}
-    renderCustomPiano();
-  });
+  if (openModalBtn) {
+    openModalBtn.addEventListener("click", () => {
+      openCustomChordModal();
+    });
+  }
 
   closeModalBtn.addEventListener("click", () => {
     customModal.style.display = "none";
@@ -1029,8 +1201,13 @@ addCustomChordBtn.addEventListener("click", () => {
       sections[sIdx].chords[cIdx] = chordObj;
     }
   } else {
-    // Add to the last section by default
-    sections[sections.length - 1].chords.push(chordObj);
+    const targetIdx =
+      typeof activeSectionIndex === "number" &&
+      activeSectionIndex >= 0 &&
+      activeSectionIndex < sections.length
+        ? activeSectionIndex
+        : sections.length - 1;
+    sections[targetIdx].chords.push(chordObj);
   }
 
   boardsEl.dataset.sections = JSON.stringify(sections);
@@ -1208,11 +1385,24 @@ function renderSections() {
     return;
   }
 
+  // Clamp active index to available range
+  if (sections.length) {
+    if (
+      typeof activeSectionIndex !== "number" ||
+      activeSectionIndex < 0 ||
+      activeSectionIndex >= sections.length
+    ) {
+      activeSectionIndex = sections.length - 1; // default to last
+    }
+  }
+
   sections.forEach((section, sectionIndex) => {
     // --- Section wrapper ---
     const sectionEl = document.createElement("div");
     sectionEl.className = "section";
     sectionEl.dataset.sectionIndex = sectionIndex;
+    sectionEl.tabIndex = 0;
+    if (sectionIndex === activeSectionIndex) sectionEl.classList.add("active");
 
     // --- Section header ---
     const headerWrap = document.createElement("div");
@@ -1220,23 +1410,58 @@ function renderSections() {
 
     const header = document.createElement("h2");
     header.className = "editable-section-name";
-    header.contentEditable = true;
+    header.contentEditable = "false"; // only editable on explicit activate
     header.spellcheck = false;
     header.textContent = section.name;
 
-    // Save changes on blur or Enter
-    header.addEventListener("blur", () => {
-      const secs = JSON.parse(boardsEl.dataset.sections || "[]");
-      secs[sectionIndex].name =
-        header.textContent.trim() ||
-        `Part ${String.fromCharCode(64 + sectionIndex + 1)}`;
-      boardsEl.dataset.sections = JSON.stringify(secs);
+    // Activate editing with double-click or Enter while focused via keyboard
+    let prevHeaderText = header.textContent;
+    const startEditing = () => {
+      prevHeaderText = header.textContent;
+      header.contentEditable = "true";
+      header.focus();
+      // place caret at end
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(header);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (_) {}
+    };
+    header.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      startEditing();
     });
     header.addEventListener("keydown", (e) => {
+      if (header.contentEditable !== "true") return;
       if (e.key === "Enter") {
         e.preventDefault();
         header.blur();
       }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        header.textContent = prevHeaderText;
+        header.blur();
+      }
+    });
+    header.addEventListener("focus", (e) => {
+      // Allow keyboard users to press Enter to start editing
+      if (header.contentEditable !== "true") {
+        // do not automatically edit on focus
+      }
+    });
+    // Save changes on blur and end editing
+    header.addEventListener("blur", () => {
+      if (header.contentEditable === "true") {
+        const secs = JSON.parse(boardsEl.dataset.sections || "[]");
+        secs[sectionIndex].name =
+          header.textContent.trim() ||
+          `Part ${String.fromCharCode(64 + sectionIndex + 1)}`;
+        boardsEl.dataset.sections = JSON.stringify(secs);
+      }
+      header.contentEditable = "false";
     });
 
     // Remove section button
@@ -1246,6 +1471,15 @@ function renderSections() {
     removeSectionBtn.addEventListener("click", () => {
       sections.splice(sectionIndex, 1);
       boardsEl.dataset.sections = JSON.stringify(sections);
+      // adjust active index
+      if (activeSectionIndex !== null) {
+        if (sectionIndex === activeSectionIndex) {
+          activeSectionIndex = Math.max(0, Math.min(activeSectionIndex, sections.length - 1));
+        } else if (sectionIndex < activeSectionIndex) {
+          activeSectionIndex -= 1;
+        }
+        try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+      }
       renderSections();
     });
 
@@ -1398,7 +1632,11 @@ function renderSections() {
       const lpw = document.createElement("div");
       lpw.className = "lh-piano-wrap";
       lpw.appendChild(lhWrap);
-      if (builtPiano) lpw.appendChild(builtPiano);
+      // Wrap the piano in a horizontal scroller for two-hands layouts
+      const scroller = document.createElement("div");
+      scroller.className = "piano-scroll";
+      if (builtPiano) scroller.appendChild(builtPiano);
+      lpw.appendChild(scroller);
       // Place wrapper above inversion controls
       card.insertBefore(lpw, invWrap);
 
@@ -1430,6 +1668,20 @@ function renderSections() {
     });
 
     sectionEl.appendChild(chordsContainer);
+
+    // Clicking anywhere in the section (except interactive controls) sets it active
+    sectionEl.addEventListener("click", (e) => {
+      // ignore clicks on remove/edit buttons and sortable handles
+      const t = e.target;
+      if (t && (t.closest && (t.closest(".no-drag") || t.closest(".remove-section")))) return;
+      activeSectionIndex = sectionIndex;
+      try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+      // update classes without full re-render
+      document.querySelectorAll("#boards .section").forEach((el, i) => {
+        if (i === activeSectionIndex) el.classList.add("active");
+        else el.classList.remove("active");
+      });
+    });
     boardsEl.appendChild(sectionEl);
   });
 
@@ -1443,6 +1695,23 @@ function renderSections() {
       const moved = secs.splice(evt.oldIndex, 1)[0];
       secs.splice(evt.newIndex, 0, moved);
       boardsEl.dataset.sections = JSON.stringify(secs);
+      // update active index to follow the moved section
+      if (typeof activeSectionIndex === "number") {
+        if (evt.oldIndex === activeSectionIndex) {
+          activeSectionIndex = evt.newIndex;
+        } else if (
+          evt.oldIndex < activeSectionIndex &&
+          evt.newIndex >= activeSectionIndex
+        ) {
+          activeSectionIndex -= 1;
+        } else if (
+          evt.oldIndex > activeSectionIndex &&
+          evt.newIndex <= activeSectionIndex
+        ) {
+          activeSectionIndex += 1;
+        }
+        try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+      }
       renderSections();
     },
   });
@@ -1475,6 +1744,8 @@ function addSection() {
   const sections = JSON.parse(boardsEl.dataset.sections || "[]");
   sections.push({ name, chords: [] });
   boardsEl.dataset.sections = JSON.stringify(sections);
+  activeSectionIndex = sections.length - 1; // newly added becomes active
+  try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
   renderSections();
 }
 
@@ -1548,8 +1819,10 @@ document.getElementById("clearAll").addEventListener("click", () => {
   // Clear all sections and chords, reset counter, persist
   boardsEl.dataset.sections = JSON.stringify([]);
   sectionCounter = 0;
+  activeSectionIndex = null;
   try {
     localStorage.setItem("cv-sections", "[]");
+    localStorage.removeItem("cv-active-section");
   } catch (_) {}
   renderSections();
 });
@@ -1683,72 +1956,217 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// Keyboard shortcuts
-document.addEventListener("keydown", (e) => {
-  const isMac = navigator.platform.toUpperCase().includes("MAC");
-  const mod = isMac ? e.metaKey : e.ctrlKey;
-  // Focus input: Ctrl/Cmd+K
-  if (mod && e.key.toLowerCase() === "k") {
-    e.preventDefault();
-    const input = document.getElementById("chordInput");
-    if (input) input.focus();
-  }
-  // Export PDF: Ctrl/Cmd+Shift+P
-  if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
-    e.preventDefault();
-    const btn = document.getElementById("downloadPdf");
-    if (btn) btn.click();
-  }
-  // Toggle two-hands: H
-  if (!mod && e.key.toLowerCase() === "h") {
-    const btn = document.getElementById("handModeToggle");
-    if (btn) btn.click();
-  }
-  // Toggle instrument: G
-  if (!mod && e.key.toLowerCase() === "g") {
-    const btn = document.getElementById("toggleInstrument");
-    if (btn) btn.click();
-  }
-  // Toggle theme: T
-  if (!mod && e.key.toLowerCase() === "t") {
-    const btn = document.getElementById("themeToggle");
-    if (btn) btn.click();
-  }
-});
+// Instrument + Sub-tab state and UI
+let currentInstrument = "piano";
+let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat" };
 
-document.addEventListener("DOMContentLoaded", () => {
-  const toggleBtn = document.getElementById("toggleInstrument");
-  const pianoEl = document.getElementById("boards");
-  const guitarEl = document.getElementById("guitar");
-  const controlsEl = document.getElementById("guitarControls");
-
-  let mode = "piano";
-
-  const updateInstrumentUI = () => {
-    if (mode === "piano") {
-      toggleBtn.innerHTML = INSTRUMENT_ICONS.guitar; // shows what you'll switch to
-      toggleBtn.setAttribute("title", "Switch to guitar (G)");
-      pianoEl.style.display = "block";
-      guitarEl.style.display = "none";
-      controlsEl.style.display = "none";
-      if (handModeToggle) handModeToggle.style.display = "inline-flex";
-    } else {
-      toggleBtn.innerHTML = INSTRUMENT_ICONS.piano;
-      toggleBtn.setAttribute("title", "Switch to piano (G)");
-      pianoEl.style.display = "none";
-      guitarEl.style.display = "block";
-      controlsEl.style.display = "block";
-      if (handModeToggle) handModeToggle.style.display = "none"; // hide two-hands toggle in guitar mode
+function loadInstrumentState() {
+  try {
+    const savedInst = localStorage.getItem("cv-instrument");
+    if (savedInst) currentInstrument = savedInst;
+    const savedSub = localStorage.getItem("cv-subtabs");
+    if (savedSub) {
+      const parsed = JSON.parse(savedSub);
+      currentSubtab = { ...currentSubtab, ...parsed };
     }
-  };
+  } catch (_) {}
+}
 
-  toggleBtn.addEventListener("click", () => {
-    mode = mode === "piano" ? "guitar" : "piano";
-    updateInstrumentUI();
+function saveInstrumentState() {
+  try {
+    localStorage.setItem("cv-instrument", currentInstrument);
+    localStorage.setItem("cv-subtabs", JSON.stringify(currentSubtab));
+  } catch (_) {}
+}
+
+function setInstrument(inst) {
+  currentInstrument = inst;
+  saveInstrumentState();
+  updateTabsUI({ animateSubTabs: false });
+}
+
+function setSubtab(inst, sub) {
+  currentSubtab[inst] = sub;
+  saveInstrumentState();
+  updateTabsUI({ animateSubTabs: true });
+}
+
+function updateTabsUI(opts = {}) {
+  const { animateSubTabs = true } = opts;
+  // Instrument tabs aria-selected
+  const instTabs = document.querySelectorAll('.instrument-tabs .tab');
+  instTabs.forEach(btn => {
+    const inst = btn.getAttribute('data-instrument');
+    btn.setAttribute('aria-selected', String(inst === currentInstrument));
   });
 
-  updateInstrumentUI();
+  // Sub-tabs: show only those matching instrument
+  const allSubTabs = document.querySelectorAll('#instrumentSubTabs .tab');
+  allSubTabs.forEach(btn => {
+    const inst = btn.getAttribute('data-instrument');
+    const sub = btn.getAttribute('data-subtab');
+    const isVisible = inst === currentInstrument;
+    btn.style.display = isVisible ? 'inline-flex' : 'none';
+    const selected = currentSubtab[currentInstrument] === sub && isVisible;
+    btn.setAttribute('aria-selected', String(selected));
+  });
+
+  // Content + control visibility
+  const boardsEl = document.getElementById('boards');
+  const guitarEl = document.getElementById('guitar');
+  const guitarControls = document.getElementById('guitarControls');
+  const pianoControls = document.getElementById('pianoChordControls');
+  const pianoScaleControls = document.getElementById('pianoScaleControls');
+  const drumsControls = document.getElementById('drumsControls');
+  const addSectionCta = document.getElementById('addSectionCta');
+  const pianoScaleEl = document.getElementById('pianoScale');
+
+  // defaults
+  if (boardsEl) boardsEl.style.display = 'none';
+  if (guitarEl) guitarEl.style.display = 'none';
+  if (guitarControls) guitarControls.style.display = 'none';
+  if (pianoControls) pianoControls.style.display = 'none';
+  if (pianoScaleControls) pianoScaleControls.style.display = 'none';
+  if (drumsControls) drumsControls.style.display = 'none';
+  if (handModeToggle) handModeToggle.style.display = 'none';
+  if (addSectionCta) addSectionCta.style.display = 'none';
+  if (pianoScaleEl) pianoScaleEl.style.display = 'none';
+
+  if (currentInstrument === 'piano') {
+    const sub = currentSubtab.piano;
+    if (sub === 'chord') {
+      if (boardsEl) boardsEl.style.display = 'block';
+      if (pianoControls) pianoControls.style.display = 'inline-flex';
+      if (handModeToggle) handModeToggle.style.display = 'inline-flex';
+      if (addSectionCta) addSectionCta.style.display = 'block';
+    } else {
+      // Piano → Scales
+      if (pianoScaleControls) pianoScaleControls.style.display = 'inline-flex';
+      if (pianoScaleEl) {
+        pianoScaleEl.style.display = 'block';
+        drawPianoScale();
+      }
+    }
+  } else if (currentInstrument === 'guitar') {
+    const sub = currentSubtab.guitar;
+    if (sub === 'scale') {
+      if (guitarControls) guitarControls.style.display = 'inline-flex';
+      if (guitarEl) guitarEl.style.display = 'block';
+    } else {
+      // Guitar → Chord (placeholder)
+      if (guitarEl) guitarEl.style.display = 'none';
+    }
+  } else if (currentInstrument === 'drums') {
+    if (drumsControls) drumsControls.style.display = 'inline-flex';
+  }
+
+  // Move the animated highlights
+  positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), true);
+  positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), animateSubTabs);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadInstrumentState();
+
+  // Click handlers: instrument tabs
+  document.querySelectorAll('.instrument-tabs .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setInstrument(btn.getAttribute('data-instrument'));
+    });
+  });
+
+  // Click handlers: sub-tabs
+  document.querySelectorAll('#instrumentSubTabs .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inst = btn.getAttribute('data-instrument');
+      const sub = btn.getAttribute('data-subtab');
+      setInstrument(inst); // ensure instrument context
+      setSubtab(inst, sub);
+    });
+  });
+
+  // Keyboard support for tabs (Left/Right)
+  const instContainer = document.querySelector('.instrument-tabs');
+  if (instContainer) {
+    instContainer.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const order = ['piano','guitar','drums'];
+      const idx = order.indexOf(currentInstrument);
+      const next = e.key === 'ArrowRight' ? (idx + 1) % order.length : (idx - 1 + order.length) % order.length;
+      setInstrument(order[next]);
+      const btn = document.querySelector(`.instrument-tabs .tab[data-instrument="${order[next]}"]`);
+      if (btn) btn.focus();
+    });
+  }
+  const subContainer = document.getElementById('instrumentSubTabs');
+  if (subContainer) {
+    subContainer.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const visible = Array.from(subContainer.querySelectorAll('.tab'))
+        .filter(b => b.style.display !== 'none' && b.getAttribute('data-instrument') === currentInstrument);
+      const idx = visible.findIndex(b => b.getAttribute('aria-selected') === 'true');
+      if (idx === -1) return;
+      const next = e.key === 'ArrowRight' ? (idx + 1) % visible.length : (idx - 1 + visible.length) % visible.length;
+      const nextBtn = visible[next];
+      setSubtab(currentInstrument, nextBtn.getAttribute('data-subtab'));
+      nextBtn.focus();
+    });
+  }
+
+  updateTabsUI({ animateSubTabs: false });
+  // Initial highlight positioning after layout/paint
+  setTimeout(() => {
+    positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), false);
+    positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), false);
+  }, 0);
+  window.addEventListener('resize', () => {
+    positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), false);
+    positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), false);
+  });
+  const instTabsEl = document.querySelector('.instrument-tabs.segmented');
+  const subTabsEl = document.getElementById('instrumentSubTabs');
+  if (instTabsEl) instTabsEl.addEventListener('scroll', () => positionSegmentedHighlight(instTabsEl, false));
+  if (subTabsEl) subTabsEl.addEventListener('scroll', () => positionSegmentedHighlight(subTabsEl, false));
+
+  // Piano scale controls
+  const pianoKeySel = document.getElementById('pianoScaleKey');
+  const pianoModeSel = document.getElementById('pianoScaleMode');
+  const pianoUpdateBtn = document.getElementById('updatePianoScale');
+  if (pianoKeySel && pianoModeSel) {
+    pianoKeySel.addEventListener('change', () => drawPianoScale());
+    pianoModeSel.addEventListener('change', () => drawPianoScale());
+  }
+  if (pianoUpdateBtn) pianoUpdateBtn.addEventListener('click', () => drawPianoScale());
 });
+
+// Highlight animation helper for segmented tabs
+function positionSegmentedHighlight(container, animate = true) {
+  if (!container) return;
+  const highlight = container.querySelector('.segmented-highlight');
+  if (!highlight) return;
+  const tabs = Array.from(container.querySelectorAll('.tab'));
+  // pick visible tab with aria-selected = true
+  const target = tabs.find(btn => btn.getAttribute('aria-selected') === 'true' && btn.style.display !== 'none');
+  if (!target) { highlight.style.width = '0px'; return; }
+  const left = target.offsetLeft - container.scrollLeft; // absolute pos inside container
+  const width = target.offsetWidth;
+  // toggle transition
+  if (!animate) {
+    const prev = highlight.style.transition;
+    highlight.style.transition = 'none';
+    // set position
+    highlight.style.width = width + 'px';
+    highlight.style.left = left + 'px';
+    // force reflow then restore transition for future animations
+    void highlight.offsetWidth;
+    highlight.style.transition = prev || '';
+  } else {
+    highlight.style.width = width + 'px';
+    highlight.style.left = left + 'px';
+  }
+}
 
 // Initialize transpose display
 updateTransposeUI();
@@ -1757,3 +2175,67 @@ updateTransposeUI();
 loadSections();
 // render sections layout (not the old single-card render)
 renderSections();
+
+// Drums placeholder controls
+document.addEventListener('DOMContentLoaded', () => {
+  const playBtn = document.getElementById('drumsPlayStop');
+  const clearBtn = document.getElementById('drumsClear');
+  const tempoDown = document.getElementById('tempoDown');
+  const tempoUp = document.getElementById('tempoUp');
+  const tempoVal = document.getElementById('tempoValue');
+  let tempo = 120;
+  if (tempoVal) tempo = Number(tempoVal.textContent || '120') || 120;
+
+  if (playBtn) playBtn.addEventListener('click', () => {
+    const pressed = playBtn.getAttribute('aria-pressed') === 'true';
+    const next = !pressed;
+    playBtn.setAttribute('aria-pressed', String(next));
+    playBtn.textContent = next ? 'Stop' : 'Play';
+  });
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    // Placeholder – integrate with drum grid when available
+    console.log('Drums cleared');
+  });
+  if (tempoDown) tempoDown.addEventListener('click', () => {
+    tempo = Math.max(20, tempo - 5);
+    if (tempoVal) tempoVal.textContent = String(tempo);
+  });
+  if (tempoUp) tempoUp.addEventListener('click', () => {
+    tempo = Math.min(260, tempo + 5);
+    if (tempoVal) tempoVal.textContent = String(tempo);
+  });
+});
+
+// Draw a two-octave piano with scale tones highlighted (one-hand)
+function drawPianoScale() {
+  const el = document.getElementById('pianoScale');
+  const keySel = document.getElementById('pianoScaleKey');
+  const modeSel = document.getElementById('pianoScaleMode');
+  if (!el || !keySel || !modeSel) return;
+
+  const root = keySel.value;
+  const mode = modeSel.value;
+  const intervals = SCALE_FORMULAS_PIANO[mode] || SCALE_FORMULAS_PIANO.major;
+
+  const { low: LOW, high: HIGH } = getPianoRange(false); // 2 octaves
+  const rootIdx = nameToIndex(root);
+  if (rootIdx < 0) return;
+
+  // Find the lowest root within range
+  let rootMidiInRange = null;
+  for (let m = LOW; m <= HIGH; m++) {
+    if (m % 12 === rootIdx) { rootMidiInRange = m; break; }
+  }
+  if (rootMidiInRange === null) rootMidiInRange = 60 + rootIdx; // fallback
+
+  const inScale = new Set(intervals.map(x => ((x % 12) + 12) % 12));
+  const midis = [];
+  for (let m = LOW; m <= HIGH; m++) {
+    const deg = (m % 12 - rootIdx + 12) % 12;
+    if (inScale.has(deg)) midis.push(m);
+  }
+
+  const chordLike = { notes: midis, rootMidi: rootMidiInRange };
+  el.innerHTML = '';
+  el.appendChild(makePiano(chordLike, { twoHands: false }));
+}
