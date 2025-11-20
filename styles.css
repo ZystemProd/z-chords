@@ -1501,3 +1501,93 @@ body.light-mode .edit-chord-section:hover {
   max-width: none;
   transform: none;
 }
+
+/* Metronome */
+.metronome-controls {
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.metronome-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  font-size: 0.8rem;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.metronome-field input,
+.metronome-field select {
+  min-width: 90px;
+}
+.metronome-field input[type="range"] {
+  min-width: 200px;
+  accent-color: var(--accent-color, #0cc0df);
+}
+.metronome-bpm {
+  min-width: 220px;
+}
+.metronome-bpm-value {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.metronome-panel {
+  margin: 16px 0;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border, rgba(255, 255, 255, 0.08));
+  background: var(--panel-bg, rgba(255, 255, 255, 0.02));
+  text-align: center;
+}
+body.light-mode .metronome-panel {
+  --panel-border: rgba(0, 0, 0, 0.08);
+  --panel-bg: rgba(0, 0, 0, 0.04);
+}
+.metronome-beats {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.metronome-led {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+  font-weight: 600;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--kbd-label);
+}
+body.light-mode .metronome-led {
+  background: rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  color: rgba(0, 0, 0, 0.7);
+}
+.metronome-led.accent-beat {
+  color: #ff7070;
+  box-shadow: inset 0 0 0 1px rgba(255, 80, 80, 0.8);
+}
+.metronome-led.active {
+  transform: scale(1.1);
+  background: var(--accent-color, #0cc0df);
+  color: #021015;
+  box-shadow: 0 0 12px rgba(12, 192, 223, 0.6);
+}
+.metronome-led.accent-beat.active {
+  background: #ff4d4f;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(255, 77, 79, 0.7);
+}
+.metronome-status {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}

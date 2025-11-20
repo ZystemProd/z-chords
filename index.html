@@ -76,6 +76,7 @@
                         <button class="tab" role="tab" data-instrument="guitar" data-subtab="scale" id="subtab-guitar-scale" aria-selected="false">Scales</button>
                         <!-- Drums -->
                         <button class="tab" role="tab" data-instrument="drums" data-subtab="beat" id="subtab-drums-beat" aria-selected="false">Beat</button>
+                        <button class="tab" role="tab" data-instrument="drums" data-subtab="metronome" id="subtab-drums-metronome" aria-selected="false">Metronome</button>
                     </div>
                 </div>
                 <div class="right">
@@ -203,6 +204,43 @@
                             <button id="tempoUp" class="stepper-btn" type="button" aria-label="Increase tempo" title="Tempo +">+</button>
                         </div>
                     </div>
+
+                    <!-- Drums → Metronome -->
+                    <div id="metronomeControls" class="control-group metronome-controls" style="display:none;">
+                        <button id="metronomeToggle" type="button" aria-pressed="false">Start</button>
+                        <label class="metronome-field metronome-bpm" for="metronomeBpm">
+                            <span>BPM</span>
+                            <input id="metronomeBpm" type="range" min="30" max="260" value="120">
+                            <span id="metronomeBpmValue" class="metronome-bpm-value">120</span>
+                        </label>
+                        <label class="metronome-field" for="metronomeBeats">
+                            <span>Beats / measure</span>
+                            <select id="metronomeBeats">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4" selected>4</option>
+                                <option value="5">5</option>
+                                <option value="6">6</option>
+                                <option value="7">7</option>
+                                <option value="8">8</option>
+                                <option value="9">9</option>
+                                <option value="10">10</option>
+                                <option value="11">11</option>
+                                <option value="12">12</option>
+                            </select>
+                        </label>
+                        <label class="metronome-field" for="metronomeBeatValue">
+                            <span>Beat value</span>
+                            <select id="metronomeBeatValue">
+                                <option value="1">Whole</option>
+                                <option value="2">Half</option>
+                                <option value="4" selected>Quarter</option>
+                                <option value="8">Eighth</option>
+                                <option value="16">Sixteenth</option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
             </div>
         </section>
@@ -211,6 +249,11 @@
 
 
         <section class="boards" id="boards"></section>
+
+        <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">
+            <div id="metronomeBeatsDisplay" class="metronome-beats"></div>
+            <div id="metronomeStatus" class="metronome-status">Metronome ready</div>
+        </div>
 
         <!-- Add Section CTA -->
         <button id="addSectionCta" class="add-section-cta" type="button" aria-label="Add section" title="Add section">

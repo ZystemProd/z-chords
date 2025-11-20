@@ -2018,6 +2018,8 @@ function updateTabsUI(opts = {}) {
   const pianoControls = document.getElementById('pianoChordControls');
   const pianoScaleControls = document.getElementById('pianoScaleControls');
   const drumsControls = document.getElementById('drumsControls');
+  const metronomeControls = document.getElementById('metronomeControls');
+  const metronomePanel = document.getElementById('metronomePanel');
   const addSectionCta = document.getElementById('addSectionCta');
   const pianoScaleEl = document.getElementById('pianoScale');
 
@@ -2028,6 +2030,8 @@ function updateTabsUI(opts = {}) {
   if (pianoControls) pianoControls.style.display = 'none';
   if (pianoScaleControls) pianoScaleControls.style.display = 'none';
   if (drumsControls) drumsControls.style.display = 'none';
+  if (metronomeControls) metronomeControls.style.display = 'none';
+  if (metronomePanel) metronomePanel.style.display = 'none';
   if (handModeToggle) handModeToggle.style.display = 'none';
   if (addSectionCta) addSectionCta.style.display = 'none';
   if (pianoScaleEl) pianoScaleEl.style.display = 'none';
@@ -2057,12 +2061,26 @@ function updateTabsUI(opts = {}) {
       if (guitarEl) guitarEl.style.display = 'none';
     }
   } else if (currentInstrument === 'drums') {
-    if (drumsControls) drumsControls.style.display = 'inline-flex';
+    const sub = currentSubtab.drums;
+    if (sub === 'metronome') {
+      if (metronomeControls) metronomeControls.style.display = 'inline-flex';
+      if (metronomePanel) metronomePanel.style.display = 'block';
+    } else if (drumsControls) {
+      drumsControls.style.display = 'inline-flex';
+    }
+  }
+
+  if (!(currentInstrument === 'drums' && currentSubtab.drums === 'metronome')) {
+    stopMetronome();
   }
 
   // Move the animated highlights
   positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), true);
   positionSegmentedHighlight(document.getElementById('instrumentSubTabs'), animateSubTabs);
+}
+
+function isMetronomeViewActive() {
+  return currentInstrument === 'drums' && currentSubtab.drums === 'metronome';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2176,7 +2194,227 @@ loadSections();
 // render sections layout (not the old single-card render)
 renderSections();
 
-// Drums placeholder controls
+const metronomeState = {
+  bpm: 120,
+  beatsPerMeasure: 4,
+  beatValue: 4,
+  currentBeat: 0,
+  isRunning: false,
+  timerId: null,
+  audioCtx: null,
+};
+
+function clampMetronomeValue(value, min, max) {
+  if (Number.isNaN(value)) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+function ensureMetronomeAudioCtx() {
+  if (metronomeState.audioCtx) return metronomeState.audioCtx;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  metronomeState.audioCtx = new AudioCtx();
+  return metronomeState.audioCtx;
+}
+
+function getMetronomeIntervalMs() {
+  const beatDuration = (60 / metronomeState.bpm) * 1000;
+  return beatDuration * (4 / metronomeState.beatValue);
+}
+
+function updateMetronomeBeatsDisplay() {
+  const container = document.getElementById('metronomeBeatsDisplay');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < metronomeState.beatsPerMeasure; i += 1) {
+    const dot = document.createElement('span');
+    dot.className = 'metronome-led';
+    if (i === 0) dot.classList.add('accent-beat');
+    dot.setAttribute('aria-label', `Beat ${i + 1}`);
+    dot.textContent = String(i + 1);
+    container.appendChild(dot);
+  }
+}
+
+function highlightMetronomeBeat(activeIndex) {
+  const leds = document.querySelectorAll('#metronomeBeatsDisplay .metronome-led');
+  leds.forEach((led, idx) => {
+    led.classList.toggle('active', idx === activeIndex);
+  });
+}
+
+function setMetronomeStatus(text) {
+  const statusEl = document.getElementById('metronomeStatus');
+  if (statusEl) statusEl.textContent = text;
+}
+
+function setMetronomeButtonState(isRunning) {
+  const toggleBtn = document.getElementById('metronomeToggle');
+  if (toggleBtn) {
+    toggleBtn.textContent = isRunning ? 'Stop' : 'Start';
+    toggleBtn.setAttribute('aria-pressed', String(isRunning));
+  }
+}
+
+function playMetronomeClick(isAccent) {
+  const audioCtx = ensureMetronomeAudioCtx();
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.frequency.value = isAccent ? 1600 : 900;
+  gain.gain.value = 0.00001;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+  gain.gain.setValueAtTime(0.00001, now);
+  gain.gain.exponentialRampToValueAtTime(isAccent ? 0.8 : 0.5, now + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.00001, now + 0.2);
+  osc.start(now);
+  osc.stop(now + 0.25);
+}
+
+function metronomeTick() {
+  if (!metronomeState.isRunning) return;
+  const beatIndex = metronomeState.currentBeat;
+  playMetronomeClick(beatIndex === 0);
+  highlightMetronomeBeat(beatIndex);
+  setMetronomeStatus(`Beat ${beatIndex + 1} / ${metronomeState.beatsPerMeasure}`);
+  metronomeState.currentBeat = (metronomeState.currentBeat + 1) % metronomeState.beatsPerMeasure;
+  metronomeState.timerId = window.setTimeout(metronomeTick, getMetronomeIntervalMs());
+}
+
+function restartMetronomeClock() {
+  if (metronomeState.timerId) {
+    clearTimeout(metronomeState.timerId);
+    metronomeState.timerId = null;
+  }
+  if (metronomeState.isRunning) {
+    metronomeState.currentBeat = 0;
+    highlightMetronomeBeat(-1);
+    metronomeTick();
+  }
+}
+
+function startMetronome() {
+  const ctx = ensureMetronomeAudioCtx();
+  if (!ctx) {
+    setMetronomeStatus('Metronome not supported in this browser');
+    return;
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  if (metronomeState.timerId) {
+    clearTimeout(metronomeState.timerId);
+    metronomeState.timerId = null;
+  }
+  metronomeState.isRunning = true;
+  metronomeState.currentBeat = 0;
+  highlightMetronomeBeat(-1);
+  setMetronomeButtonState(true);
+  setMetronomeStatus('Starting...');
+  metronomeTick();
+}
+
+function stopMetronome() {
+  if (metronomeState.timerId) {
+    clearTimeout(metronomeState.timerId);
+    metronomeState.timerId = null;
+  }
+  if (!metronomeState.isRunning) {
+    setMetronomeButtonState(false);
+    return;
+  }
+  metronomeState.isRunning = false;
+  highlightMetronomeBeat(-1);
+  setMetronomeButtonState(false);
+  setMetronomeStatus('Metronome stopped');
+}
+
+function updateMetronomeBpm(value) {
+  const bpm = clampMetronomeValue(Number(value), 30, 260);
+  metronomeState.bpm = bpm;
+  const bpmInput = document.getElementById('metronomeBpm');
+  if (bpmInput) bpmInput.value = String(bpm);
+  const bpmDisplay = document.getElementById('metronomeBpmValue');
+  if (bpmDisplay) bpmDisplay.textContent = String(bpm);
+  restartMetronomeClock();
+}
+
+function updateMetronomeBeats(value) {
+  const beats = clampMetronomeValue(parseInt(value, 10), 1, 12);
+  metronomeState.beatsPerMeasure = beats;
+  const select = document.getElementById('metronomeBeats');
+  if (select) select.value = String(beats);
+  updateMetronomeBeatsDisplay();
+  highlightMetronomeBeat(-1);
+  restartMetronomeClock();
+}
+
+function updateMetronomeBeatValue(value) {
+  const allowed = [1, 2, 4, 8, 16];
+  let beatValue = parseInt(value, 10);
+  if (!allowed.includes(beatValue)) beatValue = 4;
+  metronomeState.beatValue = beatValue;
+  const select = document.getElementById('metronomeBeatValue');
+  if (select) select.value = String(beatValue);
+  restartMetronomeClock();
+}
+
+function setupMetronomeUI() {
+  const toggleBtn = document.getElementById('metronomeToggle');
+  const bpmInput = document.getElementById('metronomeBpm');
+  const beatsSelect = document.getElementById('metronomeBeats');
+  const beatValueSelect = document.getElementById('metronomeBeatValue');
+  if (!toggleBtn || !bpmInput || !beatsSelect || !beatValueSelect) return;
+
+  updateMetronomeBeatsDisplay();
+  highlightMetronomeBeat(-1);
+  setMetronomeStatus('Metronome ready');
+  setMetronomeButtonState(false);
+  updateMetronomeBpm(bpmInput.value);
+
+  toggleBtn.addEventListener('click', () => {
+    if (metronomeState.isRunning) {
+      stopMetronome();
+    } else {
+      startMetronome();
+    }
+  });
+  bpmInput.addEventListener('input', (e) => {
+    const display = document.getElementById('metronomeBpmValue');
+    if (display) display.textContent = e.target.value;
+  });
+  bpmInput.addEventListener('change', (e) => {
+    updateMetronomeBpm(e.target.value);
+  });
+  beatsSelect.addEventListener('change', (e) => {
+    updateMetronomeBeats(e.target.value);
+  });
+  beatValueSelect.addEventListener('change', (e) => {
+    updateMetronomeBeatValue(e.target.value);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    if (!isMetronomeViewActive()) return;
+    const target = e.target;
+    const tag = target && target.tagName ? target.tagName.toUpperCase() : '';
+    const interactive = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'];
+    if (interactive.includes(tag) && !['metronomeBpm', 'metronomeBeats', 'metronomeBeatValue', 'metronomeToggle'].includes(target.id)) {
+      return;
+    }
+    e.preventDefault();
+    if (metronomeState.isRunning) {
+      stopMetronome();
+    } else {
+      startMetronome();
+    }
+  });
+}
+
+// Drums placeholder controls + metronome wiring
 document.addEventListener('DOMContentLoaded', () => {
   const playBtn = document.getElementById('drumsPlayStop');
   const clearBtn = document.getElementById('drumsClear');
@@ -2204,6 +2442,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tempo = Math.min(260, tempo + 5);
     if (tempoVal) tempoVal.textContent = String(tempo);
   });
+
+  setupMetronomeUI();
 });
 
 // Draw a two-octave piano with scale tones highlighted (one-hand)
