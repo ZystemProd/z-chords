@@ -1322,6 +1322,13 @@ body.light-mode .card.preview .piano {
 /* Reduce vertical jank when switching instruments */
 .controls-row.row-2 {
   min-height: 44px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.controls-row.row-2 .right {
+  justify-content: flex-start;
 }
 
 .white-key.left-hand {
@@ -1507,6 +1514,7 @@ body.light-mode .edit-chord-section:hover {
   gap: 16px;
   flex-wrap: wrap;
   align-items: center;
+  flex: 1 1 100%;
 }
 .metronome-field {
   display: flex;
@@ -1533,6 +1541,91 @@ body.light-mode .edit-chord-section:hover {
   font-weight: 600;
   letter-spacing: normal;
   text-transform: none;
+}
+.metronome-tonality-value {
+  visibility: hidden;
+}
+.metronome-time-sig .time-sig {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  min-width: 38px;
+  transition: background 0.15s ease;
+}
+body.light-mode .metronome-time-sig .time-sig {
+  background: rgba(0, 0, 0, 0.03);
+}
+.time-sig-number {
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.1;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.time-sig-divider {
+  width: 70%;
+  height: 1px;
+  margin: 3px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.4);
+  font-size: 0;
+  line-height: 0;
+}
+.light-mode .time-sig-divider {
+  background: rgba(0, 0, 0, 0.35);
+}
+.time-sig-select {
+  position: absolute;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--kbd-label);
+}
+.time-sig-select-top {
+  top: 0;
+  height: 50%;
+}
+.time-sig-select-bottom {
+  bottom: 0;
+  height: 50%;
+}
+.time-sig-select-top:hover,
+.time-sig-select-top:focus-visible {
+  outline: 1px solid var(--panel-border, rgba(255, 255, 255, 0.35));
+  outline-offset: -1px;
+}
+.time-sig-select-bottom:hover,
+.time-sig-select-bottom:focus-visible {
+  outline: 1px solid var(--panel-border, rgba(255, 255, 255, 0.35));
+  outline-offset: -1px;
+}
+.time-sig-select-top:hover,
+.time-sig-select-top:focus-visible,
+.time-sig-select-bottom:hover,
+.time-sig-select-bottom:focus-visible {
+  cursor: pointer;
+}
+.time-sig-select option {
+  background-color: #181a20;
+  color: #f8f9ff;
+}
+body.light-mode .time-sig-select option {
+  background-color: #ffffff;
+  color: #111111;
+}
+.time-sig-number.is-hovered {
+  color: var(--accent-color, #0cc0df);
+  transform: translateY(1px);
 }
 .metronome-panel {
   margin: 16px 0;
@@ -1586,8 +1679,4 @@ body.light-mode .metronome-led {
   background: #ff4d4f;
   color: #fff;
   box-shadow: 0 0 12px rgba(255, 77, 79, 0.7);
-}
-.metronome-status {
-  font-size: 0.9rem;
-  opacity: 0.8;
 }

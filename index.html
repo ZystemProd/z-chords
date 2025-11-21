@@ -207,38 +207,45 @@
 
                     <!-- Drums → Metronome -->
                     <div id="metronomeControls" class="control-group metronome-controls" style="display:none;">
-                        <button id="metronomeToggle" type="button" aria-pressed="false">Start</button>
                         <label class="metronome-field metronome-bpm" for="metronomeBpm">
                             <span>BPM</span>
                             <input id="metronomeBpm" type="range" min="30" max="260" value="120">
                             <span id="metronomeBpmValue" class="metronome-bpm-value">120</span>
                         </label>
-                        <label class="metronome-field" for="metronomeBeats">
-                            <span>Beats / measure</span>
-                            <select id="metronomeBeats">
-                                <option value="1">1</option>
-                                <option value="2">2</option>
-                                <option value="3">3</option>
-                                <option value="4" selected>4</option>
-                                <option value="5">5</option>
-                                <option value="6">6</option>
-                                <option value="7">7</option>
-                                <option value="8">8</option>
-                                <option value="9">9</option>
-                                <option value="10">10</option>
-                                <option value="11">11</option>
-                                <option value="12">12</option>
-                            </select>
+                        <label class="metronome-field" for="metronomeTonality">
+                            <span>Tonality</span>
+                            <input id="metronomeTonality" type="range" min="0" max="100" value="100">
+                            <!-- spacer so Tonality aligns vertically with BPM (which shows a value) -->
+                            <span class="metronome-bpm-value metronome-tonality-value">&nbsp;</span>
                         </label>
-                        <label class="metronome-field" for="metronomeBeatValue">
-                            <span>Beat value</span>
-                            <select id="metronomeBeatValue">
-                                <option value="1">Whole</option>
-                                <option value="2">Half</option>
-                                <option value="4" selected>Quarter</option>
-                                <option value="8">Eighth</option>
-                                <option value="16">Sixteenth</option>
-                            </select>
+                        <label class="metronome-field metronome-time-sig" for="metronomeBeats">
+                            <span>Time signature</span>
+                            <div class="time-sig" aria-label="Time signature">
+                                <div class="time-sig-number" id="metronomeBeatsNumber">4</div>
+                                <div class="time-sig-divider">/</div>
+                                <div class="time-sig-number" id="metronomeBeatValueNumber">4</div>
+                                <select id="metronomeBeats" class="time-sig-select time-sig-select-top" aria-label="Beats per measure">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4" selected>4</option>
+                                    <option value="5">5</option>
+                                    <option value="6">6</option>
+                                    <option value="7">7</option>
+                                    <option value="8">8</option>
+                                    <option value="9">9</option>
+                                    <option value="10">10</option>
+                                    <option value="11">11</option>
+                                    <option value="12">12</option>
+                                </select>
+                                <select id="metronomeBeatValue" class="time-sig-select time-sig-select-bottom" aria-label="Beat value (denominator)">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="4" selected>4</option>
+                                    <option value="8">8</option>
+                                    <option value="16">16</option>
+                                </select>
+                            </div>
                         </label>
                     </div>
                 </div>
@@ -252,7 +259,7 @@
 
         <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">
             <div id="metronomeBeatsDisplay" class="metronome-beats"></div>
-            <div id="metronomeStatus" class="metronome-status">Metronome ready</div>
+            <button id="metronomeToggle" type="button" aria-pressed="false">Start</button>
         </div>
 
         <!-- Add Section CTA -->

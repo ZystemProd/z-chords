@@ -2202,6 +2202,8 @@ const metronomeState = {
   isRunning: false,
   timerId: null,
   audioCtx: null,
+  tonality: 1, // 0 = noise click, 1 = pure tone
+  noiseBuffer: null,
 };
 
 function clampMetronomeValue(value, min, max) {
@@ -2215,6 +2217,19 @@ function ensureMetronomeAudioCtx() {
   if (!AudioCtx) return null;
   metronomeState.audioCtx = new AudioCtx();
   return metronomeState.audioCtx;
+}
+
+function ensureMetronomeNoiseBuffer(audioCtx) {
+  if (metronomeState.noiseBuffer) return metronomeState.noiseBuffer;
+  const duration = 0.05;
+  const sampleRate = audioCtx.sampleRate;
+  const buffer = audioCtx.createBuffer(1, Math.floor(sampleRate * duration), sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i += 1) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  metronomeState.noiseBuffer = buffer;
+  return buffer;
 }
 
 function getMetronomeIntervalMs() {
@@ -2232,6 +2247,12 @@ function updateMetronomeBeatsDisplay() {
     if (i === 0) dot.classList.add('accent-beat');
     dot.setAttribute('aria-label', `Beat ${i + 1}`);
     dot.textContent = String(i + 1);
+
+    // Allow clicking a LED to toggle accent on/off.
+    dot.addEventListener('click', () => {
+      dot.classList.toggle('accent-beat');
+    });
+
     container.appendChild(dot);
   }
 }
@@ -2244,8 +2265,6 @@ function highlightMetronomeBeat(activeIndex) {
 }
 
 function setMetronomeStatus(text) {
-  const statusEl = document.getElementById('metronomeStatus');
-  if (statusEl) statusEl.textContent = text;
 }
 
 function setMetronomeButtonState(isRunning) {
@@ -2262,16 +2281,43 @@ function playMetronomeClick(isAccent) {
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
+
+  const tonality = typeof metronomeState.tonality === 'number' ? metronomeState.tonality : 0.6;
+  const t = Math.min(Math.max(tonality, 0), 1);
+
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.00001;
+  masterGain.connect(audioCtx.destination);
+
+  // Tonal component (oscillator)
   const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
   osc.frequency.value = isAccent ? 1600 : 900;
-  gain.gain.value = 0.00001;
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  const oscGain = audioCtx.createGain();
+  oscGain.gain.value = t;
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+
+  // Noise component (percussive, less tonal)
+  if (t < 1) {
+    const noiseBuffer = ensureMetronomeNoiseBuffer(audioCtx);
+    if (noiseBuffer) {
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+      const noiseGain = audioCtx.createGain();
+      noiseGain.gain.value = 1 - t;
+      noiseSource.connect(noiseGain);
+      noiseGain.connect(masterGain);
+      const nowNoise = audioCtx.currentTime;
+      noiseSource.start(nowNoise);
+      noiseSource.stop(nowNoise + 0.1);
+    }
+  }
+
   const now = audioCtx.currentTime;
-  gain.gain.setValueAtTime(0.00001, now);
-  gain.gain.exponentialRampToValueAtTime(isAccent ? 0.8 : 0.5, now + 0.002);
-  gain.gain.exponentialRampToValueAtTime(0.00001, now + 0.2);
+  const peak = isAccent ? 0.8 : 0.5;
+  masterGain.gain.setValueAtTime(0.00001, now);
+  masterGain.gain.exponentialRampToValueAtTime(peak, now + 0.002);
+  masterGain.gain.exponentialRampToValueAtTime(0.00001, now + 0.2);
   osc.start(now);
   osc.stop(now + 0.25);
 }
@@ -2279,7 +2325,12 @@ function playMetronomeClick(isAccent) {
 function metronomeTick() {
   if (!metronomeState.isRunning) return;
   const beatIndex = metronomeState.currentBeat;
-  playMetronomeClick(beatIndex === 0);
+
+  const leds = document.querySelectorAll('#metronomeBeatsDisplay .metronome-led');
+  const currentLed = leds[beatIndex];
+  const isAccent = currentLed && currentLed.classList.contains('accent-beat');
+
+  playMetronomeClick(isAccent);
   highlightMetronomeBeat(beatIndex);
   setMetronomeStatus(`Beat ${beatIndex + 1} / ${metronomeState.beatsPerMeasure}`);
   metronomeState.currentBeat = (metronomeState.currentBeat + 1) % metronomeState.beatsPerMeasure;
@@ -2347,6 +2398,8 @@ function updateMetronomeBeats(value) {
   metronomeState.beatsPerMeasure = beats;
   const select = document.getElementById('metronomeBeats');
   if (select) select.value = String(beats);
+  const beatsDisplay = document.getElementById('metronomeBeatsNumber');
+  if (beatsDisplay) beatsDisplay.textContent = String(beats);
   updateMetronomeBeatsDisplay();
   highlightMetronomeBeat(-1);
   restartMetronomeClock();
@@ -2359,7 +2412,18 @@ function updateMetronomeBeatValue(value) {
   metronomeState.beatValue = beatValue;
   const select = document.getElementById('metronomeBeatValue');
   if (select) select.value = String(beatValue);
+  const beatValueDisplay = document.getElementById('metronomeBeatValueNumber');
+  if (beatValueDisplay) beatValueDisplay.textContent = String(beatValue);
   restartMetronomeClock();
+}
+
+function updateMetronomeTonality(value) {
+  let v = Number(value);
+  if (Number.isNaN(v)) v = 100;
+  v = Math.min(Math.max(v, 0), 100);
+  metronomeState.tonality = v / 100;
+  const input = document.getElementById('metronomeTonality');
+  if (input) input.value = String(v);
 }
 
 function setupMetronomeUI() {
@@ -2367,6 +2431,7 @@ function setupMetronomeUI() {
   const bpmInput = document.getElementById('metronomeBpm');
   const beatsSelect = document.getElementById('metronomeBeats');
   const beatValueSelect = document.getElementById('metronomeBeatValue');
+  const tonalityInput = document.getElementById('metronomeTonality');
   if (!toggleBtn || !bpmInput || !beatsSelect || !beatValueSelect) return;
 
   updateMetronomeBeatsDisplay();
@@ -2374,6 +2439,23 @@ function setupMetronomeUI() {
   setMetronomeStatus('Metronome ready');
   setMetronomeButtonState(false);
   updateMetronomeBpm(bpmInput.value);
+  if (tonalityInput) {
+    updateMetronomeTonality(tonalityInput.value);
+  }
+
+  const beatsNumber = document.getElementById('metronomeBeatsNumber');
+  const beatValueNumber = document.getElementById('metronomeBeatValueNumber');
+  const attachTimeSigHover = (selectEl, numberEl) => {
+    if (!selectEl || !numberEl) return;
+    const add = () => numberEl.classList.add('is-hovered');
+    const remove = () => numberEl.classList.remove('is-hovered');
+    selectEl.addEventListener('mouseenter', add);
+    selectEl.addEventListener('mouseleave', remove);
+    selectEl.addEventListener('focus', add);
+    selectEl.addEventListener('blur', remove);
+  };
+  attachTimeSigHover(beatsSelect, beatsNumber);
+  attachTimeSigHover(beatValueSelect, beatValueNumber);
 
   toggleBtn.addEventListener('click', () => {
     if (metronomeState.isRunning) {
@@ -2395,6 +2477,11 @@ function setupMetronomeUI() {
   beatValueSelect.addEventListener('change', (e) => {
     updateMetronomeBeatValue(e.target.value);
   });
+  if (tonalityInput) {
+    tonalityInput.addEventListener('input', (e) => {
+      updateMetronomeTonality(e.target.value);
+    });
+  }
 
   document.addEventListener('keydown', (e) => {
     if (e.code !== 'Space') return;
@@ -2402,7 +2489,7 @@ function setupMetronomeUI() {
     const target = e.target;
     const tag = target && target.tagName ? target.tagName.toUpperCase() : '';
     const interactive = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'];
-    if (interactive.includes(tag) && !['metronomeBpm', 'metronomeBeats', 'metronomeBeatValue', 'metronomeToggle'].includes(target.id)) {
+    if (interactive.includes(tag) && !['metronomeBpm', 'metronomeBeats', 'metronomeBeatValue', 'metronomeToggle', 'metronomeTonality'].includes(target.id)) {
       return;
     }
     e.preventDefault();
