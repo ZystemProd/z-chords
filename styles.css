@@ -1542,6 +1542,17 @@ body.light-mode .edit-chord-section:hover {
   letter-spacing: normal;
   text-transform: none;
 }
+.metronome-tap {
+  min-width: 140px;
+}
+.metronome-tap-btn {
+  width: 100%;
+}
+.metronome-tap-value {
+  font-size: 0.85rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
 .metronome-tonality-value {
   visibility: hidden;
 }

@@ -2218,6 +2218,7 @@ const metronomeState = {
   audioCtx: null,
   tonality: 1, // 0 = noise click, 1 = pure tone
   noiseBuffer: null,
+  tapTimes: [],
 };
 
 function clampMetronomeValue(value, min, max) {
@@ -2440,12 +2441,43 @@ function updateMetronomeTonality(value) {
   if (input) input.value = String(v);
 }
 
+function registerMetronomeTap() {
+  const now = Date.now();
+  const maxGapMs = 2000;
+  const maxSamples = 6;
+  const taps = metronomeState.tapTimes || [];
+  const lastTap = taps[taps.length - 1];
+  if (!lastTap || now - lastTap > maxGapMs) {
+    metronomeState.tapTimes = [now];
+  } else {
+    metronomeState.tapTimes = taps.concat(now).slice(-maxSamples);
+  }
+
+  const tapValue = document.getElementById('metronomeTapValue');
+  const times = metronomeState.tapTimes;
+  if (times.length < 2) {
+    if (tapValue) tapValue.textContent = 'Tap 2+';
+    return;
+  }
+
+  let total = 0;
+  for (let i = 1; i < times.length; i += 1) {
+    total += times[i] - times[i - 1];
+  }
+  const avgInterval = total / (times.length - 1);
+  if (!avgInterval || Number.isNaN(avgInterval)) return;
+  const bpm = clampMetronomeValue(Math.round(60000 / avgInterval), 30, 260);
+  updateMetronomeBpm(bpm);
+  if (tapValue) tapValue.textContent = `${bpm} BPM`;
+}
+
 function setupMetronomeUI() {
   const toggleBtn = document.getElementById('metronomeToggle');
   const bpmInput = document.getElementById('metronomeBpm');
   const beatsSelect = document.getElementById('metronomeBeats');
   const beatValueSelect = document.getElementById('metronomeBeatValue');
   const tonalityInput = document.getElementById('metronomeTonality');
+  const tapBtn = document.getElementById('metronomeTap');
   if (!toggleBtn || !bpmInput || !beatsSelect || !beatValueSelect) return;
 
   updateMetronomeBeatsDisplay();
@@ -2495,6 +2527,9 @@ function setupMetronomeUI() {
     tonalityInput.addEventListener('input', (e) => {
       updateMetronomeTonality(e.target.value);
     });
+  }
+  if (tapBtn) {
+    tapBtn.addEventListener('click', registerMetronomeTap);
   }
 
   document.addEventListener('keydown', (e) => {

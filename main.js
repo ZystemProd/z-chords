@@ -67,6 +67,8 @@ function drawScale() {
   if (!intervals) return;
 
   const isCAGEDMode = CAGED_MODES.has(mode);
+  const allowOpen = isCAGEDMode; // only show open strings in shape (CAGED) mode
+  let fretShift = 0;
 
   try {
     if (mode === "wholeTone") {
@@ -115,6 +117,12 @@ function drawScale() {
       if (shapeIndex === 2) windowStart = windowStart - 1;
     }
     windowStart = normalizeWindowStart(windowStart);
+
+    // If this shape starts on/after the 12th fret, wrap it down an octave so it sits at the nut (open = fret 0)
+    if (windowStart >= 12) {
+      fretShift = -12;
+      windowStart = windowStart + fretShift; // becomes 0 or 1
+    }
   } else if (mode === "wholeTone") {
     windowWidth = 5;
     windowStart = normalizeWindowStart(windowStart);
@@ -123,7 +131,8 @@ function drawScale() {
   const svg = renderScaleSVG(root, intervals, 1, 17, {
     windowStart,
     windowWidth,
-    showOpen: false,
+    showOpen: allowOpen,
+    fretShift,
   });
 
   guitarEl.appendChild(svg);

@@ -307,12 +307,16 @@ export function renderScaleSVG(
   const windowStart = typeof opts.windowStart === "number" ? opts.windowStart : null; // 1-based
   const windowWidth = typeof opts.windowWidth === "number" ? opts.windowWidth : 5;
   const showOpen = opts.showOpen !== false; // default true
+  const fretShift = typeof opts.fretShift === "number" ? opts.fretShift : 0; // shift fretted notes (e.g., wrap 12 → 0)
   const inWindow = (fret) => {
+    const f = fret + fretShift;
     if (windowStart === null) return true;
-    return fret >= windowStart && fret <= windowStart + windowWidth - 1;
+    return f >= windowStart && f <= windowStart + windowWidth - 1;
   };
 
   const openStringMIDIs = [64, 59, 55, 50, 45, 40];
+  const nearNut =
+    windowStart === null ? true : Math.abs(windowStart - 0) <= 4; // include open if window sits within 4 frets of nut
 
   function noteNameWithOctave(midiNote) {
     const noteName = NOTES[midiNote % 12];
@@ -379,6 +383,7 @@ export function renderScaleSVG(
   for (let stringIdx = 0; stringIdx < GUITAR_TUNING.length; stringIdx++) {
     const stringNote = GUITAR_TUNING[stringIdx];
     const y = paddingTop + stringHeight * (stringIdx + 0.5);
+    const labelX = paddingLeft - 24;
 
     const line = document.createElementNS(svgNS, "line");
     line.setAttribute("x1", paddingLeft);
@@ -390,38 +395,47 @@ export function renderScaleSVG(
     line.setAttribute("stroke-width", strokeWidths[stringIdx] || 1.5);
     svg.appendChild(line);
 
-    const label = document.createElementNS(svgNS, "text");
-    label.setAttribute("x", paddingLeft - 18);
-    label.setAttribute("y", y + 4);
-    label.setAttribute("text-anchor", "end");
-    label.setAttribute("fill", "#333");
-    label.setAttribute("font-size", "12");
-    label.textContent = stringNote;
-    svg.appendChild(label);
-
     const openMidi = openStringMIDIs[stringIdx];
+    const openNoteIdx = openMidi % 12;
+    const openInScale = showOpen && nearNut && scale.includes(openNoteIdx);
     const notesOnString = [];
-    if (scale.includes(openMidi % 12) && showOpen && inWindow(0)) {
-      notesOnString.push({ fret: 0, midiNote: openMidi });
-      const xOpen = paddingLeft - fretWidth / 2;
-      const degOpen = (openMidi % 12 - rootIdx + 12) % 12;
-      renderNotes.push({ id: nid++, stringIdx, fret: 0, midiNote: openMidi, noteIdx: openMidi % 12, deg: degOpen, x: xOpen, y, open: true });
+
+    if (!openInScale) {
+      // Show string label when open note is not used
+      const label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", labelX);
+      label.setAttribute("y", y + 4);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("fill", "#333");
+      label.setAttribute("font-size", "12");
+      label.textContent = stringNote;
+      svg.appendChild(label);
+    } else {
+      // Treat open string as fret 0 and render a scale circle in place of the label
+      notesOnString.push({ fret: 0, midiNote: openMidi, xOverride: labelX, open: true });
     }
 
     for (let fret = startFret; fret <= startFret + fretsWide - 1; fret++) {
+      const displayFret = fret + fretShift;
+      if (displayFret < 0) continue;
       const midiNote = openMidi + fret;
       const noteIdx = midiNote % 12;
       if (scale.includes(noteIdx) && inWindow(fret)) {
-        notesOnString.push({ fret, midiNote });
+        notesOnString.push({ fret: displayFret, midiNote });
       }
     }
 
     // Collect all
-    for (const { fret, midiNote } of notesOnString) {
+    for (const { fret, midiNote, xOverride, open } of notesOnString) {
       const noteIdx = midiNote % 12;
-      const x = fret === 0 ? paddingLeft - fretWidth / 2 : paddingLeft + fretWidth * (fret - startFret + 0.5);
+      const x =
+        typeof xOverride === "number"
+          ? xOverride
+          : fret === 0
+          ? paddingLeft - fretWidth / 2
+          : paddingLeft + fretWidth * (fret - startFret + 0.5);
       const deg = (noteIdx - rootIdx + 12) % 12;
-      renderNotes.push({ id: nid++, stringIdx, fret, midiNote, noteIdx, deg, x, y });
+      renderNotes.push({ id: nid++, stringIdx, fret, midiNote, noteIdx, deg, x, y, open: Boolean(open) });
     }
   }
 
@@ -471,4 +485,3 @@ export function renderScaleSVG(
 
   return svg;
 }
-
