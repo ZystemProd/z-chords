@@ -1917,40 +1917,126 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 document.getElementById("downloadPdf").addEventListener("click", async () => {
-  // Clone the boards container into an off-screen div
   const boards = document.querySelector(".boards.preview");
-  const clone = boards.cloneNode(true);
+  if (!boards) return;
 
-  // Apply light-mode for PDF capture
+  const clone = boards.cloneNode(true);
   clone.classList.add("pdf-capture");
 
-  // Create hidden off-screen container
   const hiddenContainer = document.createElement("div");
   hiddenContainer.style.position = "fixed";
   hiddenContainer.style.top = "-9999px";
   hiddenContainer.style.left = "-9999px";
-  hiddenContainer.style.opacity = "0"; // invisible
+  hiddenContainer.style.opacity = "0";
   hiddenContainer.appendChild(clone);
   document.body.appendChild(hiddenContainer);
 
-  // Capture with html2canvas
-  const canvas = await html2canvas(clone, {
-    scale: 2,
-    useCORS: true,
-  });
+  try {
+    const pdf = new jspdf.jsPDF("p", "mm", "a4");
+    const margin = 10;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const contentWidth = pageWidth - margin * 2;
+    const contentHeight = pageHeight - margin * 2;
+    const sections = Array.from(clone.querySelectorAll(".section"));
+    const captureTargets = sections.length > 0 ? sections : [clone];
+    let hasRenderedPage = false;
 
-  const imgData = canvas.toDataURL("image/png");
-  const pdf = new jspdf.jsPDF("p", "mm", "a4");
+    for (const target of captureTargets) {
+      const canvas = await html2canvas(target, {
+        scale: 2,
+        useCORS: true,
+      });
 
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const imgWidth = pageWidth - 20; // padding
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const targetRect = target.getBoundingClientRect();
+      const pxPerMm = canvas.width / contentWidth;
+      const pageHeightPx = Math.max(1, Math.floor(contentHeight * pxPerMm));
+      const captureScale = canvas.width / Math.max(1, targetRect.width);
 
-  pdf.addImage(imgData, "PNG", 10, 10, imgWidth, imgHeight);
-  pdf.save("chords.pdf");
+      // Prefer page breaks at the start of each chord card to avoid splitting a card.
+      const breakpoints = Array.from(target.querySelectorAll(".card.preview"))
+        .map((card) => {
+          const rect = card.getBoundingClientRect();
+          return Math.round((rect.top - targetRect.top) * captureScale);
+        })
+        .filter((y) => y > 0 && y < canvas.height)
+        .sort((a, b) => a - b);
 
-  // Clean up
-  document.body.removeChild(hiddenContainer);
+      let renderedHeight = 0;
+      let sectionPageIndex = 0;
+
+      while (renderedHeight < canvas.height) {
+        // Every section starts on a fresh page.
+        if (hasRenderedPage && sectionPageIndex === 0) {
+          pdf.addPage();
+        } else if (sectionPageIndex > 0) {
+          pdf.addPage();
+        }
+
+        const remainingHeight = canvas.height - renderedHeight;
+        const desiredSliceHeight = Math.min(pageHeightPx, remainingHeight);
+        let sliceHeightPx = desiredSliceHeight;
+
+        if (remainingHeight > pageHeightPx) {
+          const maxBreakY = renderedHeight + pageHeightPx;
+          const minSlicePx = Math.max(1, Math.floor(pageHeightPx * 0.4));
+          const minBreakY = renderedHeight + minSlicePx;
+
+          let chosenBreakY = null;
+          for (let i = breakpoints.length - 1; i >= 0; i -= 1) {
+            const y = breakpoints[i];
+            if (y <= maxBreakY && y >= minBreakY) {
+              chosenBreakY = y;
+              break;
+            }
+          }
+
+          if (chosenBreakY !== null) {
+            sliceHeightPx = chosenBreakY - renderedHeight;
+          }
+        }
+
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeightPx;
+
+        const pageCtx = pageCanvas.getContext("2d");
+        pageCtx.drawImage(
+          canvas,
+          0,
+          renderedHeight,
+          canvas.width,
+          sliceHeightPx,
+          0,
+          0,
+          canvas.width,
+          sliceHeightPx
+        );
+
+        const sliceData = pageCanvas.toDataURL("image/png");
+        const sliceHeightMm = sliceHeightPx / pxPerMm;
+
+        pdf.addImage(
+          sliceData,
+          "PNG",
+          margin,
+          margin,
+          contentWidth,
+          sliceHeightMm,
+          undefined,
+          "FAST"
+        );
+
+        renderedHeight += sliceHeightPx;
+        sectionPageIndex += 1;
+        hasRenderedPage = true;
+      }
+    }
+
+    pdf.save("chords.pdf");
+  } finally {
+    document.body.removeChild(hiddenContainer);
+  }
 });
 
 // Help modal controls
