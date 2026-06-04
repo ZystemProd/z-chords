@@ -240,6 +240,10 @@ export function renderScaleSVG(
 ) {
   const scale = buildScale(root, intervals);
   const rootIdx = noteIndex(root);
+  const labelMode = opts.labelMode === "note" ? "note" : "interval";
+  const editable = opts.editable === true;
+  const customMode = opts.customMode === true;
+  const customNoteSet = customMode ? new Set((opts.customNoteKeys || []).map((n) => String(n))) : null;
 
   const isLydian = (() => {
     const lyd = SCALE_FORMULAS.lydian;
@@ -397,10 +401,9 @@ export function renderScaleSVG(
 
     const openMidi = openStringMIDIs[stringIdx];
     const openNoteIdx = openMidi % 12;
-    const openInScale = showOpen && nearNut && scale.includes(openNoteIdx);
     const notesOnString = [];
 
-    if (!openInScale) {
+    if (!customMode && !editable && !(showOpen && nearNut && scale.includes(openNoteIdx))) {
       // Show string label when open note is not used
       const label = document.createElementNS(svgNS, "text");
       label.setAttribute("x", labelX);
@@ -411,7 +414,7 @@ export function renderScaleSVG(
       label.textContent = stringNote;
       svg.appendChild(label);
     } else {
-      // Treat open string as fret 0 and render a scale circle in place of the label
+      // Treat open string as fret 0 so it can be clicked like any other note.
       notesOnString.push({ fret: 0, midiNote: openMidi, xOverride: labelX, open: true });
     }
 
@@ -420,7 +423,7 @@ export function renderScaleSVG(
       if (displayFret < 0) continue;
       const midiNote = openMidi + fret;
       const noteIdx = midiNote % 12;
-      if (scale.includes(noteIdx) && inWindow(fret)) {
+      if ((customMode || editable || scale.includes(noteIdx)) && inWindow(fret)) {
         notesOnString.push({ fret: displayFret, midiNote });
       }
     }
@@ -458,29 +461,42 @@ export function renderScaleSVG(
   }
 
   // Render
-  for (const { x, y, noteIdx, midiNote, deg, id, _remove } of renderNotes) {
+  for (const { x, y, noteIdx, midiNote, deg, id, _remove, stringIdx, fret } of renderNotes) {
     if (toRemove.has(id) || _remove) continue;
+    const noteKey = `${stringIdx}:${fret}:${midiNote}`;
+    const active = customMode ? customNoteSet.has(noteKey) : scale.includes(noteIdx);
     const circle = document.createElementNS(svgNS, "circle");
     circle.setAttribute("cx", x);
     circle.setAttribute("cy", y);
-    circle.setAttribute("r", 12);
-    circle.setAttribute("fill", noteIdx === rootIdx ? "#ff6347" : "#333");
-    circle.setAttribute("stroke", "#fff");
-    circle.setAttribute("stroke-width", 2);
+    circle.setAttribute("r", active ? 12 : 10);
+    circle.setAttribute("fill", active ? (customMode ? "#333" : (noteIdx === rootIdx ? "#ff6347" : "#333")) : "transparent");
+    circle.setAttribute("stroke", active ? "#fff" : "#7f8c9a");
+    circle.setAttribute("stroke-width", active ? 2 : 1.5);
+    circle.setAttribute("stroke-dasharray", active ? "" : "3 2");
+    circle.setAttribute("data-note-idx", String(noteIdx));
+    circle.setAttribute("data-midi-note", String(midiNote));
+    circle.setAttribute("data-note-key", noteKey);
+    circle.setAttribute("data-active", String(active));
+    circle.style.cursor = editable ? "pointer" : "default";
     svg.appendChild(circle);
 
     const tooltip = document.createElementNS(svgNS, "title");
     tooltip.textContent = noteNameWithOctave(midiNote);
     circle.appendChild(tooltip);
 
-    const label = document.createElementNS(svgNS, "text");
-    label.setAttribute("x", x);
-    label.setAttribute("y", y + 5);
-    label.setAttribute("text-anchor", "middle");
-    label.setAttribute("fill", "#fff");
-    label.setAttribute("font-size", "12");
-    label.textContent = intervalLabel(deg);
-    svg.appendChild(label);
+    if (!customMode || active) {
+      const label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", x);
+      label.setAttribute("y", y + 5);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("fill", active ? "#fff" : "#9fb0c2");
+      label.setAttribute("font-size", active ? "12" : "11");
+      label.setAttribute("pointer-events", "none");
+      label.textContent = customMode
+        ? noteNameWithOctave(midiNote)
+        : (labelMode === "note" ? NOTES[midiNote % 12] : intervalLabel(deg));
+      svg.appendChild(label);
+    }
   }
 
   return svg;

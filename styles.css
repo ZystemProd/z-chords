@@ -199,6 +199,11 @@ h1 {
   gap: 8px;
 }
 
+#guitarControls {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
 input[type="text"] {
   padding: 8px 10px;
   border-radius: 8px;
@@ -690,6 +695,67 @@ select:focus-visible {
   text-align: center;
   font-weight: 600;
   font-size: 16px;
+}
+
+.guitar-scale-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--white) 88%, var(--bg) 12%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  flex: 1 1 100%;
+}
+
+.guitar-scale-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guitar-label-toggle {
+  margin-left: 2px;
+}
+
+.guitar-view-toggle {
+  margin-right: 2px;
+}
+
+#guitarControls .guitar-edit-hint {
+  color: var(--note-text);
+  font-size: 13px;
+}
+
+#resetGuitarNotes {
+  height: 34px;
+}
+
+.guitar-staff {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  background: transparent;
+}
+
+.guitar-staff svg {
+  max-width: 100%;
+  height: auto;
+  color: #111;
+  background: #fffdf7;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.guitar-staff-empty {
+  padding: 16px 20px;
+  color: #444;
+  font-size: 13px;
+  background: #fffdf7;
+  border: 1px dashed #bfbfbf;
+  border-radius: 12px;
 }
 
 .card {

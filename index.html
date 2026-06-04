@@ -140,6 +140,11 @@
                     </div>
 
                     <div id="guitarControls" class="control-group" style="display:none; margin:0;">
+                        <div class="hand-toggle guitar-view-toggle" role="group" aria-label="Guitar fretboard mode">
+                            <button type="button" data-guitar-view="scales" aria-pressed="true">Scales</button>
+                            <button type="button" data-guitar-view="custom" aria-pressed="false">Custom</button>
+                        </div>
+
                         <select id="guitarKey">
                             <option value="C">C</option>
                             <option value="C#">C#</option>
@@ -188,6 +193,21 @@
                             <button id="shapeDown" class="stepper-btn" type="button" aria-label="Previous shape" title="Previous shape">&minus;</button>
                             <span id="shapeValue" class="stepper-value" aria-live="polite" aria-atomic="true">1</span>
                             <button id="shapeUp" class="stepper-btn" type="button" aria-label="Next shape" title="Next shape">+</button>
+                        </div>
+
+                        <div class="guitar-scale-settings" aria-label="Guitar scale settings">
+                            <div class="guitar-scale-settings-row">
+                                <span class="group-label">Edit</span>
+                                <span id="guitarEditHint" class="guitar-edit-hint">Click notes on the fretboard to add or remove them.</span>
+                                <button id="resetGuitarNotes" type="button">Reset</button>
+                            </div>
+                            <div id="guitarLabelRow" class="guitar-scale-settings-row">
+                                <span class="group-label">Labels</span>
+                                <div class="hand-toggle guitar-label-toggle" role="group" aria-label="Scale label mode">
+                                    <button type="button" data-guitar-label-mode="interval" aria-pressed="true">Numbers</button>
+                                    <button type="button" data-guitar-label-mode="note" aria-pressed="false">Notes</button>
+                                </div>
+                            </div>
                         </div>
 
                         <button id="updateGuitar">Update</button>
@@ -312,6 +332,7 @@
 
         <!-- Single guitar container -->
         <div id="guitar" style="display:none"></div>
+        <div id="guitarStaff" class="guitar-staff" style="display:none"></div>
 
         <!-- Piano Scale container -->
         <div id="pianoScale" style="display:none"></div>
