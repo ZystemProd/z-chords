@@ -1822,3 +1822,111 @@ body.light-mode .metronome-led {
   color: #fff;
   box-shadow: 0 0 12px rgba(255, 77, 79, 0.7);
 }
+
+/* --- Guitar chord diagrams (rendered by guitar-chords.js) ---------------- */
+/* Elements are classed rather than given inline colours so they follow the
+   theme and can be restyled for the PDF export. */
+
+.gc-diagram {
+  display: block;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.gc-fret,
+.gc-string {
+  stroke: var(--note-text);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.gc-nut {
+  stroke: var(--text);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.gc-dot,
+.gc-barre {
+  fill: var(--text);
+}
+
+.gc-open {
+  fill: none;
+  stroke: var(--note-text);
+  stroke-width: 1.4;
+}
+
+.gc-mute {
+  stroke: var(--note-text);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.gc-position {
+  fill: var(--note-text);
+  font-size: 9px;
+  font-family: inherit;
+}
+
+/* The chart text under a diagram, e.g. "x32010". */
+.gc-chart {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--note-text);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* PDF export forces a white page, so the diagram has to go black on white. */
+.pdf-capture .gc-fret,
+.pdf-capture .gc-string,
+.pdf-capture .gc-nut,
+.pdf-capture .gc-open,
+.pdf-capture .gc-mute {
+  stroke: #000 !important;
+  opacity: 1 !important;
+}
+
+.pdf-capture .gc-dot,
+.pdf-capture .gc-barre,
+.pdf-capture .gc-position {
+  fill: #000 !important;
+}
+
+.pdf-capture .gc-chart {
+  color: #000 !important;
+}
+
+/* Guitar chord card body */
+.guitar-chord-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.gc-host {
+  display: flex;
+  justify-content: center;
+}
+
+.gc-empty {
+  color: var(--note-text);
+  font-size: 12px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* The shape stepper stays visible, unlike the piano inversion control:
+   choosing a voicing is the main thing you do on this tab, and a hover-only
+   control does not exist at all on touch. */
+.card.preview .inversion-control.gc-shape-control {
+  opacity: 1;
+  margin-top: 2px;
+}
+
+.pdf-capture .gc-shape-control {
+  display: none !important;
+}

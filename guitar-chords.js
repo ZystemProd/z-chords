@@ -1,0 +1,484 @@
+// guitar-chords.js — guitar chord voicings and diagram rendering.
+//
+// Pure logic + SVG generation, in the same spirit as guitar.js: it owns no DOM
+// state and reads no localStorage. script.js drives it.
+//
+// Fret arrays are always length 6, ordered LOW to HIGH (string 6 -> string 1,
+// i.e. E A D G B e), which is how chord charts are written ("x32010" is C).
+// Note this is the reverse of guitar.js's GUITAR_TUNING, which runs high to low
+// because it draws a horizontal fretboard with the high E on top. Chord boxes
+// are drawn vertically with the low E on the left, so low-to-high is the
+// natural order here.
+//
+// null = muted string, 0 = open string, n = fret n.
+
+import { CHORD_PATTERNS, NOTES, noteIndex } from "./theory.js";
+
+// Open string MIDI, low to high: E2 A2 D3 G3 B3 E4.
+export const OPEN_MIDI = [40, 45, 50, 55, 59, 64];
+
+const MAX_SPAN = 3; // highest minus lowest fretted fret, so a 4-fret reach
+const MAX_FINGERS = 4;
+const OPEN_STRING_WINDOW = 3; // highest window that may still use open strings
+
+// --- Curated shapes --------------------------------------------------------
+//
+// These are the shapes guitarists actually play. Generated voicings can be
+// technically correct yet awkward or unidiomatic, so anything in here wins.
+// Every shape is checked against its chord's pitch classes by the test suite.
+
+// Open-position chords, keyed "<root><quality>". Written exactly as charted.
+const OPEN_SHAPES = {
+  C: [null, 3, 2, 0, 1, 0],
+  Cmaj7: [null, 3, 2, 0, 0, 0],
+  C7: [null, 3, 2, 3, 1, 0],
+  A: [null, 0, 2, 2, 2, 0],
+  Am: [null, 0, 2, 2, 1, 0],
+  A7: [null, 0, 2, 0, 2, 0],
+  Am7: [null, 0, 2, 0, 1, 0],
+  Amaj7: [null, 0, 2, 1, 2, 0],
+  Asus4: [null, 0, 2, 2, 3, 0],
+  G: [3, 2, 0, 0, 0, 3],
+  G7: [3, 2, 0, 0, 0, 1],
+  Gmaj7: [3, 2, 0, 0, 0, 2],
+  E: [0, 2, 2, 1, 0, 0],
+  Em: [0, 2, 2, 0, 0, 0],
+  E7: [0, 2, 0, 1, 0, 0],
+  Em7: [0, 2, 0, 0, 0, 0],
+  Emaj7: [0, 2, 1, 1, 0, 0],
+  Esus4: [0, 2, 2, 2, 0, 0],
+  D: [null, null, 0, 2, 3, 2],
+  Dm: [null, null, 0, 2, 3, 1],
+  D7: [null, null, 0, 2, 1, 2],
+  Dm7: [null, null, 0, 2, 1, 1],
+  Dmaj7: [null, null, 0, 2, 2, 2],
+  Dsus4: [null, null, 0, 2, 3, 3],
+  Dsus2: [null, null, 0, 2, 3, 0],
+};
+
+// Movable barre shapes, as fret offsets from the root fret. The root sits on
+// string 6 for the E family and string 5 for the A family, which is what makes
+// them movable: slide the whole shape and the chord follows the root.
+const MOVABLE_SHAPES = [
+  // --- E-shape family: root on string 6 ---
+  { rootString: 0, quality: "", offsets: [0, 2, 2, 1, 0, 0] },
+  { rootString: 0, quality: "m", offsets: [0, 2, 2, 0, 0, 0] },
+  { rootString: 0, quality: "7", offsets: [0, 2, 0, 1, 0, 0] },
+  { rootString: 0, quality: "m7", offsets: [0, 2, 0, 0, 0, 0] },
+  { rootString: 0, quality: "maj7", offsets: [0, 2, 1, 1, 0, 0] },
+  { rootString: 0, quality: "sus4", offsets: [0, 2, 2, 2, 0, 0] },
+  { rootString: 0, quality: "6", offsets: [0, 2, 2, 1, 2, 0] },
+  { rootString: 0, quality: "m6", offsets: [0, 2, 2, 0, 2, 0] },
+  { rootString: 0, quality: "m7b5", offsets: [0, 1, 0, 0, null, null] },
+
+  // --- A-shape family: root on string 5 ---
+  { rootString: 1, quality: "", offsets: [null, 0, 2, 2, 2, 0] },
+  { rootString: 1, quality: "m", offsets: [null, 0, 2, 2, 1, 0] },
+  { rootString: 1, quality: "7", offsets: [null, 0, 2, 0, 2, 0] },
+  { rootString: 1, quality: "m7", offsets: [null, 0, 2, 0, 1, 0] },
+  { rootString: 1, quality: "maj7", offsets: [null, 0, 2, 1, 2, 0] },
+  { rootString: 1, quality: "sus4", offsets: [null, 0, 2, 2, 3, 0] },
+  { rootString: 1, quality: "6", offsets: [null, 0, 2, 2, 2, 2] },
+  { rootString: 1, quality: "m6", offsets: [null, 0, 2, 2, 1, 2] },
+  { rootString: 1, quality: "m7b5", offsets: [null, 0, 1, 0, 1, null] },
+];
+
+// --- Voicing helpers -------------------------------------------------------
+
+function pitchClassesOf(rootPc, intervals) {
+  return new Set(intervals.map((i) => (((rootPc + i) % 12) + 12) % 12));
+}
+
+function frettedFrets(frets) {
+  return frets.filter((f) => typeof f === "number" && f > 0);
+}
+
+export function voicingMidis(frets) {
+  const out = [];
+  frets.forEach((f, s) => {
+    if (typeof f === "number") out.push(OPEN_MIDI[s] + f);
+  });
+  return out;
+}
+
+// A barre is the index finger flattened across several strings at one fret. We
+// report the lowest fretted fret when two or more strings share it and nothing
+// below it is fretted lower, which is what a player actually barres.
+function detectBarre(frets) {
+  const fretted = frettedFrets(frets);
+  if (!fretted.length) return null;
+  const min = Math.min(...fretted);
+  const at = [];
+  frets.forEach((f, s) => {
+    if (f === min) at.push(s);
+  });
+  if (at.length < 2) return null;
+  return { fret: min, fromString: Math.min(...at), toString: Math.max(...at) };
+}
+
+// How many fingers the shape needs.
+//
+// Not simply one per fretted string: a finger laid flat covers several. The
+// index barre at the lowest fret lies across the whole neck, so strings at that
+// fret cost one finger however far apart they are. Above it, a finger can still
+// cover a run of *adjacent* strings at the same fret -- that is how x13333
+// (Bb6) is played, index at fret 1 and the ring finger flat across fret 3 --
+// so each contiguous run at a given fret costs one finger.
+function fingerCount(frets) {
+  const byFret = new Map();
+  frets.forEach((f, s) => {
+    if (typeof f === "number" && f > 0) {
+      if (!byFret.has(f)) byFret.set(f, []);
+      byFret.get(f).push(s);
+    }
+  });
+  if (!byFret.size) return 0;
+
+  const minFret = Math.min(...byFret.keys());
+  let fingers = 0;
+  for (const [fret, strings] of byFret) {
+    if (fret === minFret && strings.length >= 2) {
+      fingers += 1; // index barre, flat across the neck
+      continue;
+    }
+    strings.sort((a, b) => a - b);
+    let runs = 1;
+    for (let i = 1; i < strings.length; i++) {
+      if (strings[i] !== strings[i - 1] + 1) runs++;
+    }
+    fingers += runs;
+  }
+  return fingers;
+}
+
+function span(frets) {
+  const fretted = frettedFrets(frets);
+  if (fretted.length < 2) return 0;
+  return Math.max(...fretted) - Math.min(...fretted);
+}
+
+// Muting a string between two sounding ones means silencing a string your hand
+// is already crossing - awkward and rarely what anyone plays. Muting from the
+// bass side (D and A shapes) is completely normal.
+function hasInteriorMute(frets) {
+  const sounding = frets.map((f) => typeof f === "number");
+  const first = sounding.indexOf(true);
+  const last = sounding.lastIndexOf(true);
+  if (first < 0) return false;
+  for (let i = first; i <= last; i++) if (!sounding[i]) return true;
+  return false;
+}
+
+function makeVoicing(frets, source, rootPc) {
+  const midis = voicingMidis(frets);
+  if (!midis.length) return null;
+  const fretted = frettedFrets(frets);
+  const lowFret = fretted.length ? Math.min(...fretted) : 0;
+  const bassPc = ((midis[0] % 12) + 12) % 12;
+  return {
+    frets: frets.slice(),
+    midis,
+    source,
+    barre: detectBarre(frets),
+    span: span(frets),
+    fingers: fingerCount(frets),
+    // Diagram window: open position shows the nut, otherwise start at the
+    // lowest fretted fret so the shape sits at the top of the box.
+    baseFret: lowFret <= 1 || frets.some((f) => f === 0) ? 1 : lowFret,
+    rootInBass: bassPc === rootPc,
+    stringCount: midis.length,
+  };
+}
+
+function signature(frets) {
+  return frets.map((f) => (f === null ? "x" : f)).join(",");
+}
+
+// --- Generated voicings ----------------------------------------------------
+
+// Score higher = better. Used to rank generated shapes so the most idiomatic
+// ones surface first.
+function scoreVoicing(v, essential, chordPcs) {
+  let s = 0;
+  if (v.rootInBass) s += 100;
+  s += v.stringCount * 12;
+  s -= v.fingers * 8;
+  s -= v.span * 6;
+  s += v.frets.filter((f) => f === 0).length * 4; // open strings ring
+  if (v.barre) s -= 4;
+  const covered = new Set(v.midis.map((m) => ((m % 12) + 12) % 12));
+  for (const pc of chordPcs) if (covered.has(pc)) s += 5;
+  for (const pc of essential) if (!covered.has(pc)) s -= 60;
+  s -= Math.max(0, v.baseFret - 1) * 1.5; // prefer lower positions
+  return s;
+}
+
+function generateVoicings(rootPc, intervals) {
+  const chordPcs = pitchClassesOf(rootPc, intervals);
+  // The 5th is the first note a guitarist drops - it adds no colour and the
+  // shapes rarely have a string to spare. Everything else must be present.
+  const essential = new Set(chordPcs);
+  if (intervals.length >= 4) essential.delete((rootPc + 7) % 12);
+
+  const results = [];
+  const seen = new Set();
+
+  for (let window = 0; window <= 12; window++) {
+    // Open strings only count near the nut. A finger-free open string is
+    // technically available anywhere, but mixing one into a shape fretted at
+    // the 13th is not a voicing anybody plays -- without this the generator
+    // happily emits things like 13-0-15-14-13-13.
+    const allowOpen = window <= OPEN_STRING_WINDOW;
+
+    // Candidate frets per string: muted, open (if it fits the chord), or a
+    // fret inside the window.
+    const candidates = OPEN_MIDI.map((open) => {
+      const opts = [null];
+      if (allowOpen && chordPcs.has(((open % 12) + 12) % 12)) opts.push(0);
+      for (let f = Math.max(window, 1); f <= window + MAX_SPAN; f++) {
+        if (chordPcs.has((((open + f) % 12) + 12) % 12)) opts.push(f);
+      }
+      return opts;
+    });
+
+    const frets = new Array(6).fill(null);
+    const walk = (s) => {
+      if (results.length > 4000) return; // safety valve
+      if (s === 6) {
+        const midis = voicingMidis(frets);
+        if (midis.length < 4) return;
+        if (hasInteriorMute(frets)) return;
+        if (span(frets) > MAX_SPAN) return;
+        if (fingerCount(frets) > MAX_FINGERS) return;
+
+        const covered = new Set(midis.map((m) => ((m % 12) + 12) % 12));
+        for (const pc of essential) if (!covered.has(pc)) return;
+
+        const sig = signature(frets);
+        if (seen.has(sig)) return;
+        seen.add(sig);
+
+        const v = makeVoicing(frets, "generated", rootPc);
+        if (v) results.push(v);
+        return;
+      }
+      for (const f of candidates[s]) {
+        frets[s] = f;
+        walk(s + 1);
+      }
+      frets[s] = null;
+    };
+    walk(0);
+  }
+
+  results.sort(
+    (a, b) => scoreVoicing(b, essential, chordPcs) - scoreVoicing(a, essential, chordPcs)
+  );
+  return results;
+}
+
+// --- Public API ------------------------------------------------------------
+
+const cache = new Map();
+
+/**
+ * Playable voicings for a chord, best first: curated shapes ahead of generated
+ * ones, then open positions ahead of shapes up the neck.
+ */
+export function getVoicingsForChord(rootName, quality = "", limit = 6) {
+  const rootPc = noteIndex(rootName);
+  if (rootPc < 0) return [];
+  const intervals = CHORD_PATTERNS[quality || ""];
+  if (!intervals) return [];
+
+  const key = rootPc + "|" + quality + "|" + limit;
+  if (cache.has(key)) return cache.get(key);
+
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    if (!v) return;
+    const sig = signature(v.frets);
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    out.push(v);
+  };
+
+  // 1. Open shape, if this exact root+quality has one.
+  const openKey = NOTES[rootPc] + (quality || "");
+  if (OPEN_SHAPES[openKey]) push(makeVoicing(OPEN_SHAPES[openKey], "curated", rootPc));
+
+  // 2. Movable barre shapes, slid so their root string lands on the root.
+  for (const shape of MOVABLE_SHAPES) {
+    if (shape.quality !== (quality || "")) continue;
+    const openPc = ((OPEN_MIDI[shape.rootString] % 12) + 12) % 12;
+    let rootFret = (rootPc - openPc + 12) % 12;
+    // A barre at fret 0 is just the open shape; take it an octave up instead.
+    if (rootFret === 0) rootFret = 12;
+    for (const base of [rootFret, rootFret - 12]) {
+      if (base < 1 || base > 12) continue;
+      const frets = shape.offsets.map((o) => (o === null ? null : base + o));
+      push(makeVoicing(frets, "curated", rootPc));
+    }
+  }
+
+  // 3. Generated, to fill out the list and cover qualities no library has.
+  for (const v of generateVoicings(rootPc, intervals)) {
+    if (out.length >= limit) break;
+    push(v);
+  }
+
+  const sorted = out.slice(0, limit);
+  cache.set(key, sorted);
+  return sorted;
+}
+
+/**
+ * Voicings for an arbitrary set of pitch classes — used for custom chords from
+ * the piano modal, which carry MIDI numbers rather than a parseable symbol.
+ */
+export function getVoicingsForPitchClasses(rootPc, pitchClasses, limit = 6) {
+  const pcs = Array.from(new Set(pitchClasses.map((p) => ((p % 12) + 12) % 12)));
+  if (!pcs.length) return [];
+  const root = ((rootPc % 12) + 12) % 12;
+  const intervals = pcs.map((p) => (p - root + 12) % 12).sort((a, b) => a - b);
+  const key = "pc|" + root + "|" + intervals.join(",") + "|" + limit;
+  if (cache.has(key)) return cache.get(key);
+  const out = generateVoicings(root, intervals).slice(0, limit);
+  cache.set(key, out);
+  return out;
+}
+
+// --- Diagram rendering -----------------------------------------------------
+//
+// Elements carry classes rather than hard-coded colours (which is what
+// guitar.js does) so the diagram follows the light/dark theme and the PDF
+// export can restyle it. See the .gc-* rules in styles.css.
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const STRING_GAP = 16;
+const FRET_GAP = 20;
+const FRET_ROWS = 5; // fret spaces visible in the box
+const PAD_TOP = 24; // room for the x/o markers above the nut
+const PAD_LEFT = 22; // room for the "5fr" position label
+const PAD_RIGHT = 10;
+const PAD_BOTTOM = 8;
+
+const BOX_W = STRING_GAP * 5;
+const BOX_H = FRET_GAP * FRET_ROWS;
+
+function el(name, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+  return node;
+}
+
+/**
+ * Draw one voicing as a chord box: strings vertical, low E on the left, which
+ * is the standard orientation for chord charts.
+ */
+export function renderChordDiagram(voicing, opts = {}) {
+  const width = PAD_LEFT + BOX_W + PAD_RIGHT;
+  const height = PAD_TOP + BOX_H + PAD_BOTTOM;
+
+  const svg = el("svg", {
+    class: "gc-diagram",
+    viewBox: `0 0 ${width} ${height}`,
+    width,
+    height,
+    role: "img",
+  });
+  if (opts.ariaLabel) svg.setAttribute("aria-label", opts.ariaLabel);
+
+  const { frets, baseFret, barre } = voicing;
+  const openPosition = baseFret === 1;
+
+  const xOf = (s) => PAD_LEFT + s * STRING_GAP;
+  const yOfFretLine = (row) => PAD_TOP + row * FRET_GAP;
+  const yOfDot = (row) => PAD_TOP + (row + 0.5) * FRET_GAP;
+
+  // Fret lines. The nut is the thick one, drawn only in open position.
+  for (let row = 0; row <= FRET_ROWS; row++) {
+    svg.appendChild(
+      el("line", {
+        class: row === 0 && openPosition ? "gc-nut" : "gc-fret",
+        x1: PAD_LEFT,
+        y1: yOfFretLine(row),
+        x2: PAD_LEFT + BOX_W,
+        y2: yOfFretLine(row),
+      })
+    );
+  }
+
+  // Strings.
+  for (let s = 0; s < 6; s++) {
+    svg.appendChild(
+      el("line", {
+        class: "gc-string",
+        x1: xOf(s),
+        y1: PAD_TOP,
+        x2: xOf(s),
+        y2: PAD_TOP + BOX_H,
+      })
+    );
+  }
+
+  // Position label, so a shape up the neck is not mistaken for open position.
+  if (!openPosition) {
+    const label = el("text", {
+      class: "gc-position",
+      x: PAD_LEFT - 6,
+      y: yOfDot(0) + 3,
+      "text-anchor": "end",
+    });
+    label.textContent = `${baseFret}fr`;
+    svg.appendChild(label);
+  }
+
+  // Barre first, so the dots sit on top of it.
+  if (barre) {
+    const row = barre.fret - baseFret;
+    if (row >= 0 && row < FRET_ROWS) {
+      svg.appendChild(
+        el("rect", {
+          class: "gc-barre",
+          x: xOf(barre.fromString) - 5,
+          y: yOfDot(row) - 5,
+          width: xOf(barre.toString) - xOf(barre.fromString) + 10,
+          height: 10,
+          rx: 5,
+        })
+      );
+    }
+  }
+
+  frets.forEach((f, s) => {
+    if (f === null) {
+      // Muted: an x above the nut.
+      const x = xOf(s);
+      const y = PAD_TOP - 9;
+      svg.appendChild(el("line", { class: "gc-mute", x1: x - 3.5, y1: y - 3.5, x2: x + 3.5, y2: y + 3.5 }));
+      svg.appendChild(el("line", { class: "gc-mute", x1: x + 3.5, y1: y - 3.5, x2: x - 3.5, y2: y + 3.5 }));
+      return;
+    }
+    if (f === 0) {
+      // Open: a ring above the nut.
+      svg.appendChild(el("circle", { class: "gc-open", cx: xOf(s), cy: PAD_TOP - 9, r: 3.5 }));
+      return;
+    }
+    const row = f - baseFret;
+    if (row < 0 || row >= FRET_ROWS) return; // outside the visible window
+    // Strings already covered by the barre rectangle need no separate dot.
+    if (barre && f === barre.fret && s >= barre.fromString && s <= barre.toString) return;
+    svg.appendChild(el("circle", { class: "gc-dot", cx: xOf(s), cy: yOfDot(row), r: 5 }));
+  });
+
+  return svg;
+}
+
+/** "x32010" style chart text, handy for labels and tooltips. */
+export function voicingChart(frets) {
+  const wide = frets.some((f) => typeof f === "number" && f > 9);
+  return frets.map((f) => (f === null ? "x" : f)).join(wide ? "-" : "");
+}

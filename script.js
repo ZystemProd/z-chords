@@ -8,6 +8,12 @@ import {
   noteIndex,
 } from "./theory.js";
 import { playNotes, getAudioContext } from "./audio.js";
+import {
+  getVoicingsForChord,
+  getVoicingsForPitchClasses,
+  renderChordDiagram,
+  voicingChart,
+} from "./guitar-chords.js";
 
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
@@ -1168,6 +1174,13 @@ function computeChordData(chord) {
 // two-hands mode is on. Recomputed at call time rather than captured, so
 // changing the inversion is reflected on the next play.
 function getChordPlaybackMIDIs(chord) {
+  // On the guitar tab, play the shape actually being shown - a barre chord in
+  // its real register, not an abstract root-position voicing.
+  if (currentInstrument === "guitar") {
+    const voicing = getActiveVoicing(chord);
+    return voicing ? voicing.midis.slice() : [];
+  }
+
   const chordData = computeChordData(chord);
   if (!chordData || !Array.isArray(chordData.notes)) return [];
 
@@ -1291,6 +1304,239 @@ function openCustomChordModalForEdit(sectionIndex, chordIndex) {
   } catch (_) {}
   renderCustomPiano();
   updateSuggestions();
+}
+
+// --- Guitar chord cards ----------------------------------------------------
+
+// Playable shapes for a stored chord. Custom chords carry raw MIDI rather than
+// a parseable symbol, so they go through the pitch-class search instead.
+function getGuitarVoicings(chord) {
+  if (Array.isArray(chord.customMIDIs) && chord.customMIDIs.length) {
+    const bass =
+      typeof chord.rootMidi === "number" ? chord.rootMidi : chord.customMIDIs[0];
+    return getVoicingsForPitchClasses(bass, chord.customMIDIs);
+  }
+  const { main } = splitChordParts(chord.sym);
+  const parsed = parseChordSymbol(main);
+  if (!parsed) return [];
+  return getVoicingsForChord(parsed.root, parsed.quality);
+}
+
+// Which shape the card is currently showing. Stored on the chord as
+// guitarShape so it persists with the rest of the board.
+function getActiveVoicing(chord) {
+  const voicings = getGuitarVoicings(chord);
+  if (!voicings.length) return null;
+  const n = voicings.length;
+  return voicings[(((chord.guitarShape || 0) % n) + n) % n];
+}
+
+// Card body for the guitar tab: a chord box plus a stepper through the other
+// playable positions. The section, drag, play, edit and remove machinery is
+// shared with the piano tab.
+function buildGuitarCardBody(card, chord, sections) {
+  const voicings = getGuitarVoicings(chord);
+
+  const body = document.createElement("div");
+  body.className = "guitar-chord-body";
+
+  if (!voicings.length) {
+    const empty = document.createElement("div");
+    empty.className = "gc-empty";
+    empty.textContent = "No playable shape";
+    body.appendChild(empty);
+    card.appendChild(body);
+    return;
+  }
+
+  const n = voicings.length;
+  let idx = (((chord.guitarShape || 0) % n) + n) % n;
+
+  const host = document.createElement("div");
+  host.className = "gc-host";
+
+  const chart = document.createElement("div");
+  chart.className = "gc-chart";
+
+  const stepper = document.createElement("div");
+  stepper.className = "inversion-control gc-shape-control";
+
+  const prev = document.createElement("button");
+  prev.className = "no-drag";
+  prev.type = "button";
+  prev.setAttribute("aria-label", "Previous shape");
+  prev.innerHTML = "&#8592;";
+
+  const count = document.createElement("span");
+  count.className = "inv-label";
+
+  const next = document.createElement("button");
+  next.className = "no-drag";
+  next.type = "button";
+  next.setAttribute("aria-label", "Next shape");
+  next.innerHTML = "&#8594;";
+
+  const draw = () => {
+    const v = voicings[idx];
+    host.innerHTML = "";
+    host.appendChild(
+      renderChordDiagram(v, {
+        ariaLabel: `${chord.sym}, shape ${idx + 1} of ${n}, ${voicingChart(v.frets)}`,
+      })
+    );
+    chart.textContent = voicingChart(v.frets);
+    count.textContent = `${idx + 1}/${n}`;
+  };
+
+  const step = (delta) => (e) => {
+    e.stopPropagation();
+    idx = (((idx + delta) % n) + n) % n;
+    chord.guitarShape = idx;
+    boardsEl.dataset.sections = JSON.stringify(sections);
+    saveSections();
+    draw();
+  };
+  prev.addEventListener("click", step(-1));
+  next.addEventListener("click", step(1));
+
+  stepper.appendChild(prev);
+  stepper.appendChild(count);
+  stepper.appendChild(next);
+
+  body.appendChild(host);
+  body.appendChild(chart);
+  body.appendChild(stepper);
+  card.appendChild(body);
+  draw();
+}
+
+// Card body for the piano tab: the keyboard, the inversion stepper and the
+// left-hand controls. Split out of renderSections so the guitar tab can
+// substitute its own body without the two instruments tangling.
+function buildPianoCardBody(card, chord, sections) {
+  // --- Build chord piano ---
+  const chordData = computeChordData(chord);
+
+  let builtPiano = null;
+  if (chordData) {
+    let pianoOptions = { twoHands: twoHandsMode };
+    if (Array.isArray(chord.leftHandMIDIs) && chord.leftHandMIDIs.length) {
+      pianoOptions.leftHandMIDIs = chord.leftHandMIDIs.slice();
+    } else {
+      const leftHandInfo = computeLeftHandInfo(
+        chord,
+        chordData,
+        twoHandsMode
+      );
+      if (leftHandInfo && Array.isArray(leftHandInfo.leftHandMIDIs)) {
+        pianoOptions.leftHandMIDIs = leftHandInfo.leftHandMIDIs.slice();
+      } else {
+        pianoOptions.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
+        pianoOptions.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
+      }
+    }
+    builtPiano = makePiano(chordData, pianoOptions);
+  }
+
+  // --- Inversion controls ---
+  const invWrap = document.createElement("div");
+  invWrap.className = "inversion-control";
+
+  const leftBtn = document.createElement("button");
+  leftBtn.className = "no-drag";
+  leftBtn.innerHTML = "&#8592;";
+  leftBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const totalNotes = chord.customMIDIs
+      ? chord.customMIDIs.length
+      : chordData.notes.length;
+    chord.inversion = (chord.inversion - 1 + totalNotes) % totalNotes;
+    updatePreviewChord(card, chord);
+  });
+
+  const rightBtn = document.createElement("button");
+  rightBtn.className = "no-drag";
+  rightBtn.innerHTML = "&#8594;";
+  rightBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const totalNotes = chord.customMIDIs
+      ? chord.customMIDIs.length
+      : chordData.notes.length;
+    chord.inversion = (chord.inversion + 1) % totalNotes;
+    updatePreviewChord(card, chord);
+  });
+
+  const label = document.createElement("span");
+  label.className = "inv-label";
+  label.textContent = "inv.";
+
+  invWrap.appendChild(leftBtn);
+  invWrap.appendChild(label);
+  invWrap.appendChild(rightBtn);
+  card.appendChild(invWrap);
+
+  // --- Left-hand voicing control ---
+  const lhWrap = document.createElement("div");
+  lhWrap.className = "lh-control";
+
+  const lhModes = ["root", "fifth", "seventh"];
+  const setLHLabel = () => {
+    const mode = chord.lhVoicing || "root";
+    lhLabel.textContent = `${
+      mode === "root" ? "Root" : mode === "fifth" ? "5th" : "7th"
+    }`;
+  };
+
+  const lhLeft = document.createElement("button");
+  lhLeft.className = "no-drag";
+  lhLeft.innerHTML = "&#8593;";
+  lhLeft.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const cur = chord.lhVoicing || "root";
+    let idx = lhModes.indexOf(cur);
+    if (idx === -1) idx = 0;
+    // Up arrow cycles forward: root -> 5th -> 7th
+    idx = (idx + 1) % lhModes.length;
+    chord.lhVoicing = lhModes[idx];
+    setLHLabel();
+    updatePreviewChord(card, chord);
+    boardsEl.dataset.sections = JSON.stringify(sections);
+  });
+
+  const lhLabel = document.createElement("span");
+  lhLabel.className = "lh-label";
+  setLHLabel();
+
+  const lhRight = document.createElement("button");
+  lhRight.className = "no-drag";
+  lhRight.innerHTML = "&#8595;";
+  lhRight.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const cur = chord.lhVoicing || "root";
+    let idx = lhModes.indexOf(cur);
+    if (idx === -1) idx = 0;
+    // Down arrow cycles backward: 7th -> 5th -> root
+    idx = (idx - 1 + lhModes.length) % lhModes.length;
+    chord.lhVoicing = lhModes[idx];
+    setLHLabel();
+    updatePreviewChord(card, chord);
+    boardsEl.dataset.sections = JSON.stringify(sections);
+  });
+
+  lhWrap.appendChild(lhLeft);
+  lhWrap.appendChild(lhLabel);
+  lhWrap.appendChild(lhRight);
+  // Insert LH control to the left of the piano
+  const lpw = document.createElement("div");
+  lpw.className = "lh-piano-wrap";
+  lpw.appendChild(lhWrap);
+  // Wrap the piano in a horizontal scroller for two-hands layouts
+  const scroller = document.createElement("div");
+  scroller.className = "piano-scroll";
+  if (builtPiano) scroller.appendChild(builtPiano);
+  lpw.appendChild(scroller);
+  // Place wrapper above inversion controls
+  card.insertBefore(lpw, invWrap);
 }
 
 function renderSections() {
@@ -1423,129 +1669,13 @@ function renderSections() {
       card.dataset.chordIndex = chordIndex;
       card.innerHTML = `<h3>${formatChordSymbol(chord.sym)}</h3>`;
 
-      // --- Build chord piano ---
-      const chordData = computeChordData(chord);
-
-      let builtPiano = null;
-      if (chordData) {
-        let pianoOptions = { twoHands: twoHandsMode };
-        if (Array.isArray(chord.leftHandMIDIs) && chord.leftHandMIDIs.length) {
-          pianoOptions.leftHandMIDIs = chord.leftHandMIDIs.slice();
-        } else {
-          const leftHandInfo = computeLeftHandInfo(
-            chord,
-            chordData,
-            twoHandsMode
-          );
-          if (leftHandInfo && Array.isArray(leftHandInfo.leftHandMIDIs)) {
-            pianoOptions.leftHandMIDIs = leftHandInfo.leftHandMIDIs.slice();
-          } else {
-            pianoOptions.leftHandMidi = leftHandInfo ? leftHandInfo.midi : null;
-            pianoOptions.leftHandLabel = leftHandInfo ? leftHandInfo.label : "";
-          }
-        }
-        builtPiano = makePiano(chordData, pianoOptions);
+      // Card body differs per instrument; everything around it (sections,
+      // drag and drop, play, edit, remove) is shared.
+      if (currentInstrument === "guitar") {
+        buildGuitarCardBody(card, chord, sections);
+      } else {
+        buildPianoCardBody(card, chord, sections);
       }
-
-      // --- Inversion controls ---
-      const invWrap = document.createElement("div");
-      invWrap.className = "inversion-control";
-
-      const leftBtn = document.createElement("button");
-      leftBtn.className = "no-drag";
-      leftBtn.innerHTML = "&#8592;";
-      leftBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const totalNotes = chord.customMIDIs
-          ? chord.customMIDIs.length
-          : chordData.notes.length;
-        chord.inversion = (chord.inversion - 1 + totalNotes) % totalNotes;
-        updatePreviewChord(card, chord);
-      });
-
-      const rightBtn = document.createElement("button");
-      rightBtn.className = "no-drag";
-      rightBtn.innerHTML = "&#8594;";
-      rightBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const totalNotes = chord.customMIDIs
-          ? chord.customMIDIs.length
-          : chordData.notes.length;
-        chord.inversion = (chord.inversion + 1) % totalNotes;
-        updatePreviewChord(card, chord);
-      });
-
-      const label = document.createElement("span");
-      label.className = "inv-label";
-      label.textContent = "inv.";
-
-      invWrap.appendChild(leftBtn);
-      invWrap.appendChild(label);
-      invWrap.appendChild(rightBtn);
-      card.appendChild(invWrap);
-
-      // --- Left-hand voicing control ---
-      const lhWrap = document.createElement("div");
-      lhWrap.className = "lh-control";
-
-      const lhModes = ["root", "fifth", "seventh"];
-      const setLHLabel = () => {
-        const mode = chord.lhVoicing || "root";
-        lhLabel.textContent = `${
-          mode === "root" ? "Root" : mode === "fifth" ? "5th" : "7th"
-        }`;
-      };
-
-      const lhLeft = document.createElement("button");
-      lhLeft.className = "no-drag";
-      lhLeft.innerHTML = "&#8593;";
-      lhLeft.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const cur = chord.lhVoicing || "root";
-        let idx = lhModes.indexOf(cur);
-        if (idx === -1) idx = 0;
-        // Up arrow cycles forward: root -> 5th -> 7th
-        idx = (idx + 1) % lhModes.length;
-        chord.lhVoicing = lhModes[idx];
-        setLHLabel();
-        updatePreviewChord(card, chord);
-        boardsEl.dataset.sections = JSON.stringify(sections);
-      });
-
-      const lhLabel = document.createElement("span");
-      lhLabel.className = "lh-label";
-      setLHLabel();
-
-      const lhRight = document.createElement("button");
-      lhRight.className = "no-drag";
-      lhRight.innerHTML = "&#8595;";
-      lhRight.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const cur = chord.lhVoicing || "root";
-        let idx = lhModes.indexOf(cur);
-        if (idx === -1) idx = 0;
-        // Down arrow cycles backward: 7th -> 5th -> root
-        idx = (idx - 1 + lhModes.length) % lhModes.length;
-        chord.lhVoicing = lhModes[idx];
-        setLHLabel();
-        updatePreviewChord(card, chord);
-        boardsEl.dataset.sections = JSON.stringify(sections);
-      });
-
-      lhWrap.appendChild(lhLeft);
-      lhWrap.appendChild(lhLabel);
-      lhWrap.appendChild(lhRight);
-      // Insert LH control to the left of the piano
-      const lpw = document.createElement("div");
-      lpw.className = "lh-piano-wrap";
-      lpw.appendChild(lhWrap);
-      // Wrap the piano in a horizontal scroller for two-hands layouts
-      const scroller = document.createElement("div");
-      scroller.className = "piano-scroll";
-      if (builtPiano) scroller.appendChild(builtPiano);
-      lpw.appendChild(scroller);
-      // Place wrapper above inversion controls
-      card.insertBefore(lpw, invWrap);
 
       // --- Play chord button ---
       // `no-drag` keeps SortableJS from starting a drag on it (see the
@@ -2067,6 +2197,8 @@ function updateTabsUI(opts = {}) {
       if (pianoControls) pianoControls.style.display = 'inline-flex';
       if (handModeToggle) handModeToggle.style.display = 'inline-flex';
       if (addSectionCta) addSectionCta.style.display = 'block';
+      // Re-render: cards may currently be guitar diagrams from the other tab.
+      renderSections();
     } else {
       // Piano → Scales
       if (pianoScaleControls) pianoScaleControls.style.display = 'inline-flex';
@@ -2081,8 +2213,13 @@ function updateTabsUI(opts = {}) {
       if (guitarControls) guitarControls.style.display = 'inline-flex';
       if (guitarEl) guitarEl.style.display = 'block';
     } else {
-      // Guitar → Chord (placeholder)
-      if (guitarEl) guitarEl.style.display = 'none';
+      // Guitar → Chord: the same board as the piano tab, with each card drawn
+      // as a fretboard diagram instead of a keyboard. Transpose and Clear are
+      // reused from the piano control group; the two-hands toggle stays hidden.
+      if (boardsEl) boardsEl.style.display = 'block';
+      if (pianoControls) pianoControls.style.display = 'inline-flex';
+      if (addSectionCta) addSectionCta.style.display = 'block';
+      renderSections();
     }
   } else if (currentInstrument === 'drums') {
     const sub = currentSubtab.drums;
