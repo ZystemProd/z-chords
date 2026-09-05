@@ -220,6 +220,18 @@ function detectBarre(frets) {
   return { fret: min, fromString: best.fromString, toString: best.toString };
 }
 
+// Drops any barre that the frets no longer support, so editing a string that
+// sat under a bar dissolves the bar instead of leaving it drawn over nothing.
+function validBarres(frets, barres) {
+  return barres.filter((b) => {
+    if (b.toString <= b.fromString) return false;
+    for (let s = b.fromString; s <= b.toString; s++) {
+      if (frets[s] !== b.fret) return false;
+    }
+    return true;
+  });
+}
+
 // How many fingers the shape needs.
 //
 // Not simply one per fretted string: a finger laid flat covers several. The
@@ -289,7 +301,13 @@ function makeVoicing(frets, source, rootPc) {
     frets: frets.slice(),
     midis,
     source,
-    barre: detectBarre(frets),
+    // A list, not one: a shape can have the index bar low down and another
+    // finger laid across a run of strings above it. Library shapes get the
+    // conservative lowest-fret guess; hand-drawn ones carry what was drawn.
+    barres: (function () {
+      const b = detectBarre(frets);
+      return b ? [b] : [];
+    })(),
     span: span(frets),
     fingers: fingerCount(frets),
     // Diagram window. Anything sitting inside the first four frets is drawn
@@ -321,7 +339,7 @@ function scoreVoicing(v, essential, chordPcs) {
   s -= v.fingers * 8;
   s -= v.span * 6;
   s += v.frets.filter((f) => f === 0).length * 4; // open strings ring
-  if (v.barre) s -= 4;
+  if (v.barres.length) s -= 4;
   const covered = new Set(v.midis.map((m) => ((m % 12) + 12) % 12));
   for (const pc of chordPcs) if (covered.has(pc)) s += 5;
   for (const pc of essential) if (!covered.has(pc)) s -= 60;
@@ -510,7 +528,10 @@ export function renderChordDiagram(voicing, opts = {}) {
   });
   if (opts.ariaLabel) svg.setAttribute("aria-label", opts.ariaLabel);
 
-  const { frets, baseFret, barre } = voicing;
+  const { frets, baseFret } = voicing;
+  const barres = voicing.barres || (voicing.barre ? [voicing.barre] : []);
+  const coveredByBarre = (s, f) =>
+    barres.some((b) => f === b.fret && s >= b.fromString && s <= b.toString);
   const openPosition = baseFret === 1;
 
   const xOf = (s) => PAD_LEFT + s * STRING_GAP;
@@ -555,22 +576,21 @@ export function renderChordDiagram(voicing, opts = {}) {
     svg.appendChild(label);
   }
 
-  // Barre first, so the dots sit on top of it.
-  if (barre) {
+  // Barres first, so the dots sit on top of them.
+  barres.forEach((barre) => {
     const row = barre.fret - baseFret;
-    if (row >= 0 && row < FRET_ROWS) {
-      svg.appendChild(
-        el("rect", {
-          class: "gc-barre",
-          x: xOf(barre.fromString) - 5,
-          y: yOfDot(row) - 5,
-          width: xOf(barre.toString) - xOf(barre.fromString) + 10,
-          height: 10,
-          rx: 5,
-        })
-      );
-    }
-  }
+    if (row < 0 || row >= FRET_ROWS) return;
+    svg.appendChild(
+      el("rect", {
+        class: "gc-barre",
+        x: xOf(barre.fromString) - 5,
+        y: yOfDot(row) - 5,
+        width: xOf(barre.toString) - xOf(barre.fromString) + 10,
+        height: 10,
+        rx: 5,
+      })
+    );
+  });
 
   frets.forEach((f, s) => {
     if (f === null) {
@@ -588,8 +608,8 @@ export function renderChordDiagram(voicing, opts = {}) {
     }
     const row = f - baseFret;
     if (row < 0 || row >= FRET_ROWS) return; // outside the visible window
-    // Strings already covered by the barre rectangle need no separate dot.
-    if (barre && f === barre.fret && s >= barre.fromString && s <= barre.toString) return;
+    // Strings already covered by a barre rectangle need no separate dot.
+    if (coveredByBarre(s, f)) return;
     svg.appendChild(el("circle", { class: "gc-dot", cx: xOf(s), cy: yOfDot(row), r: 5 }));
   });
 
@@ -618,10 +638,15 @@ export function voicingChart(frets) {
 }
 
 /** A voicing object built from a hand-drawn fret array. */
-export function voicingFromFrets(frets) {
+export function voicingFromFrets(frets, barres) {
   const midis = voicingMidis(frets);
   if (!midis.length) return null;
-  return makeVoicing(frets.slice(), "custom", ((midis[0] % 12) + 12) % 12);
+  const v = makeVoicing(frets.slice(), "custom", ((midis[0] % 12) + 12) % 12);
+  // A barre is a fingering decision, not something the fret positions imply:
+  // the same frets can be one barred finger or several separate ones. When the
+  // shape was drawn by hand we know which, so we use it instead of guessing.
+  if (Array.isArray(barres)) v.barres = validBarres(frets, barres);
+  return v;
 }
 
 // --- Interactive editor ----------------------------------------------------
@@ -665,6 +690,11 @@ export function createChordEditor(options = {}) {
   // What fret each string last carried, so cycling a string out to open and
   // muted and back returns the fingering instead of losing it.
   const lastFret = frets.map((f) => (typeof f === "number" && f > 0 ? f : null));
+
+  // Barres the player actually drew. Kept explicitly because the frets alone
+  // cannot say whether two dots at one fret are one barred finger or two
+  // separate ones -- open E is 022100 and nobody bars its fret 2.
+  let barres = Array.isArray(options.barres) ? options.barres.slice() : [];
 
   let drag = null; // { fret, from, to } while a barre is being dragged out
 
@@ -724,6 +754,9 @@ export function createChordEditor(options = {}) {
       frets[s] = fret;
       lastFret[s] = fret;
     }
+    // Any bar overlapping this range is superseded by the new one.
+    barres = barres.filter((b) => b.toString < lo || b.fromString > hi);
+    barres.push({ fret: fret, fromString: lo, toString: hi });
   }
 
   // fretted -> open -> muted -> back to the same fret. A string that has never
@@ -736,7 +769,8 @@ export function createChordEditor(options = {}) {
   }
 
   function commit() {
-    onChange(frets.slice(), baseFret);
+    barres = validBarres(frets, barres);
+    onChange(frets.slice(), baseFret, barres.map((b) => ({ ...b })));
   }
 
   // --- pointer handling ----------------------------------------------------
@@ -839,22 +873,28 @@ export function createChordEditor(options = {}) {
       svg.appendChild(label);
     }
 
-    const barre = detectBarre(shown);
-    if (barre) {
-      const row = barre.fret - baseFret;
-      if (row >= 0 && row < E_FRET_ROWS) {
-        svg.appendChild(
-          el("rect", {
-            class: "gc-barre",
-            x: xOf(barre.fromString) - 9,
-            y: yDot(row) - 9,
-            width: xOf(barre.toString) - xOf(barre.fromString) + 18,
-            height: 18,
-            rx: 9,
-          })
-        );
-      }
+    // Only bars that survive the current frets, plus the one being dragged.
+    const shownBarres = validBarres(shown, barres).slice();
+    if (drag) {
+      const lo = Math.min(drag.from, drag.to);
+      const hi = Math.max(drag.from, drag.to);
+      if (hi > lo) shownBarres.push({ fret: drag.fret, fromString: lo, toString: hi });
     }
+
+    shownBarres.forEach((barre) => {
+      const row = barre.fret - baseFret;
+      if (row < 0 || row >= E_FRET_ROWS) return;
+      svg.appendChild(
+        el("rect", {
+          class: "gc-barre",
+          x: xOf(barre.fromString) - 9,
+          y: yDot(row) - 9,
+          width: xOf(barre.toString) - xOf(barre.fromString) + 18,
+          height: 18,
+          rx: 9,
+        })
+      );
+    });
 
     shown.forEach((f, s) => {
       if (f === null) {
@@ -876,7 +916,10 @@ export function createChordEditor(options = {}) {
         );
         return;
       }
-      if (barre && f === barre.fret && s >= barre.fromString && s <= barre.toString) return;
+      const covered = shownBarres.some(
+        (b) => f === b.fret && s >= b.fromString && s <= b.toString
+      );
+      if (covered) return;
       svg.appendChild(el("circle", { class: "gc-dot", cx: xOf(s), cy: yDot(row), r: 9 }));
     });
 
@@ -922,10 +965,12 @@ export function createChordEditor(options = {}) {
   return {
     svg: svg,
     getFrets: () => frets.slice(),
+    getBarres: () => validBarres(frets, barres).map((b) => ({ ...b })),
     getBaseFret: () => baseFret,
-    setFrets(next) {
+    setFrets(next, nextBarres) {
       frets = next.slice(0, 6);
       while (frets.length < 6) frets.push(null);
+      barres = Array.isArray(nextBarres) ? nextBarres.slice() : [];
       frets.forEach((f, s) => {
         if (typeof f === "number" && f > 0) lastFret[s] = f;
       });

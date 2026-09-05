@@ -694,8 +694,17 @@ function transposeChords(amount) {
         const played = moved.filter((f) => f !== null);
         if (played.length && played.every((f) => f >= 0 && f <= 22)) {
           ch.guitarFrets = moved;
+          if (Array.isArray(ch.guitarBarres)) {
+            // A bar sits at a fret, so it moves with the shape or it ends up
+            // drawn across a row that no longer holds those notes.
+            ch.guitarBarres = ch.guitarBarres.map((b) => ({
+              ...b,
+              fret: b.fret + amount,
+            }));
+          }
         } else {
           delete ch.guitarFrets;
+          delete ch.guitarBarres;
         }
       }
 
@@ -867,11 +876,12 @@ function syncGuitarEditorPos() {
 
 // Mounts the fretboard editor for `frets` and keeps the name suggestions in
 // step with whatever is currently fretted.
-function mountGuitarEditor(frets) {
+function mountGuitarEditor(frets, barres) {
   if (!customGuitarBoxEl) return;
   customGuitarBoxEl.innerHTML = "";
   guitarEditor = createChordEditor({
     frets: frets,
+    barres: barres,
     baseFret: baseFretFor(frets),
     onChange: (next) => {
       // Suggestions read the same selection the piano path uses, so the
@@ -912,7 +922,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (clear) {
     clear.addEventListener("click", () => {
       if (!guitarEditor) return;
-      guitarEditor.setFrets([null, null, null, null, null, null]);
+      guitarEditor.setFrets([null, null, null, null, null, null], []);
       selectedMIDIs = new Set();
       rootMID = null;
       updateSuggestions();
@@ -1218,7 +1228,12 @@ addCustomChordBtn.addEventListener("click", () => {
 
   // Keep the exact fingering, not just the notes. Two shapes can sound the
   // same set of pitches and only one of them is the one that was drawn.
-  if (drawnFrets) chordObj.guitarFrets = drawnFrets;
+  if (drawnFrets) {
+    chordObj.guitarFrets = drawnFrets;
+    // Which dots are one barred finger cannot be read back off the frets, so
+    // the bars the player drew are stored rather than re-guessed.
+    chordObj.guitarBarres = guitarEditor.getBarres();
+  }
 
   if (editingContext.active) {
     const sIdx = editingContext.sectionIndex;
@@ -1433,7 +1448,10 @@ function openCustomChordModalForEdit(sectionIndex, chordIndex) {
     // Seed from the shape the card is showing, so editing starts from what
     // the player is looking at rather than from an empty board.
     const shown = getActiveVoicing(ch);
-    mountGuitarEditor(shown ? shown.frets : [null, null, null, null, null, null]);
+    mountGuitarEditor(
+      shown ? shown.frets : [null, null, null, null, null, null],
+      shown ? shown.barres : []
+    );
   } else {
     renderCustomPiano();
   }
@@ -1449,7 +1467,7 @@ function getGuitarVoicings(chord) {
   // verbatim rather than re-derived from its pitch classes -- the search would
   // otherwise be free to return a different fingering of the same notes.
   if (Array.isArray(chord.guitarFrets) && chord.guitarFrets.some((f) => f !== null)) {
-    const drawn = voicingFromFrets(chord.guitarFrets);
+    const drawn = voicingFromFrets(chord.guitarFrets, chord.guitarBarres);
     if (drawn) return [drawn];
   }
   if (Array.isArray(chord.customMIDIs) && chord.customMIDIs.length) {

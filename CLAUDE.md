@@ -50,12 +50,15 @@ Note the test states the omission rule independently, in its own terms, rather t
 
 `createChordEditor` is the exception to "owns no DOM state" — it holds the frets being drawn and the in-progress drag, reports committed changes through `onChange`, and knows nothing about sections. On the guitar tab the custom-chord modal swaps `#customPiano` for `#customGuitar` (`showModalInstrument`), seeded from the shape the card is currently showing.
 
-Gestures: click a cell to place or lift a note, press and drag across strings at one fret to lay a barre, click the band above the nut to cycle a string through *its fret → open → muted → the same fret*. The cycle restores the fret rather than losing it, which is what `lastFret` is for; a string that has never been fretted has nothing to return to and simply toggles open/muted.
+Gestures: click a cell to place or lift a note, press and drag across strings at one fret to lay a barre, click the band above the nut to cycle a string through *its fret → open → muted → the same fret*. The **Start fret** stepper sets which fret the five-row window begins at, which is the only way to reach shapes up the neck. The cycle restores the fret rather than losing it, which is what `lastFret` is for; a string that has never been fretted has nothing to return to and simply toggles open/muted.
 
 Two things in there are easy to get wrong:
 
 - Hit testing is arithmetic on SVG-local coordinates, not per-element listeners, because during a pointer capture the events arrive on the element the drag *started* on. All drawn elements are `pointer-events: none` and transparent hit rects are appended last, so a dot or barre can never swallow a press.
-- Saving stores `guitarFrets` **as well as** `customMIDIs`. The notes alone are not enough: several fingerings sound the same pitches, and re-deriving from pitch classes would hand back a different one. `getGuitarVoicings` returns `guitarFrets` verbatim when present.
+- Saving stores `guitarFrets` and `guitarBarres` **as well as** `customMIDIs`. The notes alone are not enough: several fingerings sound the same pitches, and re-deriving from pitch classes would hand back a different one. `getGuitarVoicings` returns `guitarFrets` verbatim when present.
+- **A barre is intent, not geometry.** It cannot be inferred from fret positions: open E is `022100`, and auto-detecting "two adjacent strings share a fret" would draw a bar across its fret 2, which nobody plays that way. So the editor records the bars you actually drag (`barres`) and stores them; library shapes keep the conservative `detectBarre` guess, which only ever considers the *lowest* fret. `validBarres` re-checks bars against the frets on every draw, so editing a string under a bar dissolves it instead of leaving one floating.
+
+A voicing therefore carries `barres` (a list), not a single `barre` — a shape can have the index bar low down and another finger laid across a run above it. That is exactly the case that was broken: with `x,x,0,11,12,12` the lowest fret is 11 on one string, so the old single-barre lookup never even saw the fret-12 run.
 
 Transposition shifts every fret by the same amount, open strings included — a string's pitch is `open + fret`, so that is correct. A shape that would fall off either end of the neck drops the override and reverts to the library rather than being silently mangled.
 
