@@ -74,6 +74,8 @@ The button carries `no-drag`, which the chords-container Sortable uses as its `f
 
 `updateTabsUI()` in `script.js` is the single switchboard: it hides *every* panel and control group, then re-shows the ones for the current `currentInstrument` × `currentSubtab[instrument]` pair. Any new view must be added to both the hide-all defaults and the correct branch, or it will leak across tabs. `setInstrument`/`setSubtab` persist to `cv-instrument` / `cv-subtabs`.
 
+`#guitarStaff` is the one panel with two owners, and it is why `.tab-hidden` exists. `main.js` sets its inline `display` from the scale settings (it wants the staff only in *custom* view mode); `updateTabsUI` decides whether the guitar-scale tab is on screen at all. Neither world can call the other, so they use separate channels: `main.js` keeps the inline style, `script.js` adds/removes `.tab-hidden`, whose `display: none !important` outranks it. Before that the staff followed you onto every tab — piano, drums, everywhere — once custom mode had been switched on. Don't "simplify" it by having `updateTabsUI` set `display` directly: that would show the staff on the scale tab even in scales mode, where `main.js` wants it gone.
+
 Instrument/subtab pairs today: piano→chord|scales, guitar→chord|scale, drums→beat (UI stub, `console.log` on clear)|metronome.
 
 Piano→chord and guitar→chord share `#boards` and the same `cv-sections` data — one song, two instruments — so both branches call `renderSections()` to re-render the card bodies for the current instrument. Guitar→chord also reuses `pianoChordControls` for Transpose and Clear while leaving the two-hands toggle hidden.

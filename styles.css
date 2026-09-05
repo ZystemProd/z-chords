@@ -739,6 +739,14 @@ select:focus-visible {
   background: transparent;
 }
 
+/* Two owners decide whether the staff shows: main.js sets the inline display
+   from the scale settings (custom mode only), updateTabsUI decides whether the
+   guitar-scale tab is on screen at all. The tab wins, so it needs !important to
+   beat main.js's inline style — the two never coordinate directly. */
+.guitar-staff.tab-hidden {
+  display: none !important;
+}
+
 .guitar-staff svg {
   max-width: 100%;
   height: auto;

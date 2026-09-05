@@ -2330,6 +2330,7 @@ function updateTabsUI(opts = {}) {
   const metronomePanel = document.getElementById('metronomePanel');
   const addSectionCta = document.getElementById('addSectionCta');
   const pianoScaleEl = document.getElementById('pianoScale');
+  const guitarStaffEl = document.getElementById('guitarStaff');
 
   // defaults
   if (boardsEl) boardsEl.style.display = 'none';
@@ -2343,6 +2344,9 @@ function updateTabsUI(opts = {}) {
   if (handModeToggle) handModeToggle.style.display = 'none';
   if (addSectionCta) addSectionCta.style.display = 'none';
   if (pianoScaleEl) pianoScaleEl.style.display = 'none';
+  // The staff belongs to the guitar scale tab; main.js still decides whether
+  // custom mode wants it, so only add/remove the class and leave display alone.
+  if (guitarStaffEl) guitarStaffEl.classList.add('tab-hidden');
 
   if (currentInstrument === 'piano') {
     const sub = currentSubtab.piano;
@@ -2366,6 +2370,7 @@ function updateTabsUI(opts = {}) {
     if (sub === 'scale') {
       if (guitarControls) guitarControls.style.display = 'inline-flex';
       if (guitarEl) guitarEl.style.display = 'block';
+      if (guitarStaffEl) guitarStaffEl.classList.remove('tab-hidden');
     } else {
       // Guitar → Chord: the same board as the piano tab, with each card drawn
       // as a fretboard diagram instead of a keyboard. Transpose and Clear are
