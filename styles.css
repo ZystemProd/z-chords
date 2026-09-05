@@ -776,8 +776,8 @@ select:focus-visible {
   cursor: grabbing;
 }
 
-/* Clicking a chord card plays it. The pulse confirms the click landed even
-   when the browser is still holding audio back on the first gesture. */
+/* Pulse the card while its play button is sounding. Confirms the press landed
+   even when the browser is still holding audio back on the first gesture. */
 .card.preview {
   transition: box-shadow 160ms ease;
 }
@@ -1491,6 +1491,54 @@ body.light-mode .card.preview .piano {
 body.light-mode .edit-chord-section:hover {
   background: rgba(0, 0, 0, 0.06);
   border-color: #999999;
+}
+
+/* Play button on chord card. Unlike edit/remove this stays visible rather than
+   appearing on hover: hearing the chord is a primary action, and a control that
+   only exists on hover is invisible on touch. */
+.play-chord-section {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  color: var(--note-text);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.play-chord-section:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+body.light-mode .play-chord-section:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: #999999;
+}
+
+.play-chord-section:active {
+  transform: scale(0.92);
+}
+
+.play-chord-section:focus-visible {
+  outline: 2px solid var(--glow-color, rgba(30, 110, 240, 0.55));
+  outline-offset: 2px;
+}
+
+/* Keep it out of the exported PDF. Edit/remove are display:none until hover, so
+   they never reach the offscreen clone; this one is visible and would print. */
+.pdf-capture .play-chord-section {
+  display: none !important;
 }
 
 .remove-section {

@@ -1423,23 +1423,6 @@ function renderSections() {
       card.dataset.chordIndex = chordIndex;
       card.innerHTML = `<h3>${formatChordSymbol(chord.sym)}</h3>`;
 
-      // Click the card to hear it. The inversion/edit/remove controls all stop
-      // propagation, and isDraggingCard swallows the click Sortable fires when
-      // a drag ends on top of the card it just moved.
-      card.title = "Click to hear this chord";
-      card.addEventListener("click", () => {
-        if (isDraggingCard) return;
-        const midis = getChordPlaybackMIDIs(chord);
-        if (!midis.length) return;
-        playNotes(midis);
-        card.classList.add("playing");
-        clearTimeout(card._playPulse);
-        card._playPulse = setTimeout(
-          () => card.classList.remove("playing"),
-          320
-        );
-      });
-
       // --- Build chord piano ---
       const chordData = computeChordData(chord);
 
@@ -1564,6 +1547,36 @@ function renderSections() {
       // Place wrapper above inversion controls
       card.insertBefore(lpw, invWrap);
 
+      // --- Play chord button ---
+      // `no-drag` keeps SortableJS from starting a drag on it (see the
+      // filter on the chords-container instance) and stops the section
+      // click handler treating a press as a section selection.
+      const playBtn = document.createElement("button");
+      playBtn.className = "play-chord-section no-drag";
+      playBtn.type = "button";
+      playBtn.title = "Play this chord";
+      // chord.sym, not formatChordSymbol(): the latter returns <sup> markup,
+      // which a screen reader would read out as literal tag text.
+      playBtn.setAttribute("aria-label", `Play ${chord.sym}`);
+      playBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+          <path d="M4 9.5v5h3.6L12 18V6L7.6 9.5H4z" fill="currentColor"/>
+          <path d="M15.5 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor"
+                stroke-width="1.8" stroke-linecap="round"/>
+        </svg>`;
+      playBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const midis = getChordPlaybackMIDIs(chord);
+        if (!midis.length) return;
+        playNotes(midis);
+        card.classList.add("playing");
+        clearTimeout(card._playPulse);
+        card._playPulse = setTimeout(
+          () => card.classList.remove("playing"),
+          320
+        );
+      });
+
       // --- Edit chord button ---
       const editBtn = document.createElement("button");
       editBtn.className = "edit-chord-section no-drag";
@@ -1585,6 +1598,7 @@ function renderSections() {
         renderSections();
       });
 
+      card.appendChild(playBtn);
       card.appendChild(editBtn);
       card.appendChild(removeBtn);
 
@@ -1684,7 +1698,6 @@ function addChordToSection(sym, sectionIndex = 0) {
 
 // keep track of created Sortable instances so we can destroy them before recreating
 let sortableInstances = [];
-let isDraggingCard = false; // true while a card drag is in flight
 
 function enableDragAndDrop() {
   // destroy previous instances (if any)
@@ -1710,15 +1723,7 @@ function enableDragAndDrop() {
     const s = Sortable.create(container, {
       group: "sections", // allows dragging between sections
       animation: 150,
-      onStart: () => {
-        isDraggingCard = true;
-      },
       onEnd: (evt) => {
-        // Released after the click event this drag would otherwise trigger.
-        setTimeout(() => {
-          isDraggingCard = false;
-        }, 0);
-
         // guard: ensure sections exist
         const sections = JSON.parse(boardsEl.dataset.sections || "[]");
         const fromSec = Number(evt.from.dataset.sectionIndex || 0);
