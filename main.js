@@ -2,8 +2,8 @@ import {
   computeCAGEDShapes,
   getParentMajorRoot,
   renderScaleSVG,
-  SCALE_FORMULAS,
 } from "./guitar.js";
+import { NOTES, SCALE_FORMULAS, noteIndex } from "./theory.js";
 
 const guitarEl = document.getElementById("guitar");
 const keySel = document.getElementById("guitarKey");
@@ -48,20 +48,6 @@ const CAGED_MODES = new Set([
   "minorBlues",
   "blues",
 ]);
-
-const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const ENHARMONIC = {
-  Db: "C#",
-  Eb: "D#",
-  Gb: "F#",
-  Ab: "G#",
-  Bb: "A#",
-};
-
-function noteIdx(name) {
-  const normalized = ENHARMONIC[name] || name;
-  return NOTES.indexOf(normalized);
-}
 
 function loadGuitarScaleSettings() {
   try {
@@ -388,8 +374,8 @@ function drawScale() {
   if (!isCustom) {
     try {
       if (mode === "wholeTone") {
-        const ePc = noteIdx("E");
-        const rIdx = noteIdx(root);
+        const ePc = noteIndex("E");
+        const rIdx = noteIndex(root);
         if (ePc >= 0 && rIdx >= 0) {
           const start = (rIdx - ePc + 12) % 12;
           const starts = [];

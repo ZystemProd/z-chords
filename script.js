@@ -1,3 +1,13 @@
+import {
+  NOTES,
+  CHORD_PATTERNS,
+  CHORD_TYPES,
+  CHORD_RE,
+  SCALE_FORMULAS,
+  normalizeRoot,
+  noteIndex,
+} from "./theory.js";
+
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
 let twoHandsMode = localStorage.getItem("cv-twohands") === "true"; // track hand mode, persisted
@@ -45,133 +55,6 @@ document.addEventListener("DOMContentLoaded", () => {
   );
 });
 
-const N_SHARP = [
-  "C",
-  "C#",
-  "D",
-  "D#",
-  "E",
-  "F",
-  "F#",
-  "G",
-  "G#",
-  "A",
-  "A#",
-  "B",
-];
-const ENHARMONIC = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
-const CHORD_PATTERNS = {
-  // --- Triads ---
-  "": [0, 4, 7], // Major
-  m: [0, 3, 7], // Minor
-  dim: [0, 3, 6], // Diminished
-  aug: [0, 4, 8], // Augmented
-  sus2: [0, 2, 7],
-  sus4: [0, 5, 7],
-
-  // --- Sixth chords ---
-  6: [0, 4, 7, 9],
-  m6: [0, 3, 7, 9],
-  "6/9": [0, 4, 7, 9, 14],
-  "m6/9": [0, 3, 7, 9, 14],
-  add6: [0, 4, 7, 9],
-  add9: [0, 4, 7, 14],
-  add13: [0, 4, 7, 21],
-  add4: [0, 4, 7, 5],
-
-  // --- Seventh chords ---
-  7: [0, 4, 7, 10], // Dominant 7
-  maj7: [0, 4, 7, 11],
-  m7: [0, 3, 7, 10],
-  dim7: [0, 3, 6, 9],
-  m7b5: [0, 3, 6, 10],
-  "m(maj7)": [0, 3, 7, 11],
-  "7#5": [0, 4, 8, 10],
-  "7b5": [0, 4, 6, 10],
-  "maj7#5": [0, 4, 8, 11],
-  maj7b5: [0, 4, 6, 11],
-  "m7#5": [0, 3, 8, 10],
-
-  // --- Ninth chords ---
-  9: [0, 4, 7, 10, 14],
-  m9: [0, 3, 7, 10, 14],
-  maj9: [0, 4, 7, 11, 14],
-  "7b9": [0, 4, 7, 10, 13],
-  "7#9": [0, 4, 7, 10, 15],
-  "9#11": [0, 4, 7, 10, 14, 18],
-  m9b5: [0, 3, 6, 10, 14],
-
-  // --- Eleventh chords ---
-  11: [0, 4, 7, 10, 14, 17],
-  maj11: [0, 4, 7, 11, 14, 17],
-  m11: [0, 3, 7, 10, 14, 17],
-  "7#11": [0, 4, 7, 10, 18],
-  "maj7#11": [0, 4, 7, 11, 18],
-  m11b5: [0, 3, 6, 10, 14, 17],
-
-  // --- Thirteenth chords ---
-  13: [0, 4, 7, 10, 14, 17, 21],
-  maj13: [0, 4, 7, 11, 14, 17, 21],
-  m13: [0, 3, 7, 10, 14, 17, 21],
-  "7b13": [0, 4, 7, 10, 20],
-  "7#13": [0, 4, 7, 10, 22],
-  "13b9": [0, 4, 7, 10, 13, 21],
-  "13#9": [0, 4, 7, 10, 15, 21],
-
-  // --- Altered Dominants ---
-  "7#9#11": [0, 4, 7, 10, 15, 18],
-  "7b9b13": [0, 4, 7, 10, 13, 20],
-  "7#5b9": [0, 4, 8, 10, 13],
-  "7#5#9": [0, 4, 8, 10, 15],
-  "7b5b9": [0, 4, 6, 10, 13],
-  "7b5#9": [0, 4, 6, 10, 15],
-
-  // --- Add chords / Misc ---
-  add2: [0, 2, 4, 7],
-  add4: [0, 4, 7, 5],
-  add11: [0, 4, 7, 17],
-};
-
-const CHORD_TYPES = Object.keys(CHORD_PATTERNS).filter((k) => k !== "");
-const typesSorted = CHORD_TYPES.slice().sort((a, b) => b.length - a.length);
-const TYPE_RE = typesSorted.join("|");
-const CHORD_RE = new RegExp(
-  "^[ ]*([A-Ga-g])([#b]?)(?:(" + TYPE_RE + "))?[ ]*$"
-);
-
-// Scale formulas for piano scales (mirrors guitar.js)
-const SCALE_FORMULAS_PIANO = {
-  pentatonic: [0, 3, 5, 7, 10],
-  minorPentatonic: [0, 3, 5, 7, 10],
-  blues: [0, 3, 5, 6, 7, 10],
-  minorBlues: [0, 3, 5, 6, 7, 10],
-  majorPentatonic: [0, 2, 4, 7, 9],
-  majorBlues: [0, 2, 3, 4, 7, 9],
-  major: [0, 2, 4, 5, 7, 9, 11],
-  dorian: [0, 2, 3, 5, 7, 9, 10],
-  phrygian: [0, 1, 3, 5, 7, 8, 10],
-  lydian: [0, 2, 4, 6, 7, 9, 11],
-  mixolydian: [0, 2, 4, 5, 7, 9, 10],
-  aeolian: [0, 2, 3, 5, 7, 8, 10],
-  locrian: [0, 1, 3, 5, 6, 8, 10],
-  wholeTone: [0, 2, 4, 6, 8, 10],
-  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
-  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
-  harmonicMajor: [0, 2, 4, 5, 7, 8, 11],
-  diminishedHalfWhole: [0, 1, 3, 4, 6, 7, 9, 10],
-  diminishedWholeHalf: [0, 2, 3, 5, 6, 8, 9, 11],
-};
-
-function normalizeRoot(r) {
-  if (!r) return r;
-  r = r.split(" ").join("");
-  return r[0].toUpperCase() + (r[1] || "");
-}
-function nameToIndex(name) {
-  if (!name) return -1;
-  if (ENHARMONIC[name]) name = ENHARMONIC[name];
-  return N_SHARP.indexOf(name);
-}
 function parseChordSymbol(sym) {
   const m = sym.match(CHORD_RE);
   if (!m) return null;
@@ -181,7 +64,7 @@ function parseChordSymbol(sym) {
   };
 }
 function buildChordNotes(rootName, quality, inversion = 0, octave = false) {
-  const rootIdx = nameToIndex(rootName);
+  const rootIdx = noteIndex(rootName);
   if (rootIdx < 0) return null;
   const pattern = CHORD_PATTERNS[quality === undefined ? "" : quality];
   if (!pattern) return null;
@@ -283,7 +166,7 @@ function formatChordSymbol(sym) {
 }
 
 function getNoteNameNoOctave(midi) {
-  return N_SHARP[midi % 12].replace("#", "♯");
+  return NOTES[midi % 12].replace("#", "♯");
 }
 
 function getPianoRange(useTwoHands) {
@@ -323,7 +206,7 @@ function computeLeftHandInfo(chord, chordData, useTwoHands) {
   if (!parsed) return null;
 
   const bassName = bass ? normalizeRoot(bass) : parsed.root;
-  const bassIdx = nameToIndex(bassName);
+  const bassIdx = noteIndex(bassName);
   if (bassIdx < 0) return null;
 
   let baseMidi = 60 + bassIdx;
@@ -477,7 +360,7 @@ function makePiano(chord, options = {}) {
 
   const whiteMIDIs = [];
   for (let m = LOW; m <= HIGH; m++) {
-    if (!N_SHARP[m % 12].includes("#")) whiteMIDIs.push(m);
+    if (!NOTES[m % 12].includes("#")) whiteMIDIs.push(m);
   }
 
   const pianoWrap = document.createElement("div");
@@ -502,7 +385,7 @@ function makePiano(chord, options = {}) {
 
     if (midi === rootMidi) wk.classList.add("root");
 
-    const nm = N_SHARP[midi % 12];
+    const nm = NOTES[midi % 12];
     const label = document.createElement("div");
     label.className = "label";
     label.textContent = nm.replace("#", "♯");
@@ -531,7 +414,7 @@ function makePiano(chord, options = {}) {
     const whiteEls = whiteGrid.querySelectorAll(".white-key");
     whiteEls.forEach((wk) => {
       const midi = parseInt(wk.dataset.midi, 10);
-      const note = N_SHARP[midi % 12];
+      const note = NOTES[midi % 12];
       if (note === "E" || note === "B") return;
 
       const blackMidi = midi + 1;
@@ -568,7 +451,7 @@ function makePiano(chord, options = {}) {
 }
 
 function getName(midi) {
-  const note = N_SHARP[midi % 12];
+  const note = NOTES[midi % 12];
   const octave = Math.floor(midi / 12) - 1;
   return note.replace("#", "♯") + octave;
 }
@@ -676,7 +559,7 @@ function buildInputMatches(val) {
   const matches = [];
   if (!val) return matches;
   const u = val.toUpperCase();
-  N_SHARP.forEach((note) => {
+  NOTES.forEach((note) => {
     CHORD_TYPES.forEach((type) => {
       const chord = note + type;
       if (chord.toUpperCase().startsWith(u)) matches.push(chord);
@@ -771,17 +654,17 @@ function transposeChords(amount) {
         const { main, bass } = splitChordParts(ch.sym);
         const parsed = parseChordSymbol(main);
         if (parsed) {
-          let rootIdx = nameToIndex(parsed.root);
+          let rootIdx = noteIndex(parsed.root);
           if (rootIdx >= 0) {
             rootIdx = (rootIdx + amount + 12) % 12;
-            const newRoot = N_SHARP[rootIdx];
+            const newRoot = NOTES[rootIdx];
             let updated = newRoot + (parsed.quality || "");
 
             if (bass) {
-              const bassIdxOrig = nameToIndex(normalizeRoot(bass));
+              const bassIdxOrig = noteIndex(normalizeRoot(bass));
               if (bassIdxOrig >= 0) {
                 const bassIdx = (bassIdxOrig + amount + 12) % 12;
-                const newBass = N_SHARP[bassIdx];
+                const newBass = NOTES[bassIdx];
                 updated += `/${newBass}`;
               }
             }
@@ -888,13 +771,13 @@ function updateSuggestions() {
           selectedPCs.length === chordPCs.length &&
           selectedPCs.every((pc) => chordPCs.includes(pc))
         ) {
-          const rootName = N_SHARP[rootPC];
+          const rootName = NOTES[rootPC];
           matches.push(rootName + (type || ""));
         }
       } else {
         // Partial match if no root is selected (don't multiply suggestions)
         if (selectedPCs.every((pc) => chordPCs.includes(pc))) {
-          const rootName = N_SHARP[rootPC];
+          const rootName = NOTES[rootPC];
           matches.push(rootName + (type || ""));
         }
       }
@@ -1002,6 +885,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Tracks the current root and previous root element
 let rootMID = null; // tracks the chosen root
+let prevRootEl = null; // label element of the currently marked root
 
 function renderCustomPiano() {
   customPianoEl.innerHTML = "";
@@ -1009,7 +893,7 @@ function renderCustomPiano() {
   const { low: LOW, high: HIGH } = getPianoRange(true);
   const whiteMIDIs = [];
   for (let m = LOW; m <= HIGH; m++)
-    if (!N_SHARP[m % 12].includes("#")) whiteMIDIs.push(m);
+    if (!NOTES[m % 12].includes("#")) whiteMIDIs.push(m);
 
   const pianoWrap = document.createElement("div");
   pianoWrap.className = "piano two-hands";
@@ -1031,7 +915,7 @@ function renderCustomPiano() {
 
     const label = document.createElement("div");
     label.className = "label";
-    label.textContent = N_SHARP[midi % 12].replace("#", "♯");
+    label.textContent = NOTES[midi % 12].replace("#", "♯");
     wk.appendChild(label);
 
     // Apply classes instead of inline styles to match main piano
@@ -1078,7 +962,7 @@ function renderCustomPiano() {
     const whiteEls = whiteGrid.querySelectorAll(".white-key");
     whiteEls.forEach((wk) => {
       const midi = parseInt(wk.dataset.midi);
-      if (["E", "B"].includes(N_SHARP[midi % 12])) return;
+      if (["E", "B"].includes(NOTES[midi % 12])) return;
 
       const blackMidi = midi + 1;
       const bk = document.createElement("div");
@@ -2677,10 +2561,10 @@ function drawPianoScale() {
 
   const root = keySel.value;
   const mode = modeSel.value;
-  const intervals = SCALE_FORMULAS_PIANO[mode] || SCALE_FORMULAS_PIANO.major;
+  const intervals = SCALE_FORMULAS[mode] || SCALE_FORMULAS.major;
 
   const { low: LOW, high: HIGH } = getPianoRange(false); // 2 octaves
-  const rootIdx = nameToIndex(root);
+  const rootIdx = noteIndex(root);
   if (rootIdx < 0) return;
 
   // Find the lowest root within range

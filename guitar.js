@@ -1,43 +1,6 @@
 // guitar.js
+import { NOTES, SCALE_FORMULAS, noteIndex } from "./theory.js";
 const GUITAR_TUNING = ["E", "B", "G", "D", "A", "E"]; // strings 1..6 (top to bottom visually)
-const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const ENHARMONIC = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
-
-export const SCALE_FORMULAS = {
-  // Minor pentatonic (legacy key 'pentatonic') and blues (minor)
-  pentatonic: [0, 3, 5, 7, 10],
-  minorPentatonic: [0, 3, 5, 7, 10],
-  blues: [0, 3, 5, 6, 7, 10],
-  minorBlues: [0, 3, 5, 6, 7, 10],
-  // Major pentatonic
-  majorPentatonic: [0, 2, 4, 7, 9],
-  // Major blues (hexatonic): 1 2 b3 3 5 6
-  majorBlues: [0, 2, 3, 4, 7, 9],
-  // Heptatonic modes
-  major: [0, 2, 4, 5, 7, 9, 11],
-  dorian: [0, 2, 3, 5, 7, 9, 10],
-  phrygian: [0, 1, 3, 5, 7, 8, 10],
-  lydian: [0, 2, 4, 6, 7, 9, 11],
-  mixolydian: [0, 2, 4, 5, 7, 9, 10],
-  aeolian: [0, 2, 3, 5, 7, 8, 10],
-  locrian: [0, 1, 3, 5, 6, 8, 10],
-  // Symmetric
-  wholeTone: [0, 2, 4, 6, 8, 10],
-  // Harmonic minor (Aeolian with raised 7th)
-  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
-  // Melodic minor (ascending)
-  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
-  // Harmonic major (major with b6)
-  harmonicMajor: [0, 2, 4, 5, 7, 8, 11],
-  // Diminished (octatonic)
-  diminishedHalfWhole: [0, 1, 3, 4, 6, 7, 9, 10],
-  diminishedWholeHalf: [0, 2, 3, 5, 6, 8, 9, 11],
-};
-
-function noteIndex(name) {
-  if (ENHARMONIC[name]) name = ENHARMONIC[name];
-  return NOTES.indexOf(name);
-}
 
 function buildScale(root, intervals) {
   const rootIdx = noteIndex(root);
