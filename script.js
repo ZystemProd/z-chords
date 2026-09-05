@@ -626,10 +626,12 @@ function hideInputSuggestions() {
 
 function positionInputSuggestions() {
   if (!inputSuggestions || !chordInput) return;
-  const rect = chordInput.getBoundingClientRect();
-  inputSuggestions.style.left = Math.max(0, rect.left) + 'px';
+  // Position relative to the .input-with-action wrapper, not just the input
+  const wrapper = chordInput.closest('.input-with-action');
+  const rect = wrapper ? wrapper.getBoundingClientRect() : chordInput.getBoundingClientRect();
+  inputSuggestions.style.left = rect.left + 'px';
   inputSuggestions.style.top = (rect.bottom + 6) + 'px';
-  inputSuggestions.style.width = Math.max(220, rect.width) + 'px';
+  inputSuggestions.style.width = rect.width + 'px';
 }
 
 chordInput.addEventListener("focus", () => {
