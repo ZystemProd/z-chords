@@ -86,6 +86,7 @@ export function playNotes(midis, options = {}) {
     velocity = 0.9,
     type = "triangle", // softer than sawtooth, richer than sine
     retrigger = true,
+    brightness = 1, // scales the filter cutoff; < 1 is darker, > 1 brighter
   } = options;
 
   if (retrigger) stopAll();
@@ -99,20 +100,59 @@ export function playNotes(midis, options = {}) {
   const FLOOR = 0.00001;
 
   notes.forEach((midi, i) => {
+    const freq = midiToFreq(midi);
+
     const osc = audioCtx.createOscillator();
     osc.type = type;
-    osc.frequency.value = midiToFreq(midi);
+    osc.frequency.value = freq;
+
+    // Low-pass per voice rather than one across the mix, so the cutoff can
+    // track pitch. A fixed cutoff would leave a bass note muddy and a treble
+    // note still shrill; tracking keeps the timbre even across the keyboard.
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    // Q stays flat on purpose. Resonance would add a peak at the cutoff, which
+    // is extra edge -- the opposite of what softening this is meant to do.
+    filter.Q.value = 0.7;
+
+    // Keep roughly the first HARMONICS partials and roll off above. Clamped so
+    // low notes keep enough body to be audible and high notes cannot creep
+    // back into the harsh region.
+    //
+    // Three, not the seven this started at. A triangle's harmonics fall off as
+    // 1/n^2, so a cutoff up at the 7th partial only attenuated content already
+    // sitting near 1% of the fundamental -- measured, it changed the rendered
+    // spectrum by well under a percent. Cutting at the 3rd is what actually
+    // takes the edge off, because it reaches the 5th and 7th partials in the
+    // 1-2 kHz band the ear is most sensitive to.
+    const HARMONICS = 3;
+    const cutoff = Math.min(
+      Math.max(freq * HARMONICS * brightness, 350),
+      6000
+    );
 
     const gain = audioCtx.createGain();
     // A few ms of spread top to bottom: a chord struck by a hand is never
     // perfectly simultaneous, and the stagger keeps it from sounding synthetic.
     const start = now + i * 0.004;
+
+    // Filter envelope: a touch brighter during the attack, closing as the note
+    // decays. That downward drift is what a struck string does as it damps,
+    // and it is most of why this reads as "soft" rather than merely "muffled".
+    filter.frequency.setValueAtTime(Math.min(cutoff * 1.6, 8000), start);
+    filter.frequency.exponentialRampToValueAtTime(cutoff, start + 0.18);
+    filter.frequency.exponentialRampToValueAtTime(
+      Math.max(cutoff * 0.6, 300),
+      start + duration
+    );
+
     gain.gain.setValueAtTime(FLOOR, start);
     gain.gain.exponentialRampToValueAtTime(peak, start + 0.012); // attack
     gain.gain.exponentialRampToValueAtTime(peak * 0.55, start + 0.32); // decay
     gain.gain.exponentialRampToValueAtTime(FLOOR, start + duration); // release
 
-    osc.connect(gain);
+    osc.connect(filter);
+    filter.connect(gain);
     gain.connect(out);
     osc.start(start);
     osc.stop(start + duration + 0.05);
@@ -123,6 +163,7 @@ export function playNotes(midis, options = {}) {
       activeVoices = activeVoices.filter((v) => v !== voice);
       try {
         gain.disconnect();
+        filter.disconnect();
       } catch (_) {
         // Already torn down.
       }
