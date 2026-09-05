@@ -776,6 +776,23 @@ select:focus-visible {
   cursor: grabbing;
 }
 
+/* Clicking a chord card plays it. The pulse confirms the click landed even
+   when the browser is still holding audio back on the first gesture. */
+.card.preview {
+  transition: box-shadow 160ms ease;
+}
+
+.card.preview.playing {
+  box-shadow: 0 0 0 2px var(--glow-color, rgba(30, 110, 240, 0.55)),
+    0 0 18px var(--glow-color, rgba(30, 110, 240, 0.55));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.preview {
+    transition: none;
+  }
+}
+
 .card h3 sup {
   font-size: 0.6em; /* smaller than main chord text */
   vertical-align: super; /* raise it above baseline */

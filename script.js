@@ -7,6 +7,7 @@ import {
   normalizeRoot,
   noteIndex,
 } from "./theory.js";
+import { playNotes, getAudioContext } from "./audio.js";
 
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
@@ -1142,33 +1143,59 @@ function applyInversionToMIDIs(midiArray, inversion) {
   return notes; // keep order to preserve inversion
 }
 
+// Resolve a stored chord into its sounding notes. A chord is either a parsed
+// symbol or a fully custom voicing; `customMIDIs` means "use these verbatim".
+// Rendering and playback both go through here so what you hear cannot drift
+// from what is drawn.
+function computeChordData(chord) {
+  if (chord.customMIDIs) {
+    // Apply inversion for custom chords
+    const notes = applyInversionToMIDIs(chord.customMIDIs, chord.inversion);
+    return {
+      notes,
+      rootMidi: notes[0], // choose lowest note as root
+    };
+  }
+  // Standard chord
+  const { main } = splitChordParts(chord.sym);
+  const parsed = parseChordSymbol(main);
+  return parsed
+    ? buildChordNotes(parsed.root, parsed.quality, chord.inversion, chord.octave)
+    : null;
+}
+
+// Every MIDI note a card is currently showing, left hand included when
+// two-hands mode is on. Recomputed at call time rather than captured, so
+// changing the inversion is reflected on the next play.
+function getChordPlaybackMIDIs(chord) {
+  const chordData = computeChordData(chord);
+  if (!chordData || !Array.isArray(chordData.notes)) return [];
+
+  const midis = chordData.notes.slice();
+
+  if (twoHandsMode) {
+    if (Array.isArray(chord.leftHandMIDIs) && chord.leftHandMIDIs.length) {
+      midis.push(...chord.leftHandMIDIs);
+    } else {
+      const lh = computeLeftHandInfo(chord, chordData, twoHandsMode);
+      if (lh && Array.isArray(lh.leftHandMIDIs)) midis.push(...lh.leftHandMIDIs);
+      else if (lh && typeof lh.midi === "number") midis.push(lh.midi);
+    }
+  }
+
+  // Sorted low to high: playNotes staggers voices by a few ms in array order,
+  // so this makes the chord roll up from the bass the way a hand strikes it.
+  return Array.from(new Set(midis.filter((m) => typeof m === "number"))).sort(
+    (a, b) => a - b
+  );
+}
+
 function updatePreviewChord(card, chord) {
   // Remove old piano
   const oldPiano = card.querySelector(".piano");
   if (oldPiano) oldPiano.remove();
 
-  let chordData;
-
-  if (chord.customMIDIs) {
-    // Apply inversion for custom chords
-    const notes = applyInversionToMIDIs(chord.customMIDIs, chord.inversion);
-    chordData = {
-      notes,
-      rootMidi: notes[0], // choose lowest note as root
-    };
-  } else {
-    // Standard chord
-    const { main } = splitChordParts(chord.sym);
-    const parsed = parseChordSymbol(main);
-    chordData = parsed
-      ? buildChordNotes(
-          parsed.root,
-          parsed.quality,
-          chord.inversion,
-          chord.octave
-        )
-      : null;
-  }
+  const chordData = computeChordData(chord);
 
   if (!chordData) return;
 
@@ -1396,26 +1423,25 @@ function renderSections() {
       card.dataset.chordIndex = chordIndex;
       card.innerHTML = `<h3>${formatChordSymbol(chord.sym)}</h3>`;
 
+      // Click the card to hear it. The inversion/edit/remove controls all stop
+      // propagation, and isDraggingCard swallows the click Sortable fires when
+      // a drag ends on top of the card it just moved.
+      card.title = "Click to hear this chord";
+      card.addEventListener("click", () => {
+        if (isDraggingCard) return;
+        const midis = getChordPlaybackMIDIs(chord);
+        if (!midis.length) return;
+        playNotes(midis);
+        card.classList.add("playing");
+        clearTimeout(card._playPulse);
+        card._playPulse = setTimeout(
+          () => card.classList.remove("playing"),
+          320
+        );
+      });
+
       // --- Build chord piano ---
-      let chordData;
-      if (chord.customMIDIs) {
-        const notes = applyInversionToMIDIs(chord.customMIDIs, chord.inversion);
-        chordData = {
-          notes,
-          rootMidi: notes[0],
-        };
-      } else {
-        const { main } = splitChordParts(chord.sym);
-        const parsed = parseChordSymbol(main);
-        chordData = parsed
-          ? buildChordNotes(
-              parsed.root,
-              parsed.quality,
-              chord.inversion,
-              chord.octave
-            )
-          : null;
-      }
+      const chordData = computeChordData(chord);
 
       let builtPiano = null;
       if (chordData) {
@@ -1658,6 +1684,7 @@ function addChordToSection(sym, sectionIndex = 0) {
 
 // keep track of created Sortable instances so we can destroy them before recreating
 let sortableInstances = [];
+let isDraggingCard = false; // true while a card drag is in flight
 
 function enableDragAndDrop() {
   // destroy previous instances (if any)
@@ -1683,7 +1710,15 @@ function enableDragAndDrop() {
     const s = Sortable.create(container, {
       group: "sections", // allows dragging between sections
       animation: 150,
+      onStart: () => {
+        isDraggingCard = true;
+      },
       onEnd: (evt) => {
+        // Released after the click event this drag would otherwise trigger.
+        setTimeout(() => {
+          isDraggingCard = false;
+        }, 0);
+
         // guard: ensure sections exist
         const sections = JSON.parse(boardsEl.dataset.sections || "[]");
         const fromSec = Number(evt.from.dataset.sectionIndex || 0);
@@ -2185,7 +2220,6 @@ const metronomeState = {
   currentBeat: 0,
   isRunning: false,
   timerId: null,
-  audioCtx: null,
   tonality: 1, // 0 = noise click, 1 = pure tone
   noiseBuffer: null,
   tapTimes: [],
@@ -2196,12 +2230,11 @@ function clampMetronomeValue(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+// The metronome shares the app-wide context (see audio.js) rather than opening
+// a second one. It still connects to the destination directly, so its level and
+// timing are unchanged.
 function ensureMetronomeAudioCtx() {
-  if (metronomeState.audioCtx) return metronomeState.audioCtx;
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return null;
-  metronomeState.audioCtx = new AudioCtx();
-  return metronomeState.audioCtx;
+  return getAudioContext();
 }
 
 function ensureMetronomeNoiseBuffer(audioCtx) {
