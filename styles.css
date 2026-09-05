@@ -1869,13 +1869,12 @@ body.light-mode .metronome-led {
   font-family: inherit;
 }
 
-/* The chart text under a diagram, e.g. "x32010". */
-.gc-chart {
-  text-align: center;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  color: var(--note-text);
-  margin-top: 4px;
+/* Fret numbers under the diagram. These are SVG text drawn at each string's
+   own x-coordinate, so they line up with the strings by construction. */
+.gc-chart-num {
+  fill: var(--note-text);
+  font-size: 10px;
+  font-family: inherit;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1891,12 +1890,9 @@ body.light-mode .metronome-led {
 
 .pdf-capture .gc-dot,
 .pdf-capture .gc-barre,
-.pdf-capture .gc-position {
+.pdf-capture .gc-position,
+.pdf-capture .gc-chart-num {
   fill: #000 !important;
-}
-
-.pdf-capture .gc-chart {
-  color: #000 !important;
 }
 
 /* Guitar chord card body */

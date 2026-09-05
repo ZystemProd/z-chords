@@ -1355,9 +1355,6 @@ function buildGuitarCardBody(card, chord, sections) {
   const host = document.createElement("div");
   host.className = "gc-host";
 
-  const chart = document.createElement("div");
-  chart.className = "gc-chart";
-
   const stepper = document.createElement("div");
   stepper.className = "inversion-control gc-shape-control";
 
@@ -1384,7 +1381,6 @@ function buildGuitarCardBody(card, chord, sections) {
         ariaLabel: `${chord.sym}, shape ${idx + 1} of ${n}, ${voicingChart(v.frets)}`,
       })
     );
-    chart.textContent = voicingChart(v.frets);
     count.textContent = `${idx + 1}/${n}`;
   };
 
@@ -1404,7 +1400,6 @@ function buildGuitarCardBody(card, chord, sections) {
   stepper.appendChild(next);
 
   body.appendChild(host);
-  body.appendChild(chart);
   body.appendChild(stepper);
   card.appendChild(body);
   draw();

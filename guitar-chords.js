@@ -482,7 +482,7 @@ const FRET_ROWS = 5; // fret spaces visible in the box
 const PAD_TOP = 24; // room for the x/o markers above the nut
 const PAD_LEFT = 22; // room for the "5fr" position label
 const PAD_RIGHT = 10;
-const PAD_BOTTOM = 8;
+const PAD_BOTTOM = 20; // room for the fret number under each string
 
 const BOX_W = STRING_GAP * 5;
 const BOX_H = FRET_GAP * FRET_ROWS;
@@ -591,6 +591,21 @@ export function renderChordDiagram(voicing, opts = {}) {
     // Strings already covered by the barre rectangle need no separate dot.
     if (barre && f === barre.fret && s >= barre.fromString && s <= barre.toString) return;
     svg.appendChild(el("circle", { class: "gc-dot", cx: xOf(s), cy: yOfDot(row), r: 5 }));
+  });
+
+  // Fret numbers, one per string, drawn inside the SVG at the same x the
+  // string line uses. Laying them out as text elsewhere can only approximate
+  // this; sharing xOf() makes the alignment exact and keeps it correct when
+  // a two-digit fret widens the label.
+  frets.forEach((f, s) => {
+    const label = el("text", {
+      class: "gc-chart-num",
+      x: xOf(s),
+      y: PAD_TOP + BOX_H + 14,
+      "text-anchor": "middle",
+    });
+    label.textContent = f === null ? "x" : String(f);
+    svg.appendChild(label);
   });
 
   return svg;
