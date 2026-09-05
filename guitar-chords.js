@@ -82,6 +82,18 @@ const MOVABLE_SHAPES = [
   { rootString: 1, quality: "m6", offsets: [null, 0, 2, 2, 1, 2] },
   { rootString: 1, quality: "m7b5", offsets: [null, 0, 1, 0, 1, null] },
 
+  // --- D-string family: root on string 4, top four strings only ---
+  // The small partial-barre forms, e.g. F as xx3211 rather than the full
+  // six-string 133211. Far easier to play and extremely common, so they are
+  // listed after the full barres but ahead of anything generated.
+  { rootString: 2, quality: "", offsets: [null, null, 0, -1, -2, -2] }, // xx3211
+  { rootString: 2, quality: "m", offsets: [null, null, 0, -2, -2, -2] }, // xx3111
+  { rootString: 2, quality: "maj7", offsets: [null, null, 0, -1, -2, -3] }, // xx3210
+  // The sevenths are the open D7/Dm7 shapes slid up, not variations of the
+  // major form above: the b7 will not fit under the root on the top string.
+  { rootString: 2, quality: "7", offsets: [null, null, 0, 2, 1, 2] }, // xx3545 for F
+  { rootString: 2, quality: "m7", offsets: [null, null, 0, 2, 1, 1] }, // xx3544
+
   // --- Extended chords, A-shape family (written against C, root fret 3) ---
   // These reach *below* the root fret, which is normal: the 3rd of a 9th chord
   // sits a fret under the root on the next string. Placements that would push
@@ -163,19 +175,49 @@ export function voicingMidis(frets) {
   return out;
 }
 
-// A barre is the index finger flattened across several strings at one fret. We
-// report the lowest fretted fret when two or more strings share it and nothing
-// below it is fretted lower, which is what a player actually barres.
+// Can one finger, lying flat at `fret`, cover strings `from` through `to`?
+//
+// Only if every string it crosses is stopped at that fret or higher. An open
+// string underneath is a contradiction -- the finger would stop it -- and a
+// muted string means the hand is not lying across it at all. This is the rule
+// that keeps a barre from being drawn straight through an open string.
+function fingerCanSpan(frets, fret, from, to) {
+  for (let s = from; s <= to; s++) {
+    const f = frets[s];
+    if (f === null || f < fret) return false;
+  }
+  return true;
+}
+
+// The index barre: the lowest fretted fret, spanning the strings it can
+// actually reach. If an open string sits between two strings at that fret, the
+// finger cannot cross it, so the barre is only the reachable run (and is no
+// barre at all if that leaves fewer than two strings).
 function detectBarre(frets) {
   const fretted = frettedFrets(frets);
   if (!fretted.length) return null;
   const min = Math.min(...fretted);
+
   const at = [];
   frets.forEach((f, s) => {
     if (f === min) at.push(s);
   });
   if (at.length < 2) return null;
-  return { fret: min, fromString: Math.min(...at), toString: Math.max(...at) };
+
+  // Longest run of strings at this fret that one finger could actually cover.
+  let best = null;
+  for (let i = 0; i < at.length; i++) {
+    for (let j = at.length - 1; j > i; j--) {
+      if (!fingerCanSpan(frets, min, at[i], at[j])) continue;
+      const width = at[j] - at[i];
+      if (!best || width > best.width) {
+        best = { width, fromString: at[i], toString: at[j] };
+      }
+      break;
+    }
+  }
+  if (!best) return null;
+  return { fret: min, fromString: best.fromString, toString: best.toString };
 }
 
 // How many fingers the shape needs.
@@ -199,14 +241,20 @@ function fingerCount(frets) {
   const minFret = Math.min(...byFret.keys());
   let fingers = 0;
   for (const [fret, strings] of byFret) {
-    if (fret === minFret && strings.length >= 2) {
-      fingers += 1; // index barre, flat across the neck
-      continue;
-    }
     strings.sort((a, b) => a - b);
     let runs = 1;
     for (let i = 1; i < strings.length; i++) {
-      if (strings[i] !== strings[i - 1] + 1) runs++;
+      const prev = strings[i - 1];
+      const cur = strings[i];
+      // The index finger at the lowest fret lies flat and passes under
+      // anything fretted higher, so it can bridge a gap. Every other finger
+      // has to cover strictly adjacent strings: extending it further would
+      // press the string in between at this fret and kill its lower note.
+      const bridged =
+        fret === minFret
+          ? fingerCanSpan(frets, fret, prev, cur)
+          : cur === prev + 1;
+      if (!bridged) runs++;
     }
     fingers += runs;
   }
