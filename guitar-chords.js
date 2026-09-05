@@ -616,3 +616,325 @@ export function voicingChart(frets) {
   const wide = frets.some((f) => typeof f === "number" && f > 9);
   return frets.map((f) => (f === null ? "x" : f)).join(wide ? "-" : "");
 }
+
+/** A voicing object built from a hand-drawn fret array. */
+export function voicingFromFrets(frets) {
+  const midis = voicingMidis(frets);
+  if (!midis.length) return null;
+  return makeVoicing(frets.slice(), "custom", ((midis[0] % 12) + 12) % 12);
+}
+
+// --- Interactive editor ----------------------------------------------------
+//
+// The one place in this module that holds state, and only transient
+// interaction state: the frets being drawn and the in-progress drag. Every
+// committed change is reported through onChange; it keeps no reference to the
+// board and does not know what a section is.
+//
+// Its geometry is its own, larger than the read-only diagram's, because these
+// are mouse and touch targets rather than something to glance at.
+
+const E_STRING_GAP = 30;
+const E_FRET_GAP = 38;
+const E_FRET_ROWS = 5;
+const E_PAD_TOP = 50; // header band holding the o/x markers, itself clickable
+const E_PAD_LEFT = 36;
+const E_PAD_RIGHT = 22;
+const E_PAD_BOTTOM = 28;
+const E_BOX_W = E_STRING_GAP * 5;
+const E_BOX_H = E_FRET_GAP * E_FRET_ROWS;
+const E_HEAD_Y = E_PAD_TOP - 18; // centre line for the o/x markers
+
+/**
+ * An editable chord box.
+ *
+ * Click a cell to place or lift a note. Press and drag across strings at one
+ * fret to lay a barre. Click the band above the nut to cycle a string through
+ * its fret, open and muted.
+ */
+export function createChordEditor(options = {}) {
+  let frets = Array.isArray(options.frets)
+    ? options.frets.slice(0, 6)
+    : [null, null, null, null, null, null];
+  while (frets.length < 6) frets.push(null);
+
+  let baseFret = Math.max(1, options.baseFret || 1);
+  const onChange =
+    typeof options.onChange === "function" ? options.onChange : () => {};
+
+  // What fret each string last carried, so cycling a string out to open and
+  // muted and back returns the fingering instead of losing it.
+  const lastFret = frets.map((f) => (typeof f === "number" && f > 0 ? f : null));
+
+  let drag = null; // { fret, from, to } while a barre is being dragged out
+
+  const width = E_PAD_LEFT + E_BOX_W + E_PAD_RIGHT;
+  const height = E_PAD_TOP + E_BOX_H + E_PAD_BOTTOM;
+
+  const svg = el("svg", {
+    class: "gce-editor",
+    viewBox: "0 0 " + width + " " + height,
+    width: width,
+    height: height,
+    role: "application",
+    "aria-label": "Chord diagram editor",
+  });
+
+  const xOf = (s) => E_PAD_LEFT + s * E_STRING_GAP;
+  const yLine = (row) => E_PAD_TOP + row * E_FRET_GAP;
+  const yDot = (row) => E_PAD_TOP + (row + 0.5) * E_FRET_GAP;
+
+  // --- hit testing ---------------------------------------------------------
+  // Arithmetic on SVG-local coordinates rather than per-element listeners, so
+  // it keeps working while the pointer is captured mid-drag and moving over
+  // elements it did not start on.
+  function localPoint(evt) {
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    return pt.matrixTransform(ctm.inverse());
+  }
+
+  function cellAt(p) {
+    if (!p) return null;
+    const s = Math.round((p.x - E_PAD_LEFT) / E_STRING_GAP);
+    if (s < 0 || s > 5) return null;
+    if (p.y < E_PAD_TOP - 2) {
+      return p.y >= 0 ? { string: s, header: true } : null;
+    }
+    const row = Math.floor((p.y - E_PAD_TOP) / E_FRET_GAP);
+    if (row < 0 || row >= E_FRET_ROWS) return null;
+    return { string: s, row: row, fret: baseFret + row };
+  }
+
+  // --- edits ---------------------------------------------------------------
+  function placeFret(s, fret) {
+    if (frets[s] === fret) {
+      frets[s] = null; // pressing the same dot again lifts it
+    } else {
+      frets[s] = fret;
+      lastFret[s] = fret;
+    }
+  }
+
+  function placeBarre(lo, hi, fret) {
+    for (let s = lo; s <= hi; s++) {
+      frets[s] = fret;
+      lastFret[s] = fret;
+    }
+  }
+
+  // fretted -> open -> muted -> back to the same fret. A string that has never
+  // been fretted has nothing to come back to, so it toggles open and muted.
+  function cycleString(s) {
+    const cur = frets[s];
+    if (cur === null) frets[s] = lastFret[s] ? lastFret[s] : 0;
+    else if (cur === 0) frets[s] = null;
+    else frets[s] = 0;
+  }
+
+  function commit() {
+    onChange(frets.slice(), baseFret);
+  }
+
+  // --- pointer handling ----------------------------------------------------
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const cell = cellAt(localPoint(e));
+    if (!cell) return;
+    e.preventDefault();
+    if (cell.header) {
+      cycleString(cell.string);
+      redraw();
+      commit();
+      return;
+    }
+    drag = { fret: cell.fret, from: cell.string, to: cell.string };
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch (_) {}
+    redraw();
+  });
+
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const cell = cellAt(localPoint(e));
+    if (!cell || cell.header) return;
+    if (cell.string !== drag.to) {
+      drag.to = cell.string;
+      redraw();
+    }
+  });
+
+  function endDrag(e, cancelled) {
+    if (!drag) return;
+    try {
+      svg.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+    const fret = drag.fret;
+    const lo = Math.min(drag.from, drag.to);
+    const hi = Math.max(drag.from, drag.to);
+    drag = null;
+    if (!cancelled) {
+      if (lo === hi) placeFret(lo, fret);
+      else placeBarre(lo, hi, fret);
+    }
+    redraw();
+    if (!cancelled) commit();
+  }
+
+  svg.addEventListener("pointerup", (e) => endDrag(e, false));
+  svg.addEventListener("pointercancel", (e) => endDrag(e, true));
+  svg.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // --- drawing -------------------------------------------------------------
+  function redraw() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    // The drag is previewed rather than committed, so releasing outside the
+    // box cancels cleanly.
+    const shown = frets.slice();
+    if (drag) {
+      const lo = Math.min(drag.from, drag.to);
+      const hi = Math.max(drag.from, drag.to);
+      for (let s = lo; s <= hi; s++) shown[s] = drag.fret;
+    }
+
+    const openPosition = baseFret === 1;
+
+    for (let row = 0; row <= E_FRET_ROWS; row++) {
+      svg.appendChild(
+        el("line", {
+          class: row === 0 && openPosition ? "gc-nut" : "gc-fret",
+          x1: E_PAD_LEFT,
+          y1: yLine(row),
+          x2: E_PAD_LEFT + E_BOX_W,
+          y2: yLine(row),
+        })
+      );
+    }
+
+    for (let s = 0; s < 6; s++) {
+      svg.appendChild(
+        el("line", {
+          class: "gc-string",
+          x1: xOf(s),
+          y1: E_PAD_TOP,
+          x2: xOf(s),
+          y2: E_PAD_TOP + E_BOX_H,
+        })
+      );
+    }
+
+    if (!openPosition) {
+      const label = el("text", {
+        class: "gc-position",
+        x: E_PAD_LEFT - 10,
+        y: yDot(0) + 4,
+        "text-anchor": "end",
+      });
+      label.textContent = baseFret + "fr";
+      svg.appendChild(label);
+    }
+
+    const barre = detectBarre(shown);
+    if (barre) {
+      const row = barre.fret - baseFret;
+      if (row >= 0 && row < E_FRET_ROWS) {
+        svg.appendChild(
+          el("rect", {
+            class: "gc-barre",
+            x: xOf(barre.fromString) - 9,
+            y: yDot(row) - 9,
+            width: xOf(barre.toString) - xOf(barre.fromString) + 18,
+            height: 18,
+            rx: 9,
+          })
+        );
+      }
+    }
+
+    shown.forEach((f, s) => {
+      if (f === null) {
+        const x = xOf(s);
+        svg.appendChild(el("line", { class: "gc-mute", x1: x - 5, y1: E_HEAD_Y - 5, x2: x + 5, y2: E_HEAD_Y + 5 }));
+        svg.appendChild(el("line", { class: "gc-mute", x1: x + 5, y1: E_HEAD_Y - 5, x2: x - 5, y2: E_HEAD_Y + 5 }));
+        return;
+      }
+      if (f === 0) {
+        svg.appendChild(el("circle", { class: "gc-open", cx: xOf(s), cy: E_HEAD_Y, r: 5 }));
+        return;
+      }
+      const row = f - baseFret;
+      if (row < 0 || row >= E_FRET_ROWS) {
+        // Fretted outside the visible window. Marked rather than dropped, so a
+        // note does not become invisible just because the window moved.
+        svg.appendChild(
+          el("circle", { class: "gce-offscreen", cx: xOf(s), cy: E_HEAD_Y, r: 5 })
+        );
+        return;
+      }
+      if (barre && f === barre.fret && s >= barre.fromString && s <= barre.toString) return;
+      svg.appendChild(el("circle", { class: "gc-dot", cx: xOf(s), cy: yDot(row), r: 9 }));
+    });
+
+    shown.forEach((f, s) => {
+      const label = el("text", {
+        class: "gc-chart-num",
+        x: xOf(s),
+        y: E_PAD_TOP + E_BOX_H + 18,
+        "text-anchor": "middle",
+      });
+      label.textContent = f === null ? "x" : String(f);
+      svg.appendChild(label);
+    });
+
+    // Hit targets last so nothing drawn can swallow a press. The visuals are
+    // pointer-events:none in CSS, so hover feedback lands here too.
+    for (let s = 0; s < 6; s++) {
+      svg.appendChild(
+        el("rect", {
+          class: "gce-head",
+          x: xOf(s) - E_STRING_GAP / 2,
+          y: 0,
+          width: E_STRING_GAP,
+          height: E_PAD_TOP - 2,
+        })
+      );
+      for (let row = 0; row < E_FRET_ROWS; row++) {
+        svg.appendChild(
+          el("rect", {
+            class: "gce-cell",
+            x: xOf(s) - E_STRING_GAP / 2,
+            y: yLine(row),
+            width: E_STRING_GAP,
+            height: E_FRET_GAP,
+          })
+        );
+      }
+    }
+  }
+
+  redraw();
+
+  return {
+    svg: svg,
+    getFrets: () => frets.slice(),
+    getBaseFret: () => baseFret,
+    setFrets(next) {
+      frets = next.slice(0, 6);
+      while (frets.length < 6) frets.push(null);
+      frets.forEach((f, s) => {
+        if (typeof f === "number" && f > 0) lastFret[s] = f;
+      });
+      redraw();
+    },
+    setBaseFret(n) {
+      baseFret = Math.max(1, Math.min(18, n));
+      redraw();
+      return baseFret;
+    },
+  };
+}

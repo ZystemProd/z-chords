@@ -309,6 +309,23 @@
                     <button id="markRight" type="button" aria-pressed="true">Right Hand</button>
                 </div>
                 <div id="customPiano"></div>
+                <!-- Guitar equivalent of #customPiano, shown on the guitar tab -->
+                <div id="customGuitar" style="display:none;">
+                    <div id="customGuitarBox"></div>
+                    <div class="gce-hint">
+                        Click a fret to place a note. Drag across strings for a barre.
+                        Click above the nut for open, muted or its fret.
+                    </div>
+                    <div class="gce-toolbar">
+                        <div class="transpose-group" role="group" aria-label="Fretboard position">
+                            <span class="group-label">Position</span>
+                            <button id="guitarEditorPosDown" class="stepper-btn" type="button" aria-label="Move down the neck">&minus;</button>
+                            <span id="guitarEditorPos" class="stepper-value" aria-live="polite" aria-atomic="true">1</span>
+                            <button id="guitarEditorPosUp" class="stepper-btn" type="button" aria-label="Move up the neck">+</button>
+                        </div>
+                        <button id="guitarEditorClear" type="button">Clear</button>
+                    </div>
+                </div>
                 <div>
                     <label>Chord Name: </label>
                     <input type="text" id="customChordName" placeholder="e.g., MyChord">

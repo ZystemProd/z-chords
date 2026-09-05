@@ -1931,3 +1931,69 @@ body.light-mode .metronome-led {
 .pdf-capture .gc-shape-control {
   display: none !important;
 }
+
+/* --- Guitar chord editor (modal fretboard, see createChordEditor) -------- */
+
+#customGuitar {
+  margin: 16px 0;
+}
+
+#customGuitarBox {
+  display: flex;
+  justify-content: center;
+}
+
+.gce-editor {
+  touch-action: none; /* the drag-to-barre gesture owns the pointer */
+  user-select: none;
+  max-width: 100%;
+}
+
+/* Everything drawn is inert; the hit rects below take every press, so a dot
+   or a barre can never swallow the pointer. */
+.gce-editor line,
+.gce-editor circle,
+.gce-editor rect.gc-barre,
+.gce-editor text {
+  pointer-events: none;
+}
+
+.gce-cell,
+.gce-head {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.gce-cell:hover {
+  fill: color-mix(in oklab, var(--button-bg) 22%, transparent);
+}
+
+.gce-head:hover {
+  fill: color-mix(in oklab, var(--button-bg) 14%, transparent);
+}
+
+/* A note fretted outside the visible window - shown so it cannot vanish
+   silently when the position moves. */
+.gce-offscreen {
+  fill: none;
+  stroke: var(--button-bg);
+  stroke-width: 2;
+  stroke-dasharray: 3 2;
+}
+
+.gce-hint {
+  text-align: center;
+  color: var(--note-text);
+  font-size: 12px;
+  margin: 10px auto 0;
+  max-width: 320px;
+  line-height: 1.45;
+}
+
+.gce-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+}

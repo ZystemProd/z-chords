@@ -13,6 +13,9 @@ import {
   getVoicingsForPitchClasses,
   renderChordDiagram,
   voicingChart,
+  voicingFromFrets,
+  createChordEditor,
+  OPEN_MIDI,
 } from "./guitar-chords.js";
 
 let sectionCounter = 0; // track part number
@@ -682,6 +685,20 @@ function transposeChords(amount) {
       }
 
       // Custom chords
+      if (Array.isArray(ch.guitarFrets)) {
+        // Every string's pitch is open + fret, so adding the same amount to
+        // each fret transposes the shape, open strings included. Shapes that
+        // would fall off either end of the neck lose the override and go back
+        // to the library instead of being silently mangled.
+        const moved = ch.guitarFrets.map((f) => (f === null ? null : f + amount));
+        const played = moved.filter((f) => f !== null);
+        if (played.length && played.every((f) => f >= 0 && f <= 22)) {
+          ch.guitarFrets = moved;
+        } else {
+          delete ch.guitarFrets;
+        }
+      }
+
       if (ch.customMIDIs) {
         ch.customMIDIs = ch.customMIDIs.map((m) => m + amount); // shift MIDI numbers
         if (ch.rootMidi !== undefined && ch.rootMidi !== null) {
@@ -822,6 +839,96 @@ let selectedLeftMIDIs = new Set(); // left-hand selections in modal
 let customMarkingHand = "right"; // which hand new clicks mark in modal
 let editingContext = { active: false, sectionIndex: null, chordIndex: null };
 
+// --- Guitar chord editor (the modal's fretboard, in place of the piano) -----
+
+const customGuitarEl = document.getElementById("customGuitar");
+const customGuitarBoxEl = document.getElementById("customGuitarBox");
+const guitarEditorPosEl = document.getElementById("guitarEditorPos");
+let guitarEditor = null; // handle from createChordEditor while the modal is open
+
+function editingGuitar() {
+  return currentInstrument === "guitar";
+}
+
+// Sensible starting window: low enough to show the nut unless the shape lives
+// up the neck, matching how the read-only diagrams choose theirs.
+function baseFretFor(frets) {
+  const fretted = frets.filter((f) => typeof f === "number" && f > 0);
+  if (!fretted.length) return 1;
+  if (frets.some((f) => f === 0) || Math.max(...fretted) <= 4) return 1;
+  return Math.min(...fretted);
+}
+
+function syncGuitarEditorPos() {
+  if (guitarEditorPosEl && guitarEditor) {
+    guitarEditorPosEl.textContent = String(guitarEditor.getBaseFret());
+  }
+}
+
+// Mounts the fretboard editor for `frets` and keeps the name suggestions in
+// step with whatever is currently fretted.
+function mountGuitarEditor(frets) {
+  if (!customGuitarBoxEl) return;
+  customGuitarBoxEl.innerHTML = "";
+  guitarEditor = createChordEditor({
+    frets: frets,
+    baseFret: baseFretFor(frets),
+    onChange: (next) => {
+      // Suggestions read the same selection the piano path uses, so the
+      // "Chord Name" hints work identically on both instruments.
+      selectedMIDIs = new Set(guitarEditorMidis(next));
+      rootMID = selectedMIDIs.size ? Math.min(...selectedMIDIs) : null;
+      updateSuggestions();
+    },
+  });
+  customGuitarBoxEl.appendChild(guitarEditor.svg);
+  syncGuitarEditorPos();
+  selectedMIDIs = new Set(guitarEditorMidis(frets));
+  rootMID = selectedMIDIs.size ? Math.min(...selectedMIDIs) : null;
+}
+
+function guitarEditorMidis(frets) {
+  const out = [];
+  frets.forEach((f, s) => {
+    if (typeof f === "number") out.push(OPEN_MIDI[s] + f);
+  });
+  return out.sort((a, b) => a - b);
+}
+
+// Position stepper and Clear, which only exist for the fretboard.
+document.addEventListener("DOMContentLoaded", () => {
+  const down = document.getElementById("guitarEditorPosDown");
+  const up = document.getElementById("guitarEditorPosUp");
+  const clear = document.getElementById("guitarEditorClear");
+
+  const move = (delta) => () => {
+    if (!guitarEditor) return;
+    guitarEditor.setBaseFret(guitarEditor.getBaseFret() + delta);
+    syncGuitarEditorPos();
+  };
+  if (down) down.addEventListener("click", move(-1));
+  if (up) up.addEventListener("click", move(1));
+
+  if (clear) {
+    clear.addEventListener("click", () => {
+      if (!guitarEditor) return;
+      guitarEditor.setFrets([null, null, null, null, null, null]);
+      selectedMIDIs = new Set();
+      rootMID = null;
+      updateSuggestions();
+    });
+  }
+});
+
+// Swaps the modal between the piano and the fretboard.
+function showModalInstrument() {
+  const guitar = editingGuitar();
+  if (customPianoEl) customPianoEl.style.display = guitar ? "none" : "";
+  if (customGuitarEl) customGuitarEl.style.display = guitar ? "block" : "none";
+  const handToggle = document.getElementById("handToggle");
+  if (handToggle) handToggle.style.display = guitar ? "none" : "";
+}
+
 function openCustomChordModal() {
   if (!customModal) return;
   customModal.style.display = "block";
@@ -838,7 +945,12 @@ function openCustomChordModal() {
   try {
     addCustomChordBtn.textContent = "Add Chord";
   } catch (_) {}
-  renderCustomPiano();
+  showModalInstrument();
+  if (editingGuitar()) {
+    mountGuitarEditor([null, null, null, null, null, null]);
+  } else {
+    renderCustomPiano();
+  }
   updateSuggestions();
 }
 
@@ -1027,6 +1139,8 @@ function resetCustomChordModal() {
   customChordNameInput.value = "";
   suggestedEl.innerHTML = "";
   customPianoEl.innerHTML = "";
+  if (customGuitarBoxEl) customGuitarBoxEl.innerHTML = "";
+  guitarEditor = null;
   customMarkingHand = "right";
   try {
     addCustomChordBtn.textContent = "Add Chord";
@@ -1059,6 +1173,14 @@ function toggleKey(midi, el) {
 }
 
 addCustomChordBtn.addEventListener("click", () => {
+  // On the guitar tab the notes come from the fretboard rather than the piano.
+  const drawnFrets = editingGuitar() && guitarEditor ? guitarEditor.getFrets() : null;
+  if (drawnFrets) {
+    selectedMIDIs = new Set(guitarEditorMidis(drawnFrets));
+    selectedLeftMIDIs = new Set();
+    rootMID = selectedMIDIs.size ? Math.min(...selectedMIDIs) : null;
+  }
+
   if (selectedMIDIs.size === 0 && selectedLeftMIDIs.size === 0) return;
 
   let name = customChordNameInput.value.trim();
@@ -1093,6 +1215,10 @@ addCustomChordBtn.addEventListener("click", () => {
     rootMidi: rootMID,
     leftHandMIDIs: leftArray,
   };
+
+  // Keep the exact fingering, not just the notes. Two shapes can sound the
+  // same set of pitches and only one of them is the one that was drawn.
+  if (drawnFrets) chordObj.guitarFrets = drawnFrets;
 
   if (editingContext.active) {
     const sIdx = editingContext.sectionIndex;
@@ -1302,7 +1428,15 @@ function openCustomChordModalForEdit(sectionIndex, chordIndex) {
     }
     addCustomChordBtn.textContent = "Update Chord";
   } catch (_) {}
-  renderCustomPiano();
+  showModalInstrument();
+  if (editingGuitar()) {
+    // Seed from the shape the card is showing, so editing starts from what
+    // the player is looking at rather than from an empty board.
+    const shown = getActiveVoicing(ch);
+    mountGuitarEditor(shown ? shown.frets : [null, null, null, null, null, null]);
+  } else {
+    renderCustomPiano();
+  }
   updateSuggestions();
 }
 
@@ -1311,6 +1445,13 @@ function openCustomChordModalForEdit(sectionIndex, chordIndex) {
 // Playable shapes for a stored chord. Custom chords carry raw MIDI rather than
 // a parseable symbol, so they go through the pitch-class search instead.
 function getGuitarVoicings(chord) {
+  // A hand-drawn shape is exactly what the player asked for, so it is shown
+  // verbatim rather than re-derived from its pitch classes -- the search would
+  // otherwise be free to return a different fingering of the same notes.
+  if (Array.isArray(chord.guitarFrets) && chord.guitarFrets.some((f) => f !== null)) {
+    const drawn = voicingFromFrets(chord.guitarFrets);
+    if (drawn) return [drawn];
+  }
   if (Array.isArray(chord.customMIDIs) && chord.customMIDIs.length) {
     const bass =
       typeof chord.rootMidi === "number" ? chord.rootMidi : chord.customMIDIs[0];
