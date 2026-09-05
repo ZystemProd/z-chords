@@ -616,22 +616,11 @@ function showInputSuggestions() {
     });
   }
 
-  positionInputSuggestions();
   inputSuggestions.hidden = false;
 }
 
 function hideInputSuggestions() {
   if (inputSuggestions) inputSuggestions.hidden = true;
-}
-
-function positionInputSuggestions() {
-  if (!inputSuggestions || !chordInput) return;
-  // Position relative to the .input-with-action wrapper, not just the input
-  const wrapper = chordInput.closest('.input-with-action');
-  const rect = wrapper ? wrapper.getBoundingClientRect() : chordInput.getBoundingClientRect();
-  inputSuggestions.style.left = rect.left + 'px';
-  inputSuggestions.style.top = (rect.bottom + 6) + 'px';
-  inputSuggestions.style.width = rect.width + 'px';
 }
 
 chordInput.addEventListener("focus", () => {
@@ -662,19 +651,6 @@ chordInput.addEventListener("keydown", (e) => {
     items[idx].click();
   } else if (e.key === 'Escape') {
     hideInputSuggestions();
-  }
-});
-
-// Reposition suggestions menu when scrolling or resizing
-window.addEventListener('scroll', () => {
-  if (inputSuggestions && !inputSuggestions.hidden) {
-    positionInputSuggestions();
-  }
-}, true);
-
-window.addEventListener('resize', () => {
-  if (inputSuggestions && !inputSuggestions.hidden) {
-    positionInputSuggestions();
   }
 });
 
