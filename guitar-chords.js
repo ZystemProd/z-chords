@@ -81,12 +81,74 @@ const MOVABLE_SHAPES = [
   { rootString: 1, quality: "6", offsets: [null, 0, 2, 2, 2, 2] },
   { rootString: 1, quality: "m6", offsets: [null, 0, 2, 2, 1, 2] },
   { rootString: 1, quality: "m7b5", offsets: [null, 0, 1, 0, 1, null] },
+
+  // --- Extended chords, A-shape family (written against C, root fret 3) ---
+  // These reach *below* the root fret, which is normal: the 3rd of a 9th chord
+  // sits a fret under the root on the next string. Placements that would push
+  // an offset below fret 0 are skipped.
+  { rootString: 1, quality: "9", offsets: [null, 0, -1, 0, 0, 0] }, // x32333
+  { rootString: 1, quality: "m9", offsets: [null, 0, -2, 0, 0, 0] }, // x31333
+  { rootString: 1, quality: "maj9", offsets: [null, 0, -1, 1, 0, 0] }, // x32433
+  { rootString: 1, quality: "13", offsets: [null, 0, -1, 0, 2, 2] }, // x32355
+  { rootString: 1, quality: "6/9", offsets: [null, 0, -1, -1, 0, 0] }, // x32233
+  { rootString: 1, quality: "sus2", offsets: [null, 0, 2, 2, 0, null] }, // x35530
+  { rootString: 1, quality: "dim", offsets: [null, 0, 1, 2, 1, null] }, // x34540
+  { rootString: 1, quality: "dim7", offsets: [null, 0, 1, -1, 1, null] }, // x34240
+  { rootString: 1, quality: "aug", offsets: [null, 0, -1, -2, -2, null] }, // x32110
+
+  // --- Extended chords, E-shape family (written against F, root fret 1) ---
+  { rootString: 0, quality: "9", offsets: [0, 2, 0, 1, 0, 2] }, // 131213
+  { rootString: 0, quality: "m9", offsets: [0, 2, 0, 0, 0, 2] }, // 131113
+  { rootString: 0, quality: "maj9", offsets: [0, 2, 1, 1, 0, 2] }, // 132213
+  { rootString: 0, quality: "13", offsets: [0, 2, 0, 1, 2, 2] }, // 131233
 ];
 
 // --- Voicing helpers -------------------------------------------------------
 
 function pitchClassesOf(rootPc, intervals) {
   return new Set(intervals.map((i) => (((rootPc + i) % 12) + 12) % 12));
+}
+
+// Which tones the voicing must actually contain.
+//
+// Cramming every chord tone onto six strings is what a naive search does and
+// it is not what anybody plays. The 5th goes first - it adds no colour. The
+// 11th is an avoid note against a major 3rd, so it goes too unless the chord
+// is named for it. On a 13th the 9th is optional colour. What is left is the
+// root, the 3rd (or its sus replacement), the 7th and whichever extension
+// gives the chord its name - the standard guide-tones-plus-colour rule.
+function essentialTones(intervals) {
+  const all = new Set(intervals);
+  const essential = new Set(intervals);
+  const highest = Math.max(...intervals);
+
+  if (intervals.length >= 4) essential.delete(7); // perfect 5th
+  if (essential.has(17) && all.has(4) && highest > 17) essential.delete(17); // 11th
+  if (intervals.length >= 6 && highest > 14) essential.delete(14); // 9th
+
+  return essential;
+}
+
+// The lowest interval a voicing may span between neighbouring notes.
+//
+// Close intervals turn to mud in the bass: a whole step between the root and
+// the 9th is fine at the top of a chord and unplayable-sounding at C3. Thirds
+// down low are fine, which is why open G (G2-B2-D3) works. So: no 2nds below
+// G3, no semitones below C4, anything goes above that.
+function minIntervalAt(midi) {
+  if (midi < 55) return 3; // below G3, nothing tighter than a minor 3rd
+  if (midi < 60) return 2; // below C4, no semitones
+  return 1;
+}
+
+// Reject muddy spacing and unisons between neighbouring sounding strings.
+function hasBadSpacing(midis) {
+  for (let i = 1; i < midis.length; i++) {
+    const gap = midis[i] - midis[i - 1];
+    if (gap === 0) return true; // unison doubling on adjacent strings
+    if (gap < minIntervalAt(midis[i - 1])) return true;
+  }
+  return false;
 }
 
 function frettedFrets(frets) {
@@ -182,9 +244,15 @@ function makeVoicing(frets, source, rootPc) {
     barre: detectBarre(frets),
     span: span(frets),
     fingers: fingerCount(frets),
-    // Diagram window: open position shows the nut, otherwise start at the
-    // lowest fretted fret so the shape sits at the top of the box.
-    baseFret: lowFret <= 1 || frets.some((f) => f === 0) ? 1 : lowFret,
+    // Diagram window. Anything sitting inside the first four frets is drawn
+    // against the nut, the way charts show first-position chords -- otherwise
+    // x32333 would render as a "2fr" box just because its lowest fretted note
+    // happens to be fret 2. Higher shapes start at their lowest fretted fret
+    // and carry a position label instead.
+    baseFret:
+      frets.some((f) => f === 0) || !fretted.length || Math.max(...fretted) <= 4
+        ? 1
+        : lowFret,
     rootInBass: bassPc === rootPc,
     stringCount: midis.length,
   };
@@ -215,10 +283,9 @@ function scoreVoicing(v, essential, chordPcs) {
 
 function generateVoicings(rootPc, intervals) {
   const chordPcs = pitchClassesOf(rootPc, intervals);
-  // The 5th is the first note a guitarist drops - it adds no colour and the
-  // shapes rarely have a string to spare. Everything else must be present.
-  const essential = new Set(chordPcs);
-  if (intervals.length >= 4) essential.delete((rootPc + 7) % 12);
+  const essential = new Set(
+    [...essentialTones(intervals)].map((i) => (((rootPc + i) % 12) + 12) % 12)
+  );
 
   const results = [];
   const seen = new Set();
@@ -250,6 +317,7 @@ function generateVoicings(rootPc, intervals) {
         if (hasInteriorMute(frets)) return;
         if (span(frets) > MAX_SPAN) return;
         if (fingerCount(frets) > MAX_FINGERS) return;
+        if (hasBadSpacing(midis)) return;
 
         const covered = new Set(midis.map((m) => ((m % 12) + 12) % 12));
         for (const pc of essential) if (!covered.has(pc)) return;
@@ -318,6 +386,9 @@ export function getVoicingsForChord(rootName, quality = "", limit = 6) {
     for (const base of [rootFret, rootFret - 12]) {
       if (base < 1 || base > 12) continue;
       const frets = shape.offsets.map((o) => (o === null ? null : base + o));
+      // Extended shapes reach below the root fret, so a low placement can push
+      // a string past the nut. That placement simply does not exist.
+      if (frets.some((f) => f !== null && f < 0)) continue;
       push(makeVoicing(frets, "curated", rootPc));
     }
   }
