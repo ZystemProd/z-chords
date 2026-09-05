@@ -1345,6 +1345,11 @@ body.light-mode .card.preview .piano {
   gap: 15px;
 }
 
+/* Guitar diagrams are narrower, so fit 4 per row */
+.chords-container.guitar-mode {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 #boards.two-hands-mode .chords-container {
   display: flex;
   flex-direction: column;

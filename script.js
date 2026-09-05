@@ -1655,7 +1655,7 @@ function renderSections() {
 
     // --- Chords container ---
     const chordsContainer = document.createElement("div");
-    chordsContainer.className = "chords-container";
+    chordsContainer.className = "chords-container" + (currentInstrument === "guitar" ? " guitar-mode" : "");
     chordsContainer.dataset.sectionIndex = sectionIndex;
 
     section.chords.forEach((chord, chordIndex) => {
