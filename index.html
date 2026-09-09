@@ -44,7 +44,7 @@
                     <datalist id="suggestions"></datalist>
                 </div>
                 <div class="right">
-                    <button id="downloadPdf" class="btn icon-btn" aria-label="Download as PDF" title="Download as PDF">
+                    <button id="downloadPdf" class="btn icon-btn" aria-label="Preview and download PDF" title="Preview and download PDF">
                         <img src="SVG/downloadpdf.svg" alt="Download PDF" />
                     </button>
                     <button id="openHelpModal" class="btn" aria-label="Open help" title="Open help">Help</button>
@@ -90,6 +90,16 @@
                             <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
                         </div>
                         <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
+                    </div>
+
+                    <!-- Guitar → Chord capo (label only; diagrams stay at concert pitch) -->
+                    <div id="guitarCapoControls" class="control-group" style="display:none;">
+                        <div class="transpose-group" role="group" aria-label="Capo">
+                            <span class="group-label" style="margin-right:6px;">Capo</span>
+                            <button id="capoDown" class="stepper-btn" type="button" aria-label="Move capo down one fret" title="Capo -1">&minus;</button>
+                            <span id="capoValue" class="stepper-value" aria-live="polite" aria-atomic="true">None</span>
+                            <button id="capoUp" class="stepper-btn" type="button" aria-label="Move capo up one fret" title="Capo +1">+</button>
+                        </div>
                     </div>
 
                     <!-- Guitar → Scale controls (moved from below) -->
@@ -280,6 +290,14 @@
 
 
 
+        <!-- Song title / subtitle. Per board instrument, and printed on the PDF. -->
+        <div id="songMeta" class="song-meta" style="display:none;">
+            <input id="songTitle" class="song-title-input" type="text" placeholder="Song title"
+                aria-label="Song title" maxlength="120" autocomplete="off" />
+            <input id="songSubtitle" class="song-subtitle-input" type="text" placeholder="Subtitle"
+                aria-label="Song subtitle" maxlength="160" autocomplete="off" />
+        </div>
+
         <section class="boards" id="boards"></section>
 
         <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">
@@ -386,6 +404,28 @@
                 <li>T: Toggle theme</li>
                 <li>Ctrl/Cmd+Shift+P: Export to PDF</li>
             </ul>
+        </div>
+    </div>
+
+    <!-- PDF Preview Modal -->
+    <div id="pdfPreviewModal" class="modal" aria-hidden="true">
+        <div class="modal-content pdf-preview-content">
+            <span id="closePdfPreview" class="close" role="button" aria-label="Close preview">&times;</span>
+            <h3>PDF Preview</h3>
+            <div class="pdf-preview-toolbar">
+                <div class="pdf-scale-control">
+                    <label for="pdfScale">Scale</label>
+                    <input id="pdfScale" type="range" min="40" max="130" step="5" value="100"
+                        aria-describedby="pdfScaleValue" />
+                    <span id="pdfScaleValue" class="stepper-value" aria-live="polite" aria-atomic="true">100%</span>
+                    <button id="pdfScaleReset" type="button" class="pdf-preview-secondary">Reset</button>
+                </div>
+                <div class="pdf-preview-actions">
+                    <span id="pdfPageCount" class="pdf-preview-count" aria-live="polite"></span>
+                    <button id="pdfExportConfirm" type="button">Download PDF</button>
+                </div>
+            </div>
+            <div id="pdfPreviewPages" class="pdf-preview-pages"></div>
         </div>
     </div>
 

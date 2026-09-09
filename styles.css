@@ -517,6 +517,64 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+/* Song title / subtitle above the board. Borderless until focused or hovered,
+   so an untouched song reads as a heading rather than as a form. */
+.song-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 22px 4px;
+}
+
+.song-title-input,
+.song-subtitle-input {
+  width: 100%;
+  max-width: 640px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.song-title-input {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.song-subtitle-input {
+  font-size: 15px;
+  color: var(--note-text);
+}
+
+.song-title-input::placeholder,
+.song-subtitle-input::placeholder {
+  color: var(--note-text);
+  opacity: 0.55;
+}
+
+.song-title-input:hover,
+.song-subtitle-input:hover {
+  border-color: var(--input-border);
+}
+
+.song-title-input:focus,
+.song-subtitle-input:focus {
+  outline: none;
+  background: var(--input-bg);
+  border-color: var(--button-bg);
+  box-shadow: 0 0 0 3px var(--glow-color);
+}
+
+@media (max-width: 600px) {
+  .song-title-input {
+    font-size: 22px;
+  }
+}
+
 .boards {
   display: flex;
   flex-direction: column; /* stack sections vertically */
@@ -1559,6 +1617,119 @@ body.light-mode .play-chord-section:hover {
    they never reach the offscreen clone; this one is visible and would print. */
 .pdf-capture .play-chord-section {
   display: none !important;
+}
+
+.pdf-capture .section-page-break {
+  display: none !important;
+}
+
+.section-page-break {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: normal;
+  color: currentColor;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* ---- PDF preview modal ---- */
+
+.pdf-preview-content {
+  max-width: 1100px;
+}
+
+.pdf-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--input-border);
+}
+
+.pdf-scale-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pdf-scale-control input[type="range"] {
+  width: 200px;
+  accent-color: var(--button-bg);
+}
+
+.pdf-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pdf-preview-count {
+  font-size: 13px;
+  color: var(--note-text);
+}
+
+.pdf-preview-pages {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.pdf-preview-page {
+  /* cqw units inside let the heading scale with the page box. */
+  container-type: inline-size;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 210 / 297;
+  background: #fff;
+  overflow: hidden;
+  border-radius: 2px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+.pdf-preview-page-wrap {
+  width: 280px;
+}
+
+.pdf-preview-slice {
+  position: absolute;
+  overflow: hidden;
+}
+
+.pdf-preview-slice img {
+  display: block;
+  width: 100%;
+}
+
+.pdf-preview-text {
+  position: absolute;
+  color: #000;
+  font-family: helvetica, Arial, sans-serif;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.pdf-preview-page-label {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--note-text);
+}
+
+.pdf-preview-status {
+  width: 100%;
+  padding: 36px 0;
+  text-align: center;
+  color: var(--note-text);
 }
 
 .remove-section {

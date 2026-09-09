@@ -64,6 +64,10 @@ Transposition shifts every fret by the same amount, open strings included — a 
 
 The curated shapes are verified against `CHORD_PATTERNS` across all 12 roots — no foreign notes, root present, defining tones present — rather than trusted as transcribed.
 
+### Capo
+
+`#guitarCapoControls` is a stepper (0–`MAX_CAPO_FRET`, persisted as `cv-capo`) shown only on guitar→chord. It is deliberately **label only**: diagrams and playback stay at concert pitch, and nothing in `getGuitarVoicings` knows about it. Its one effect is `capoLabel()`, which `pdfHeadings()` adds to the PDF's first-page headings — and only when `currentInstrument === "guitar"`, since a "Capo 3" line on a piano sheet means nothing.
+
 ### Chord playback
 
 Each chord card carries a `.play-chord-section` speaker button. `computeChordData(chord)` resolves a stored chord (parsed symbol or `customMIDIs`) into the same `{ notes, rootMidi }` the renderer draws, and `getChordPlaybackMIDIs(chord)` adds the left hand when `twoHandsMode` is on, dedupes, and sorts low→high. Both `renderSections()` and `updatePreviewChord()` go through `computeChordData`, so audio cannot drift from the diagram — keep it that way. Playback recomputes at press time rather than capturing, so inversion changes are picked up.
@@ -78,13 +82,19 @@ The button carries `no-drag`, which the chords-container Sortable uses as its `f
 
 Instrument/subtab pairs today: piano→chord|scales, guitar→chord|scale, drums→beat (UI stub, `console.log` on clear)|metronome.
 
-Piano→chord and guitar→chord share `#boards` and the same `cv-sections` data — one song, two instruments — so both branches call `renderSections()` to re-render the card bodies for the current instrument. Guitar→chord also reuses `pianoChordControls` for Transpose and Clear while leaving the two-hands toggle hidden.
+Piano→chord and guitar→chord share `#boards` but **not** the song in it: each instrument has its own board, so adding, editing, transposing or clearing chords on one tab never touches the other, and a guitar shape or inversion stays where it was set. Both branches call `renderSections()` to draw the card bodies for the current instrument. Guitar→chord also reuses `pianoChordControls` for Transpose and Clear while leaving the two-hands toggle hidden. `renderSections()` is the only place that sets `#boards.two-hands-mode`, and it does so only when `currentInstrument === "piano"` — the class widens cards and drops the chord grid to one column, which is a piano-layout decision that must not follow you onto the guitar tab (playback already guards separately in `getChordPlaybackMIDIs`).
 
 ### Section/chord state model
 
-State lives in `boardsEl.dataset.sections` as a **JSON string** on `#boards`, mirrored to `localStorage["cv-sections"]`. The pattern throughout is: parse → mutate → `JSON.stringify` back into the dataset → `renderSections()` (which re-renders from scratch and re-persists). There is no reactive layer; forgetting the re-stringify silently drops the change.
+State lives in `boardsEl.dataset.sections` as a **JSON string** on `#boards`. The pattern throughout is: parse → mutate → `JSON.stringify` back into the dataset → `renderSections()` (which re-renders from scratch and re-persists). There is no reactive layer; forgetting the re-stringify silently drops the change.
 
-Shape: `[{ name, chords: [chordObj, ...] }]` where a chord is either a parsed symbol (`{ sym, inversion }`) or a fully custom chord (`{ sym, inversion, octave, customMIDIs, rootMidi, leftHandMIDIs }`). Rendering code must handle both — presence of `customMIDIs` means "use these MIDI numbers verbatim, don't parse `sym`".
+The dataset holds **only the board of the instrument on screen**. Each is persisted under its own key — `cv-sections-piano` / `cv-sections-guitar`, plus `cv-active-section-<inst>` — and `setInstrument` flushes the outgoing board with `saveSections()` before swapping the incoming one in with `loadSections()`. Everything that persists goes through those two helpers plus `saveActiveSection()`; a raw `localStorage.setItem("cv-sections", …)` would write to a key nothing reads and, worse, would leak one instrument's edits into the other. `boardInstrument()` maps drums onto the piano board, since drums has no board of its own and must not be able to save over one.
+
+`loadSections()` also restores what belongs to that board and is not inside the JSON: `sectionCounter` (so parts continue at C rather than restarting at A) and the Transpose readout, kept per instrument in `transposeOffsets`. `#songMeta` (the title/subtitle inputs above `#boards`, shown on both chord tabs) is board state too, and rides along on the same helpers: `saveSongMeta`/`loadSongMeta` are called from `saveSections`/`loadSections`, so switching instrument swaps the title with the song. They sit in their own keys rather than inside the sections JSON, which is an array of sections with nowhere to put them — and because typing a title mutates no section, the inputs also persist on their own `input` listeners.
+
+A song saved before the split lives under the old `cv-sections`; `migrateSharedSections()` seeds *both* copies from it so neither tab comes back empty, then removes the legacy keys.
+
+Shape: `[{ name, chords: [chordObj, ...], pageBreakBefore }]` (`pageBreakBefore` is the section header's PDF page-break checkbox; absent means no break) where a chord is either a parsed symbol (`{ sym, inversion }`) or a fully custom chord (`{ sym, inversion, octave, customMIDIs, rootMidi, leftHandMIDIs }`). Rendering code must handle both — presence of `customMIDIs` means "use these MIDI numbers verbatim, don't parse `sym`".
 
 `renderSections()` rebuilds all SortableJS instances itself, inline at the end of the function: one on `#boards` (sections, dragged by `.section-header`) and one per `.chords-container` (chords, `handle: ".card"`, `filter: ".no-drag"`).
 
@@ -98,7 +108,19 @@ Two-hands mode (`cv-twohands`) splits a chord into a left-hand voicing (`compute
 
 ### PDF export
 
-`#downloadPdf` clones `.boards.preview` into an offscreen container, rasterizes each `.section` with html2canvas, and slices each canvas across A4 pages — preferring page breaks aligned to `.card.preview` tops so chord cards aren't cut in half. Each section starts on a fresh page.
+`#downloadPdf` opens a preview modal rather than saving straight away. Export is split into four steps so the preview and the file cannot disagree:
+
+- `capturePdfSections()` clones `.boards.preview` into an offscreen container and rasterizes each `.section` with html2canvas. This is the expensive step and it runs **once** per modal open.
+- `layoutPdfPages(captures, scale, headings)` places those captures onto A4 pages, in mm. It is pure arithmetic over the cached canvases, so moving the scale slider re-runs only this — never html2canvas. That is the whole reason capture and layout are separate.
+- `renderPdfPreview()` draws the same placements as DOM, and `savePdfFromLayout()` draws them into jsPDF. Both consume the identical placement list, so what the modal shows is what is saved.
+
+`headings` is the list `pdfHeadings()` builds — song title, subtitle, capo label, each `{ text, sizePt, bold, gapMm }`, each skipped when empty. They are laid onto page one without setting `hasContent`, so a first section with `pageBreakBefore` still starts on page one instead of leaving the headings alone.
+
+A placement is either `type: "text"` (a heading line) or `type: "image"` — one horizontal band of a capture, identified by `sourceY`/`sourceHeight`. The preview renders a band without re-rasterizing: the slice box clips, and the full-section image inside is shifted by `translateY(-sourceY/canvas.height)`, a percentage that resolves against the image's own height.
+
+Layout rules, in order: a section with `pageBreakBefore` starts a fresh page; a section that would be split *only* because of what precedes it moves to the next page whole; a section genuinely taller than a page is split, preferring breaks aligned to `.card.preview` tops so chord cards aren't cut in half. Sections otherwise pack onto the current page — the default is no page break, and the per-section checkbox in the section header is the opt-in.
+
+`scale` (the modal's slider, persisted as `cv-pdf-scale`) is the fraction of the content width the sections are drawn at, and the content is centred at that width. Below 1 the sections get shorter in mm too, which is what lets more of them fit on a page.
 
 ### Styling / theming
 
@@ -106,7 +128,7 @@ Theme is CSS custom properties on `:root` (dark, the default) overridden under `
 
 ## localStorage keys
 
-`cv-sections`, `cv-active-section`, `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs` (script.js); `cv-guitar-scale-settings` (main.js).
+`cv-sections-piano`, `cv-sections-guitar`, `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` (script.js); `cv-guitar-scale-settings` (main.js).
 
 ## Dead / stale files
 

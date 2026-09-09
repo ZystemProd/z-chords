@@ -22,6 +22,15 @@ let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
 let twoHandsMode = localStorage.getItem("cv-twohands") === "true"; // track hand mode, persisted
 let transposeOffset = 0; // current transpose amount shown in UI
+// Each instrument's board is transposed on its own, so the readout is too.
+const transposeOffsets = { piano: 0, guitar: 0 };
+// Capo position for the guitar chord tab, persisted. It is a label only: the
+// diagrams stay at concert pitch, and the value is printed on the PDF export.
+const MAX_CAPO_FRET = 12;
+let capoFret = (() => {
+  const n = parseInt(localStorage.getItem("cv-capo") || "0", 10);
+  return Number.isFinite(n) ? Math.min(MAX_CAPO_FRET, Math.max(0, n)) : 0;
+})();
 
 document.addEventListener("DOMContentLoaded", () => {
   const addSectionCta = document.getElementById("addSectionCta");
@@ -53,9 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (activeSectionIndex !== null) {
         activeSectionIndex = null;
-        try {
-          localStorage.removeItem("cv-active-section");
-        } catch (_) {}
+        saveActiveSection();
         document
           .querySelectorAll("#boards .section.active")
           .forEach((el) => el.classList.remove("active"));
@@ -268,24 +275,136 @@ function computeLeftHandInfo(chord, chordData, useTwoHands) {
 }
 
 const boardsEl = document.getElementById("boards");
+const songTitleEl = document.getElementById("songTitle");
+const songSubtitleEl = document.getElementById("songSubtitle");
 
 // Persistence helpers
-function saveSections() {
+//
+// Piano→chord and guitar→chord draw the same kind of board but hold *separate*
+// songs: editing a chord, its inversion, or a guitar shape on one tab must not
+// reach across to the other. So `boardsEl.dataset.sections` is only ever the
+// board of whichever instrument is on screen, and each instrument's copy is
+// stored under its own key. `setInstrument` flushes the outgoing board and
+// swaps the incoming one in.
+const BOARD_INSTRUMENTS = ["piano", "guitar"];
+
+// Drums has no board; it keeps the piano copy loaded so switching back is a
+// no-op and nothing can be saved to a board that isn't there.
+function boardInstrument() {
+  return currentInstrument === "guitar" ? "guitar" : "piano";
+}
+
+function sectionsKey(inst) {
+  return `cv-sections-${inst}`;
+}
+
+function activeSectionKey(inst) {
+  return `cv-active-section-${inst}`;
+}
+
+// The song's title and subtitle belong to the board, not to the app: the piano
+// and guitar tabs hold separate songs, so they hold separate titles too. They
+// live in their own keys rather than inside the sections JSON, which is an
+// array of sections with nowhere to put them.
+function titleKey(inst) {
+  return `cv-title-${inst}`;
+}
+
+function subtitleKey(inst) {
+  return `cv-subtitle-${inst}`;
+}
+
+function saveSongMeta() {
+  const inst = boardInstrument();
   try {
-    localStorage.setItem("cv-sections", boardsEl.dataset.sections || "[]");
+    localStorage.setItem(titleKey(inst), songTitleEl ? songTitleEl.value : "");
+    localStorage.setItem(
+      subtitleKey(inst),
+      songSubtitleEl ? songSubtitleEl.value : ""
+    );
   } catch (_) {}
 }
 
-function loadSections() {
+function loadSongMeta() {
+  const inst = boardInstrument();
+  let title = "";
+  let subtitle = "";
   try {
-    const saved = localStorage.getItem("cv-sections");
-    if (saved) boardsEl.dataset.sections = saved;
-    const savedActive = localStorage.getItem("cv-active-section");
-    if (savedActive !== null) {
-      const idx = Number(savedActive);
-      if (!Number.isNaN(idx)) activeSectionIndex = idx;
-    }
+    title = localStorage.getItem(titleKey(inst)) || "";
+    subtitle = localStorage.getItem(subtitleKey(inst)) || "";
   } catch (_) {}
+  if (songTitleEl) songTitleEl.value = title;
+  if (songSubtitleEl) songSubtitleEl.value = subtitle;
+}
+
+// Typing a title mutates no section, so it never reaches saveSections().
+if (songTitleEl) songTitleEl.addEventListener("input", saveSongMeta);
+if (songSubtitleEl) songSubtitleEl.addEventListener("input", saveSongMeta);
+
+// Songs saved before the split were one shared board — seed both copies from it
+// so neither tab loses its chords, then drop the old keys.
+function migrateSharedSections() {
+  try {
+    const legacy = localStorage.getItem("cv-sections");
+    if (legacy === null) return;
+    const legacyActive = localStorage.getItem("cv-active-section");
+    BOARD_INSTRUMENTS.forEach((inst) => {
+      if (localStorage.getItem(sectionsKey(inst)) === null) {
+        localStorage.setItem(sectionsKey(inst), legacy);
+        if (legacyActive !== null)
+          localStorage.setItem(activeSectionKey(inst), legacyActive);
+      }
+    });
+    localStorage.removeItem("cv-sections");
+    localStorage.removeItem("cv-active-section");
+  } catch (_) {}
+}
+
+function saveActiveSection() {
+  const key = activeSectionKey(boardInstrument());
+  try {
+    if (activeSectionIndex === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, String(activeSectionIndex));
+  } catch (_) {}
+}
+
+function saveSections() {
+  try {
+    localStorage.setItem(
+      sectionsKey(boardInstrument()),
+      boardsEl.dataset.sections || "[]"
+    );
+  } catch (_) {}
+  saveActiveSection();
+  saveSongMeta();
+}
+
+function loadSections() {
+  migrateSharedSections();
+  loadSongMeta();
+  const inst = boardInstrument();
+  let saved = null;
+  let savedActive = null;
+  try {
+    saved = localStorage.getItem(sectionsKey(inst));
+    savedActive = localStorage.getItem(activeSectionKey(inst));
+  } catch (_) {}
+
+  boardsEl.dataset.sections = saved || "[]";
+  const idx = savedActive === null ? NaN : Number(savedActive);
+  activeSectionIndex = Number.isNaN(idx) ? null : idx;
+
+  // Section names run Part A, Part B, … so the counter has to pick up where
+  // this board left off rather than restarting at A.
+  let count = 0;
+  try {
+    count = JSON.parse(boardsEl.dataset.sections || "[]").length;
+  } catch (_) {
+    boardsEl.dataset.sections = "[]";
+  }
+  sectionCounter = count;
+  transposeOffset = transposeOffsets[inst] || 0;
+  updateTransposeUI();
 }
 
 function getWhiteKeyWidth() {
@@ -561,8 +680,29 @@ const inputSuggestions = document.getElementById("inputSuggestions");
 const handModeToggle = document.getElementById("handModeToggle");
 const transposeValueEl = document.getElementById("transposeValue");
 
+const capoValueEl = document.getElementById("capoValue");
+
 function updateTransposeUI() {
   if (transposeValueEl) transposeValueEl.textContent = String(transposeOffset);
+}
+
+// "None" rather than "0" so the control reads as a capo position and not as
+// another offset sitting next to Transpose.
+function updateCapoUI() {
+  if (capoValueEl) capoValueEl.textContent = capoFret > 0 ? String(capoFret) : "None";
+}
+
+function setCapo(fret) {
+  capoFret = Math.min(MAX_CAPO_FRET, Math.max(0, fret));
+  try {
+    localStorage.setItem("cv-capo", String(capoFret));
+  } catch (_) {}
+  updateCapoUI();
+}
+
+// The label the export prints, and the empty string when there is nothing to say.
+function capoLabel() {
+  return capoFret > 0 ? `Capo ${capoFret}` : "";
 }
 
 function buildInputMatches(val) {
@@ -724,16 +864,23 @@ function transposeChords(amount) {
   renderSections();
 }
 
-document.getElementById("transposeUp").addEventListener("click", () => {
-  transposeOffset += 1;
+function bumpTranspose(amount) {
+  transposeOffset += amount;
+  transposeOffsets[boardInstrument()] = transposeOffset;
   updateTransposeUI();
-  transposeChords(1);
+  transposeChords(amount);
+}
+
+document.getElementById("transposeUp").addEventListener("click", () => {
+  bumpTranspose(1);
 });
 document.getElementById("transposeDown").addEventListener("click", () => {
-  transposeOffset -= 1;
-  updateTransposeUI();
-  transposeChords(-1);
+  bumpTranspose(-1);
 });
+
+document.getElementById("capoUp").addEventListener("click", () => setCapo(capoFret + 1));
+document.getElementById("capoDown").addEventListener("click", () => setCapo(capoFret - 1));
+updateCapoUI();
 
 chordInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
@@ -767,8 +914,7 @@ if (handModeToggle) {
 
   handModeToggle.addEventListener("click", () => {
     twoHandsMode = !twoHandsMode;
-    boardsEl.classList.toggle("two-hands-mode", twoHandsMode);
-    renderSections();
+    renderSections(); // owns the two-hands-mode class, piano only
     updateHandModeButton();
     try {
       localStorage.setItem("cv-twohands", String(twoHandsMode));
@@ -1694,14 +1840,17 @@ function buildPianoCardBody(card, chord, sections) {
 }
 
 function renderSections() {
-  boardsEl.classList.toggle("two-hands-mode", twoHandsMode);
+  // Two-hands is a piano-only layout: it widens the cards and drops the chord
+  // grid to one column. Guitar cards keep their own columns regardless.
+  boardsEl.classList.toggle(
+    "two-hands-mode",
+    twoHandsMode && currentInstrument === "piano"
+  );
   boardsEl.innerHTML = "";
   const sections = JSON.parse(boardsEl.dataset.sections || "[]");
 
   // Persist and toggle empty state
-  try {
-    localStorage.setItem("cv-sections", boardsEl.dataset.sections || "[]");
-  } catch (_) {}
+  saveSections();
   const emptyEl = document.getElementById("emptyState");
   if (emptyEl) emptyEl.hidden = sections.length > 0;
 
@@ -1789,6 +1938,24 @@ function renderSections() {
       header.contentEditable = "false";
     });
 
+    // Page-break-before-section toggle (PDF export only; default off)
+    const pageBreakLabel = document.createElement("label");
+    pageBreakLabel.className = "section-page-break no-drag";
+    pageBreakLabel.title = "Start this section on a new page when exporting to PDF";
+    const pageBreakCheckbox = document.createElement("input");
+    pageBreakCheckbox.type = "checkbox";
+    pageBreakCheckbox.className = "no-drag";
+    pageBreakCheckbox.checked = !!section.pageBreakBefore;
+    pageBreakCheckbox.addEventListener("click", (e) => e.stopPropagation());
+    pageBreakCheckbox.addEventListener("change", () => {
+      const secs = JSON.parse(boardsEl.dataset.sections || "[]");
+      secs[sectionIndex].pageBreakBefore = pageBreakCheckbox.checked;
+      boardsEl.dataset.sections = JSON.stringify(secs);
+      saveSections();
+    });
+    pageBreakLabel.appendChild(pageBreakCheckbox);
+    pageBreakLabel.appendChild(document.createTextNode("Page break"));
+
     // Remove section button
     const removeSectionBtn = document.createElement("button");
     removeSectionBtn.className = "remove-section no-drag";
@@ -1803,12 +1970,13 @@ function renderSections() {
         } else if (sectionIndex < activeSectionIndex) {
           activeSectionIndex -= 1;
         }
-        try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+        saveActiveSection();
       }
       renderSections();
     });
 
     headerWrap.appendChild(header);
+    headerWrap.appendChild(pageBreakLabel);
     headerWrap.appendChild(removeSectionBtn);
     sectionEl.appendChild(headerWrap);
 
@@ -1897,7 +2065,7 @@ function renderSections() {
       const t = e.target;
       if (t && (t.closest && (t.closest(".no-drag") || t.closest(".remove-section")))) return;
       activeSectionIndex = sectionIndex;
-      try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+      saveActiveSection();
       // update classes without full re-render
       document.querySelectorAll("#boards .section").forEach((el, i) => {
         if (i === activeSectionIndex) el.classList.add("active");
@@ -1932,7 +2100,7 @@ function renderSections() {
         ) {
           activeSectionIndex += 1;
         }
-        try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+        saveActiveSection();
       }
       renderSections();
     },
@@ -1967,7 +2135,7 @@ function addSection() {
   sections.push({ name, chords: [] });
   boardsEl.dataset.sections = JSON.stringify(sections);
   activeSectionIndex = sections.length - 1; // newly added becomes active
-  try { localStorage.setItem("cv-active-section", String(activeSectionIndex)); } catch (_) {}
+  saveActiveSection();
   renderSections();
 }
 
@@ -2042,10 +2210,8 @@ document.getElementById("clearAll").addEventListener("click", () => {
   boardsEl.dataset.sections = JSON.stringify([]);
   sectionCounter = 0;
   activeSectionIndex = null;
-  try {
-    localStorage.setItem("cv-sections", "[]");
-    localStorage.removeItem("cv-active-section");
-  } catch (_) {}
+  // Clears the board of the instrument on screen; the other keeps its song.
+  saveSections();
   renderSections();
 });
 
@@ -2124,9 +2290,59 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-document.getElementById("downloadPdf").addEventListener("click", async () => {
+// ---- PDF export ----
+// A4 portrait, in mm. The preview and the saved file share one layout pass, so
+// what the modal shows is what lands in the document.
+const PDF_PAGE_W = 210;
+const PDF_PAGE_H = 297;
+const PDF_MARGIN = 10;
+const PDF_HEADING_PT = 12;
+const PDF_TITLE_PT = 20;
+const PDF_SUBTITLE_PT = 13;
+const PT_TO_MM = 25.4 / 72;
+
+// The lines printed above the first section: song title, subtitle, then the
+// capo label (guitar only). Each is `{ text, sizePt, bold, gapMm }` — gapMm is
+// how far the cursor advances, i.e. the line's height plus its trailing space.
+function pdfHeadings() {
+  const lines = [];
+  const title = songTitleEl ? songTitleEl.value.trim() : "";
+  const subtitle = songSubtitleEl ? songSubtitleEl.value.trim() : "";
+
+  if (title) {
+    lines.push({
+      text: title,
+      sizePt: PDF_TITLE_PT,
+      bold: true,
+      gapMm: PDF_TITLE_PT * PT_TO_MM + 2,
+    });
+  }
+  if (subtitle) {
+    lines.push({
+      text: subtitle,
+      sizePt: PDF_SUBTITLE_PT,
+      bold: false,
+      gapMm: PDF_SUBTITLE_PT * PT_TO_MM + 2,
+    });
+  }
+
+  // The capo belongs to the guitar arrangement, so it is only printed when
+  // that is what is being exported.
+  const capo = currentInstrument === "guitar" ? capoLabel() : "";
+  if (capo) {
+    lines.push({ text: capo, sizePt: PDF_HEADING_PT, bold: false, gapMm: 8 });
+  }
+
+  // Breathing room between the last heading line and the first section.
+  if (lines.length) lines[lines.length - 1].gapMm += 3;
+  return lines;
+}
+
+// Rasterize each section once. Changing the scale re-runs only the layout,
+// never html2canvas, which is what keeps the slider responsive.
+async function capturePdfSections() {
   const boards = document.querySelector(".boards.preview");
-  if (!boards) return;
+  if (!boards) return [];
 
   const clone = boards.cloneNode(true);
   clone.classList.add("pdf-capture");
@@ -2140,111 +2356,334 @@ document.getElementById("downloadPdf").addEventListener("click", async () => {
   document.body.appendChild(hiddenContainer);
 
   try {
-    const pdf = new jspdf.jsPDF("p", "mm", "a4");
-    const margin = 10;
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const contentWidth = pageWidth - margin * 2;
-    const contentHeight = pageHeight - margin * 2;
-    const sections = Array.from(clone.querySelectorAll(".section"));
-    const captureTargets = sections.length > 0 ? sections : [clone];
-    let hasRenderedPage = false;
+    const sectionData = JSON.parse(boardsEl.dataset.sections || "[]");
+    const sectionEls = Array.from(clone.querySelectorAll(".section"));
+    const targets = sectionEls.length > 0 ? sectionEls : [clone];
+    const captures = [];
 
-    for (const target of captureTargets) {
-      const canvas = await html2canvas(target, {
-        scale: 2,
-        useCORS: true,
-      });
-
+    for (const target of targets) {
+      const canvas = await html2canvas(target, { scale: 2, useCORS: true });
       const targetRect = target.getBoundingClientRect();
-      const pxPerMm = canvas.width / contentWidth;
-      const pageHeightPx = Math.max(1, Math.floor(contentHeight * pxPerMm));
       const captureScale = canvas.width / Math.max(1, targetRect.width);
+      const sectionIndex = Number(target.dataset.sectionIndex);
 
-      // Prefer page breaks at the start of each chord card to avoid splitting a card.
-      const breakpoints = Array.from(target.querySelectorAll(".card.preview"))
-        .map((card) => {
-          const rect = card.getBoundingClientRect();
-          return Math.round((rect.top - targetRect.top) * captureScale);
-        })
-        .filter((y) => y > 0 && y < canvas.height)
-        .sort((a, b) => a - b);
-
-      let renderedHeight = 0;
-      let sectionPageIndex = 0;
-
-      while (renderedHeight < canvas.height) {
-        // Every section starts on a fresh page.
-        if (hasRenderedPage && sectionPageIndex === 0) {
-          pdf.addPage();
-        } else if (sectionPageIndex > 0) {
-          pdf.addPage();
-        }
-
-        const remainingHeight = canvas.height - renderedHeight;
-        const desiredSliceHeight = Math.min(pageHeightPx, remainingHeight);
-        let sliceHeightPx = desiredSliceHeight;
-
-        if (remainingHeight > pageHeightPx) {
-          const maxBreakY = renderedHeight + pageHeightPx;
-          const minSlicePx = Math.max(1, Math.floor(pageHeightPx * 0.4));
-          const minBreakY = renderedHeight + minSlicePx;
-
-          let chosenBreakY = null;
-          for (let i = breakpoints.length - 1; i >= 0; i -= 1) {
-            const y = breakpoints[i];
-            if (y <= maxBreakY && y >= minBreakY) {
-              chosenBreakY = y;
-              break;
-            }
-          }
-
-          if (chosenBreakY !== null) {
-            sliceHeightPx = chosenBreakY - renderedHeight;
-          }
-        }
-
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeightPx;
-
-        const pageCtx = pageCanvas.getContext("2d");
-        pageCtx.drawImage(
-          canvas,
-          0,
-          renderedHeight,
-          canvas.width,
-          sliceHeightPx,
-          0,
-          0,
-          canvas.width,
-          sliceHeightPx
-        );
-
-        const sliceData = pageCanvas.toDataURL("image/png");
-        const sliceHeightMm = sliceHeightPx / pxPerMm;
-
-        pdf.addImage(
-          sliceData,
-          "PNG",
-          margin,
-          margin,
-          contentWidth,
-          sliceHeightMm,
-          undefined,
-          "FAST"
-        );
-
-        renderedHeight += sliceHeightPx;
-        sectionPageIndex += 1;
-        hasRenderedPage = true;
-      }
+      captures.push({
+        canvas,
+        dataUrl: canvas.toDataURL("image/png"),
+        // Prefer page breaks at the top of a chord card so cards aren't cut in half.
+        breakpoints: Array.from(target.querySelectorAll(".card.preview"))
+          .map((card) =>
+            Math.round(
+              (card.getBoundingClientRect().top - targetRect.top) * captureScale
+            )
+          )
+          .filter((y) => y > 0 && y < canvas.height)
+          .sort((a, b) => a - b),
+        pageBreakBefore: !!(
+          sectionData[sectionIndex] && sectionData[sectionIndex].pageBreakBefore
+        ),
+      });
     }
-
-    pdf.save("chords.pdf");
+    return captures;
   } finally {
     document.body.removeChild(hiddenContainer);
   }
+}
+
+// Place captures onto pages at `scale` (1 = full content width). Returns pages
+// of placements in mm; each is either a text heading or one horizontal band of
+// a capture.
+function layoutPdfPages(captures, scale, headings) {
+  const renderWidth = (PDF_PAGE_W - PDF_MARGIN * 2) * scale;
+  const x = (PDF_PAGE_W - renderWidth) / 2;
+  const bottom = PDF_PAGE_H - PDF_MARGIN;
+  const fullHeight = bottom - PDF_MARGIN;
+
+  const pages = [[]];
+  let cursorY = PDF_MARGIN;
+  let hasContent = false;
+
+  const newPage = () => {
+    pages.push([]);
+    cursorY = PDF_MARGIN;
+  };
+
+  // Headings are not sections: hasContent stays false, so a first section that
+  // forces a break still starts here rather than pushing itself to page two.
+  (headings || []).forEach((line) => {
+    pages[0].push({
+      type: "text",
+      text: line.text,
+      sizePt: line.sizePt,
+      bold: !!line.bold,
+      x,
+      baselineY: cursorY + line.sizePt * PT_TO_MM,
+    });
+    cursorY += line.gapMm;
+  });
+
+  for (const capture of captures) {
+    const { canvas } = capture;
+    const pxPerMm = canvas.width / renderWidth;
+    const sectionHeight = canvas.height / pxPerMm;
+
+    if (hasContent && capture.pageBreakBefore) newPage();
+
+    // A section that would be split only because of what precedes it moves to
+    // the next page whole. Splitting is for sections taller than a page.
+    if (
+      hasContent &&
+      sectionHeight > bottom - cursorY &&
+      sectionHeight <= fullHeight
+    ) {
+      newPage();
+    }
+
+    let rendered = 0;
+    while (rendered < canvas.height) {
+      let availablePx = Math.floor((bottom - cursorY) * pxPerMm);
+      if (availablePx <= 0) {
+        newPage();
+        availablePx = Math.max(1, Math.floor(fullHeight * pxPerMm));
+      }
+
+      const remaining = canvas.height - rendered;
+      let sliceHeight = Math.min(availablePx, remaining);
+
+      if (remaining > availablePx) {
+        const maxBreakY = rendered + availablePx;
+        const minBreakY = rendered + Math.max(1, Math.floor(availablePx * 0.4));
+        for (let i = capture.breakpoints.length - 1; i >= 0; i -= 1) {
+          const y = capture.breakpoints[i];
+          if (y <= maxBreakY && y >= minBreakY && y > rendered) {
+            sliceHeight = y - rendered;
+            break;
+          }
+        }
+      }
+
+      const heightMm = sliceHeight / pxPerMm;
+      pages[pages.length - 1].push({
+        type: "image",
+        capture,
+        sourceY: rendered,
+        sourceHeight: sliceHeight,
+        x,
+        y: cursorY,
+        width: renderWidth,
+        height: heightMm,
+      });
+
+      cursorY += heightMm;
+      rendered += sliceHeight;
+      hasContent = true;
+
+      if (rendered < canvas.height) newPage();
+    }
+  }
+
+  return pages.filter((page) => page.length > 0);
+}
+
+function renderPdfPreview(pages, host) {
+  host.innerHTML = "";
+  if (!pages.length) {
+    host.innerHTML = '<p class="pdf-preview-status">Nothing to export yet.</p>';
+    return;
+  }
+
+  const pct = (mm, total) => `${(mm / total) * 100}%`;
+
+  pages.forEach((placements, pageIndex) => {
+    const wrap = document.createElement("div");
+    wrap.className = "pdf-preview-page-wrap";
+
+    const page = document.createElement("div");
+    page.className = "pdf-preview-page";
+
+    placements.forEach((p) => {
+      if (p.type === "text") {
+        const text = document.createElement("div");
+        text.className = "pdf-preview-text";
+        text.textContent = p.text;
+        text.style.left = pct(p.x, PDF_PAGE_W);
+        text.style.top = pct(p.baselineY - p.sizePt * PT_TO_MM, PDF_PAGE_H);
+        // cqw is a percentage of the page's own width, so the heading keeps its
+        // real proportions whatever size the preview page is rendered at.
+        text.style.fontSize = `${((p.sizePt * PT_TO_MM) / PDF_PAGE_W) * 100}cqw`;
+        text.style.fontWeight = p.bold ? "700" : "400";
+        page.appendChild(text);
+        return;
+      }
+
+      const slice = document.createElement("div");
+      slice.className = "pdf-preview-slice";
+      slice.style.left = pct(p.x, PDF_PAGE_W);
+      slice.style.top = pct(p.y, PDF_PAGE_H);
+      slice.style.width = pct(p.width, PDF_PAGE_W);
+      slice.style.height = pct(p.height, PDF_PAGE_H);
+
+      // The image spans the slice's width, so shifting it by a fraction of its
+      // own height exposes exactly the band this placement covers.
+      const img = document.createElement("img");
+      img.src = p.capture.dataUrl;
+      img.alt = "";
+      img.style.transform = `translateY(${
+        -(p.sourceY / p.capture.canvas.height) * 100
+      }%)`;
+
+      slice.appendChild(img);
+      page.appendChild(slice);
+    });
+
+    const label = document.createElement("div");
+    label.className = "pdf-preview-page-label";
+    label.textContent = `Page ${pageIndex + 1}`;
+
+    wrap.appendChild(page);
+    wrap.appendChild(label);
+    host.appendChild(wrap);
+  });
+}
+
+function savePdfFromLayout(pages) {
+  const pdf = new jspdf.jsPDF("p", "mm", "a4");
+
+  pages.forEach((placements, pageIndex) => {
+    if (pageIndex > 0) pdf.addPage();
+
+    placements.forEach((p) => {
+      if (p.type === "text") {
+        pdf.setFont("helvetica", p.bold ? "bold" : "normal");
+        pdf.setFontSize(p.sizePt);
+        pdf.text(p.text, p.x, p.baselineY);
+        return;
+      }
+
+      const { canvas } = p.capture;
+      let data = p.capture.dataUrl;
+
+      if (p.sourceY !== 0 || p.sourceHeight !== canvas.height) {
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = p.sourceHeight;
+        sliceCanvas
+          .getContext("2d")
+          .drawImage(
+            canvas,
+            0,
+            p.sourceY,
+            canvas.width,
+            p.sourceHeight,
+            0,
+            0,
+            canvas.width,
+            p.sourceHeight
+          );
+        data = sliceCanvas.toDataURL("image/png");
+      }
+
+      pdf.addImage(data, "PNG", p.x, p.y, p.width, p.height, undefined, "FAST");
+    });
+  });
+
+  pdf.save("chords.pdf");
+}
+
+// PDF preview modal
+document.addEventListener("DOMContentLoaded", () => {
+  const openBtn = document.getElementById("downloadPdf");
+  const modal = document.getElementById("pdfPreviewModal");
+  const closeBtn = document.getElementById("closePdfPreview");
+  const pagesHost = document.getElementById("pdfPreviewPages");
+  const scaleInput = document.getElementById("pdfScale");
+  const scaleValue = document.getElementById("pdfScaleValue");
+  const scaleReset = document.getElementById("pdfScaleReset");
+  const pageCount = document.getElementById("pdfPageCount");
+  const exportBtn = document.getElementById("pdfExportConfirm");
+  if (!openBtn || !modal) return;
+
+  let captures = [];
+  let pages = [];
+  let headings = [];
+  let captureToken = 0;
+
+  try {
+    const saved = Number(localStorage.getItem("cv-pdf-scale"));
+    if (saved >= 40 && saved <= 130) scaleInput.value = String(saved);
+  } catch (_) {}
+
+  const saveScale = () => {
+    try {
+      localStorage.setItem("cv-pdf-scale", scaleInput.value);
+    } catch (_) {}
+  };
+
+  const relayout = () => {
+    const percent = Number(scaleInput.value);
+    scaleValue.textContent = `${percent}%`;
+    if (!captures.length) return;
+    pages = layoutPdfPages(captures, percent / 100, headings);
+    renderPdfPreview(pages, pagesHost);
+    pageCount.textContent = `${pages.length} page${
+      pages.length === 1 ? "" : "s"
+    }`;
+  };
+
+  const close = () => {
+    captureToken += 1; // abandon a capture still in flight
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+    pagesHost.innerHTML = "";
+    captures = [];
+    pages = [];
+  };
+
+  openBtn.addEventListener("click", async () => {
+    modal.style.display = "block";
+    modal.setAttribute("aria-hidden", "false");
+    scaleValue.textContent = `${Number(scaleInput.value)}%`;
+    pageCount.textContent = "";
+    pagesHost.innerHTML = '<p class="pdf-preview-status">Rendering preview…</p>';
+    exportBtn.disabled = true;
+
+    headings = pdfHeadings();
+
+    const token = ++captureToken;
+    const captured = await capturePdfSections();
+    if (token !== captureToken) return; // closed or reopened while capturing
+
+    captures = captured;
+    exportBtn.disabled = captures.length === 0;
+    if (!captures.length) {
+      renderPdfPreview([], pagesHost);
+      return;
+    }
+    relayout();
+  });
+
+  scaleInput.addEventListener("input", () => {
+    saveScale();
+    relayout();
+  });
+
+  scaleReset.addEventListener("click", () => {
+    scaleInput.value = "100";
+    saveScale();
+    relayout();
+  });
+
+  exportBtn.addEventListener("click", () => {
+    if (pages.length) savePdfFromLayout(pages);
+  });
+
+  closeBtn.addEventListener("click", close);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.style.display === "block") close();
+  });
 });
 
 // Help modal controls
@@ -2288,7 +2727,13 @@ function saveInstrumentState() {
 }
 
 function setInstrument(inst) {
-  currentInstrument = inst;
+  if (inst !== currentInstrument) {
+    // Flush the board we are leaving, then swap the other instrument's song in
+    // so the two never share chords, inversions or guitar shapes.
+    saveSections();
+    currentInstrument = inst;
+    loadSections();
+  }
   saveInstrumentState();
   updateTabsUI({ animateSubTabs: false });
 }
@@ -2325,12 +2770,14 @@ function updateTabsUI(opts = {}) {
   const guitarControls = document.getElementById('guitarControls');
   const pianoControls = document.getElementById('pianoChordControls');
   const pianoScaleControls = document.getElementById('pianoScaleControls');
+  const capoControls = document.getElementById('guitarCapoControls');
   const drumsControls = document.getElementById('drumsControls');
   const metronomeControls = document.getElementById('metronomeControls');
   const metronomePanel = document.getElementById('metronomePanel');
   const addSectionCta = document.getElementById('addSectionCta');
   const pianoScaleEl = document.getElementById('pianoScale');
   const guitarStaffEl = document.getElementById('guitarStaff');
+  const songMetaEl = document.getElementById('songMeta');
 
   // defaults
   if (boardsEl) boardsEl.style.display = 'none';
@@ -2338,12 +2785,14 @@ function updateTabsUI(opts = {}) {
   if (guitarControls) guitarControls.style.display = 'none';
   if (pianoControls) pianoControls.style.display = 'none';
   if (pianoScaleControls) pianoScaleControls.style.display = 'none';
+  if (capoControls) capoControls.style.display = 'none';
   if (drumsControls) drumsControls.style.display = 'none';
   if (metronomeControls) metronomeControls.style.display = 'none';
   if (metronomePanel) metronomePanel.style.display = 'none';
   if (handModeToggle) handModeToggle.style.display = 'none';
   if (addSectionCta) addSectionCta.style.display = 'none';
   if (pianoScaleEl) pianoScaleEl.style.display = 'none';
+  if (songMetaEl) songMetaEl.style.display = 'none';
   // The staff belongs to the guitar scale tab; main.js still decides whether
   // custom mode wants it, so only add/remove the class and leave display alone.
   if (guitarStaffEl) guitarStaffEl.classList.add('tab-hidden');
@@ -2351,6 +2800,7 @@ function updateTabsUI(opts = {}) {
   if (currentInstrument === 'piano') {
     const sub = currentSubtab.piano;
     if (sub === 'chord') {
+      if (songMetaEl) songMetaEl.style.display = 'flex';
       if (boardsEl) boardsEl.style.display = 'block';
       if (pianoControls) pianoControls.style.display = 'inline-flex';
       if (handModeToggle) handModeToggle.style.display = 'inline-flex';
@@ -2375,8 +2825,10 @@ function updateTabsUI(opts = {}) {
       // Guitar → Chord: the same board as the piano tab, with each card drawn
       // as a fretboard diagram instead of a keyboard. Transpose and Clear are
       // reused from the piano control group; the two-hands toggle stays hidden.
+      if (songMetaEl) songMetaEl.style.display = 'flex';
       if (boardsEl) boardsEl.style.display = 'block';
       if (pianoControls) pianoControls.style.display = 'inline-flex';
+      if (capoControls) capoControls.style.display = 'inline-flex';
       if (addSectionCta) addSectionCta.style.display = 'block';
       renderSections();
     }
@@ -2509,7 +2961,9 @@ function positionSegmentedHighlight(container, animate = true) {
 // Initialize transpose display
 updateTransposeUI();
 
-// Initial load: restore sections then render
+// Initial load: restore sections then render. The instrument has to be known
+// first — each instrument has its own board, so it decides which one loads.
+loadInstrumentState();
 loadSections();
 // render sections layout (not the old single-card render)
 renderSections();
