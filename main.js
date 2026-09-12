@@ -1,9 +1,5 @@
-import {
-  computeCAGEDShapes,
-  getParentMajorRoot,
-  renderScaleSVG,
-} from "./guitar.js";
-import { NOTES, SCALE_FORMULAS, noteIndex } from "./theory.js";
+import { renderScaleSVG, scaleWindow, CAGED_MODES } from "./guitar.js";
+import { NOTES, SCALE_FORMULAS } from "./theory.js";
 
 const guitarEl = document.getElementById("guitar");
 const keySel = document.getElementById("guitarKey");
@@ -31,23 +27,6 @@ let guitarScaleSettings = {
   customNoteKeys: [],
 };
 
-const CAGED_MODES = new Set([
-  "major",
-  "dorian",
-  "phrygian",
-  "lydian",
-  "mixolydian",
-  "aeolian",
-  "harmonicMinor",
-  "melodicMinor",
-  "harmonicMajor",
-  "locrian",
-  "majorPentatonic",
-  "minorPentatonic",
-  "majorBlues",
-  "minorBlues",
-  "blues",
-]);
 
 function loadGuitarScaleSettings() {
   try {
@@ -135,13 +114,6 @@ function updateLabelModeButtons() {
 
 function updateShapeUI() {
   if (shapeValue) shapeValue.textContent = String(shapeIndex + 1);
-}
-
-function normalizeWindowStart(start) {
-  let windowStart = start;
-  while (windowStart < 1) windowStart += 12;
-  while (windowStart > 13) windowStart -= 12;
-  return windowStart;
 }
 
 function midiToNoteName(midi) {
@@ -372,61 +344,15 @@ function drawScale() {
   let fretShift = 0;
 
   if (!isCustom) {
-    try {
-      if (mode === "wholeTone") {
-        const ePc = noteIndex("E");
-        const rIdx = noteIndex(root);
-        if (ePc >= 0 && rIdx >= 0) {
-          const start = (rIdx - ePc + 12) % 12;
-          const starts = [];
-          for (let k = 0; k < 6; k++) {
-            let value = (start + 2 * k) % 12;
-            value = value === 0 ? 12 : value;
-            starts.push(normalizeWindowStart(value));
-          }
-          shapeStarts = starts;
-        } else {
-          shapeStarts = [1, 4, 7, 10, 13];
-        }
-      } else if (isCAGEDMode) {
-        const parentRoot = getParentMajorRoot(root, mode);
-        shapeStarts = computeCAGEDShapes(parentRoot, SCALE_FORMULAS.major);
-      } else {
-        shapeStarts = computeCAGEDShapes(root, intervals);
-      }
-    } catch {
-      shapeStarts = [1, 4, 7, 10, 13];
-    }
-
-    if (shapeIndex >= shapeStarts.length) shapeIndex = shapeStarts.length - 1;
-    if (shapeIndex < 0) shapeIndex = 0;
+    // Window selection lives in guitar.js so the printed fretboard blocks on
+    // the Layout tab resolve a shape to exactly the same frets this tab draws.
+    const win = scaleWindow(root, mode, shapeIndex, intervals);
+    shapeStarts = win.starts;
+    shapeIndex = win.index;
     updateShapeUI();
-
-    windowStart = shapeStarts[shapeIndex];
-    windowWidth = 4;
-
-    if (isCAGEDMode) {
-      if (shapeIndex === 1 || shapeIndex === 3) {
-        windowWidth = 5;
-      }
-      if (shapeIndex === 4) {
-        windowWidth = 5;
-        windowStart = windowStart - 1;
-      }
-      if (mode === "harmonicMinor") {
-        if (shapeIndex === 0) windowStart = windowStart - 1;
-        if (shapeIndex === 2) windowStart = windowStart - 1;
-      }
-      windowStart = normalizeWindowStart(windowStart);
-
-      if (windowStart >= 12) {
-        fretShift = -12;
-        windowStart = windowStart + fretShift;
-      }
-    } else if (mode === "wholeTone") {
-      windowWidth = 5;
-      windowStart = normalizeWindowStart(windowStart);
-    }
+    windowStart = win.windowStart;
+    windowWidth = win.windowWidth;
+    fretShift = win.fretShift;
   } else {
     shapeStarts = [1, 4, 7, 10, 13];
     shapeIndex = 0;

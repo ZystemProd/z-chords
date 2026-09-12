@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Z-Chords ("Chord Viewer") is a zero-build, dependency-free static web app for visualizing chords and scales on piano, guitar, and a metronome/drums panel. `package.json` is a stub — no scripts, no devDependencies, no test runner, no bundler.
+Z-Chords ("Chord Viewer") is a zero-build, dependency-free static web app for visualizing chords and scales on piano, guitar, and a metronome/drums panel. The root `package.json` is a stub — no scripts, no devDependencies, no bundler. Its `"type": "module"` is there only so Node reads the `.js` files as the ES modules they already are (the test runner imports `layout-model.js` directly); it changes nothing at runtime.
 
 ## Running
 
@@ -12,12 +12,21 @@ Serve the folder statically (e.g. `python -m http.server 8000`). A static server
 
 Third-party libs are loaded from CDN in `index.html` (html2canvas, jsPDF, SortableJS) and attach globals — there is no npm install step.
 
+## Tests
+
+`tests/` holds browser tests — `cd tests && npm install && npm test`. They drive the real app in a real Chrome via `puppeteer-core` and assert **painted geometry**, which is where this app's bugs live: a keyboard whose black keys do not scale with its white keys is not a logic error, and nothing but a browser will catch it. The runner starts its own static server on a free port, so nothing needs to be running first.
+
+The dependency is confined to `tests/` — its own `package.json` and `node_modules`, nothing loaded by `index.html`. The app stays dependency-free.
+
+Three habits `tests/README.md` explains at length, and that this codebase keeps rewarding: assert **ratios rather than sizes** (the black/white key ratio must hold at every width; no absolute measurement catches the bug); assert **both axes** (a horizontal-only pass once stayed green while every keyboard was clipped at the bottom); and assert **what you did not change** (`makePiano` is shared between the board and the layout sheet, so `board.test.mjs` pins the piano tab's numbers).
+
 ## Architecture
 
-Two independent script worlds share one DOM and never call each other:
+Three script worlds share one DOM. The first two never call each other; the third is fed by the first through an explicit hand-off:
 
-- **`script.js`** (~2700 lines, ES module) — everything except the guitar *scale* tab: chord parsing, piano rendering, sections/chord-cards (piano keyboards and guitar diagrams alike), custom-chord modal, drag & drop, theme, tab routing, PDF export, metronome, piano scales.
-- **`main.js` + `guitar.js`** (ES modules) — the guitar scale tab only. `main.js` owns the guitar DOM/controls and its own `localStorage`; `guitar.js` is pure logic + SVG generation (`renderScaleSVG`, `computeCAGEDShapes`, `getParentMajorRoot`).
+- **`script.js`** (~3700 lines, ES module) — everything except the guitar *scale* tab and the Layout tab: chord parsing, piano rendering, sections/chord-cards (piano keyboards and guitar diagrams alike), custom-chord modal, drag & drop, theme, tab routing, PDF export, metronome, piano scales.
+- **`main.js` + `guitar.js`** (ES modules) — the guitar scale tab only. `main.js` owns the guitar DOM/controls and its own `localStorage`; `guitar.js` is pure logic + SVG generation (`renderScaleSVG`, `computeCAGEDShapes`, `getParentMajorRoot`, `scaleWindow`).
+- **`layout.js` + `layout-model.js`** (ES modules) — the Layout tab. `layout.js` owns its DOM; `layout-model.js` is pure data and mm arithmetic. See *Layout sheet* below.
 
 The guitar *chord* tab is not part of that second world: it lives in `script.js` because it shares the board and section state, and pulls its voicings and SVG from `guitar-chords.js`.
 
@@ -92,6 +101,14 @@ The dataset holds **only the board of the instrument on screen**. Each is persis
 
 `loadSections()` also restores what belongs to that board and is not inside the JSON: `sectionCounter` (so parts continue at C rather than restarting at A) and the Transpose readout, kept per instrument in `transposeOffsets`. `#songMeta` (the title/subtitle inputs above `#boards`, shown on both chord tabs) is board state too, and rides along on the same helpers: `saveSongMeta`/`loadSongMeta` are called from `saveSections`/`loadSections`, so switching instrument swaps the title with the song. They sit in their own keys rather than inside the sections JSON, which is an array of sections with nowhere to put them — and because typing a title mutates no section, the inputs also persist on their own `input` listeners.
 
+### Song files (save / load)
+
+`#saveSong` downloads the song as JSON and `#loadSong` reads one back. A song file is **both boards at once** — `{ format: "z-chords-song", version, savedAt, capo, boards: { piano, guitar }, layout? }`, each board `{ title, subtitle, sections, activeSection, transpose }`. Carrying only the tab on screen would silently drop the other instrument's chords, which is the whole failure this avoids.
+
+`version` is **2**, which added the optional top-level `layout`. Both directions stay compatible: a v1 file simply has no `layout` key, and a v2 file opened by an older build drops the sheet but keeps every chord — which is why the sheet is a sibling of `boards` rather than something buried inside one of them. `applySongFile` restores the layout *after* the boards, so its references resolve against the chords the file just brought in.
+
+The pair is deliberately thin: `buildSongFile()` flushes the on-screen board with `saveSections()` and then reads the same localStorage keys `loadSections()` reads; `applySongFile()` writes those keys and re-enters `loadSections()` + `renderSections()`. Neither knows the shape of a section or a chord, so adding fields to either needs no change here. Capo rides along because it describes the arrangement; theme, two-hands mode and the PDF scale do not, because they describe the view.
+
 A song saved before the split lives under the old `cv-sections`; `migrateSharedSections()` seeds *both* copies from it so neither tab comes back empty, then removes the legacy keys.
 
 Shape: `[{ name, chords: [chordObj, ...], pageBreakBefore }]` (`pageBreakBefore` is the section header's PDF page-break checkbox; absent means no break) where a chord is either a parsed symbol (`{ sym, inversion }`) or a fully custom chord (`{ sym, inversion, octave, customMIDIs, rootMidi, leftHandMIDIs }`). Rendering code must handle both — presence of `customMIDIs` means "use these MIDI numbers verbatim, don't parse `sym`".
@@ -122,13 +139,34 @@ Layout rules, in order: a section with `pageBreakBefore` starts a fresh page; a 
 
 `scale` (the modal's slider, persisted as `cv-pdf-scale`) is the fraction of the content width the sections are drawn at, and the content is centred at that width. Below 1 the sections get shorter in mm too, which is what lets more of them fit on a page.
 
+The modal itself is **shared with the Layout tab** and knows nothing about either producer. `openPdfPreviewModal({ prepare, layout, scaleKey, fileName })` takes a pair: `prepare()` is awaited once per open and owns the expensive rasterizing, `layout(ctx, scale)` is pure and cheap and re-runs on every slider input. Keeping that split in the controller is what stops either consumer from accidentally re-rasterizing. `openBoardPdfPreview()` is the auto-flow producer; `layout.js` supplies the other.
+
+### Layout sheet
+
+The Layout tab composes A4 pages from content made elsewhere. It is a fourth *instrument* tab with no sub-tabs (`positionSegmentedHighlight` already collapses to `width: 0` when none are visible), because it is cross-instrument by nature and belongs beside Piano/Guitar/Drums rather than under one of them.
+
+- **`layout-model.js`** is pure: the document shape, `packRows` (greedy left-to-right into 12 columns) and `paginateRows`. No DOM, no imports.
+- **`layout.js`** owns the tab's DOM. It does **not** import `script.js` — `script.js` calls `initLayout({ readBoardState, buildCardElement, openPdfPreviewModal })`, so the graph stays one-directional and there is no module cycle.
+
+Blocks hold **references** to board content (`{ instrument, sectionId, chordId }`), not snapshots, so fixing a chord on a chord tab updates the sheet. That is why sections and chords now carry a stable `id`, minted lazily by `ensureIds()` from both `loadSections()` and `renderSections()` — the latter is the choke point every mutation passes through. A reference whose target is gone renders a visible "source removed" placeholder and is skipped on export; silently dropping the block would be the worse failure. Fretboard and text blocks hold their settings **by value**, because their only "source" is a singleton view state that every such block would otherwise share.
+
+Geometry is one constant: `--layout-px-per-mm` (4), so the content box is 760px and `heightMm = el.offsetHeight / pxPerMm`. **Measure with `offsetHeight`, never `getBoundingClientRect`** — the sheet sits inside a fit-to-screen `transform: scale()`, and `getBoundingClientRect` would multiply every height by it.
+
+Pages are *computed*, never drop targets: there is one continuous Sortable list, page boundaries are drawn as guides behind it, and the first block of each page gets an inline `margin-top` so the editor shows the gaps the PDF will have. That keeps the flow's children uniform, which is why `onAdd`/`onUpdate` can derive the model index straight from `.layout-block` DOM order. Sortable's `evt.newIndex` would count anything else in there.
+
+Export rasterizes **per block** and emits the *same* placement shape the auto-flow path uses, so `renderPdfPreview` and `savePdfFromLayout` are reused unchanged. Text blocks are emitted as `type: "text"` rather than captured, so comments stay crisp and selectable. An over-tall row **shrinks to fit and centres** rather than being sliced — the opposite of the auto-flow rule, and deliberately so: that path slices a vertical list of cards where a clean break exists, while a halved fretboard or grand staff is unusable.
+
+Blocks carry `.pdf-capture` on `.lb-body`, not on the flow: a block sits on a white page, so its contents need paper ink even in dark mode, but scoping it to the body leaves the editor chrome on theme colours. Everything `.lb-chrome`, `.lb-controls` and `.lb-resize` is stripped from the export clone.
+
+**Layout has no write path to a board.** `boardInstrument()` reports `"piano"` while this tab is up, so a flush from here could write the wrong board's chords over the piano's; `readBoards()` is deliberately read-only, and `setInstrument` has already flushed the outgoing board before the tab is ever shown.
+
 ### Styling / theming
 
 Theme is CSS custom properties on `:root` (dark, the default) overridden under `body.light-mode`; toggling swaps the class and persists `cv-theme`. Dimensions that JS needs to know (notably `--white-key-width`) are read back out of computed styles rather than hardcoded — keep them in sync when changing key geometry.
 
 ## localStorage keys
 
-`cv-sections-piano`, `cv-sections-guitar`, `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` (script.js); `cv-guitar-scale-settings` (main.js).
+`cv-sections-piano`, `cv-sections-guitar`, `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` (script.js); `cv-guitar-scale-settings` (main.js); `cv-layout` and `cv-layout-scale` (layout.js — cross-instrument, so unlike `cv-sections-*` they are **not** per-board and do not go through `saveSections`/`loadSections`).
 
 ## Dead / stale files
 

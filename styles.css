@@ -1232,6 +1232,10 @@ select:focus-visible {
 .card.preview .black-key {
   height: 45%;
   top: 18px;
+  /* Width is set inline by makePiano as a percentage of the keybed, so it
+     tracks the white keys instead of sitting at a fixed 20px and growing wider
+     than them on a narrow keyboard. This stays only as a fallback for a keybed
+     that had no layout when it was built. */
   width: 20px;
 }
 
@@ -1252,8 +1256,11 @@ body.light-mode .card.preview .piano {
   background: linear-gradient(180deg, black, white);
 }
 
+/* A percentage translate resolves against the element's own width, so this
+   nudge scales with the key instead of staying 5px on a 10px-wide black key.
+   25% of the old 20px is the old 5px, so the default size is unchanged. */
 .card.preview .black-key {
-  transform: translateX(5px);
+  transform: translateX(25%);
 }
 
 .card.preview .note-list,
@@ -2086,6 +2093,129 @@ body.light-mode .metronome-led {
   fill: #000 !important;
 }
 
+/* ---- Guitar scale fretboard (renderScaleSVG) ----
+   The horizontal fretboard on the guitar scale tab. It used to hardcode its
+   colours inline, which meant it ignored the theme entirely and printed as a
+   cream board with coloured dots. These classes mirror the `.gc-*` block above
+   so both guitar drawings follow the same three-way contract: dark, light and
+   `.pdf-capture`. renderScaleSVG sets stroke-width, radius and dasharray as
+   attributes — that is geometry, and it deliberately stays out of here. */
+/* Sizing is deliberately left alone: the board is ~1130px wide and has always
+   overflowed its container on a narrow screen. Letting it shrink to fit instead
+   would squeeze the 12px interval labels down to a few pixels, so overflow is
+   the better of the two. This block changes colour, not geometry. */
+.gs-fretboard {
+  display: block;
+  font-family: inherit;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.gs-fret {
+  stroke: var(--note-text);
+  opacity: 0.5;
+}
+
+.gs-nut {
+  stroke: var(--text);
+  opacity: 1;
+  stroke-linecap: round;
+}
+
+.gs-string {
+  stroke: var(--note-text);
+  opacity: 0.8;
+}
+
+.gs-marker {
+  fill: var(--note-text);
+  opacity: 0.35;
+}
+
+.gs-roman,
+.gs-string-label {
+  fill: var(--note-text);
+  font-family: inherit;
+}
+
+/* An active scale tone. The root gets its own colour, reusing the same green
+   the piano keyboard already marks roots with, so the two instruments agree. */
+.gs-dot {
+  fill: var(--text);
+  stroke: var(--card);
+}
+
+.gs-dot-root {
+  fill: var(--root-green-1);
+  stroke: var(--card);
+}
+
+/* Positions that exist but are not in the scale: outline only, so the shape of
+   the scale reads at a glance against the rest of the neck. */
+.gs-dot-inactive {
+  fill: transparent;
+  stroke: var(--note-text);
+  opacity: 0.55;
+}
+
+.gs-label {
+  fill: var(--card);
+  font-family: inherit;
+  pointer-events: none;
+}
+
+.gs-label-inactive {
+  fill: var(--note-text);
+  opacity: 0.8;
+}
+
+/* Print: white page, black ink. The root keeps a fill distinct from the other
+   tones by going hollow rather than coloured, since colour may not survive a
+   black-and-white printer. */
+.pdf-capture .gs-fretboard {
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.pdf-capture .gs-fret,
+.pdf-capture .gs-nut,
+.pdf-capture .gs-string,
+.pdf-capture .gs-dot,
+.pdf-capture .gs-dot-inactive {
+  stroke: #000 !important;
+  opacity: 1 !important;
+}
+
+.pdf-capture .gs-dot {
+  fill: #000 !important;
+}
+
+.pdf-capture .gs-dot-root {
+  fill: #fff !important;
+  stroke-width: 2.5 !important;
+}
+
+.pdf-capture .gs-dot-inactive {
+  fill: none !important;
+}
+
+.pdf-capture .gs-marker,
+.pdf-capture .gs-roman,
+.pdf-capture .gs-string-label,
+.pdf-capture .gs-label-inactive {
+  fill: #000 !important;
+  opacity: 1 !important;
+}
+
+.pdf-capture .gs-label {
+  fill: #fff !important;
+}
+
+.pdf-capture .gs-label.gs-label-on-root {
+  fill: #000 !important;
+}
+
 /* Guitar chord card body */
 .guitar-chord-body {
   display: flex;
@@ -2182,4 +2312,378 @@ body.light-mode .metronome-led {
   justify-content: center;
   gap: 14px;
   margin-top: 12px;
+}
+
+/* ============================================================
+   Layout sheet
+   ============================================================
+   The sheet is drawn at a fixed px size derived from mm, so one constant
+   converts between what the browser lays out and what jsPDF places:
+   --layout-px-per-mm. A4 is then 840x1188px and the content box 760px wide.
+   The whole sheet is shrunk to fit the viewport with a transform on
+   .layout-sheet — which is exactly why every measurement in layout.js uses
+   offsetHeight and never getBoundingClientRect. */
+
+.layout-panel {
+  --layout-px-per-mm: 4;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 12px;
+}
+
+.layout-sidebar {
+  flex: 0 0 220px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.layout-lib-title {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--note-text);
+}
+
+.layout-lib-title:first-child { margin-top: 0; }
+
+.layout-lib-empty {
+  color: var(--note-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.layout-lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lib-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  cursor: grab;
+  user-select: none;
+}
+
+.lib-item:hover { border-color: var(--button-bg); }
+.lib-item:active { cursor: grabbing; }
+.lib-item-name { font-size: 13px; color: var(--text); }
+.lib-item-sub { font-size: 11px; color: var(--note-text); }
+
+.layout-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.layout-sheet {
+  position: relative;
+  width: calc(210 * var(--layout-px-per-mm) * 1px);
+}
+
+/* A4 boundaries, drawn behind the blocks. Pages are computed, never drop
+   targets, so they are guides rather than containers — which keeps the flow's
+   children uniform and makes Sortable's indices trivially correct. */
+.layout-guides {
+  /* top/left/right rather than inset: the height is computed from the page
+     count in layout.js, and `inset: 0` would pin it to the sheet instead. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.layout-page-guide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+}
+
+.layout-page-label {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: #999;
+}
+
+.layout-flow {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  /* minmax(0, 1fr), not 1fr: a `1fr` track has an implicit `auto` minimum, so a
+     block wider than its share of the grid — a three-octave keyboard, say —
+     stretches its own column and pushes the sheet past A4. Pinning the minimum
+     to 0 is what makes a span actually mean a span. */
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: calc(4 * var(--layout-px-per-mm) * 1px);
+  align-content: start;
+  padding: calc(10 * var(--layout-px-per-mm) * 1px);
+  min-height: calc(297 * var(--layout-px-per-mm) * 1px);
+}
+
+.layout-block {
+  position: relative;
+  min-width: 0;
+  border: 1px dashed transparent;
+  border-radius: 4px;
+}
+
+.layout-block:hover { border-color: var(--button-bg); }
+.layout-block.lb-has-break { border-top: 2px solid var(--button-bg); }
+
+/* Editor chrome. Everything in here is stripped before export, and every
+   control carries .no-drag so a press never starts a Sortable drag. */
+.lb-chrome {
+  position: absolute;
+  top: -9px;
+  left: 0;
+  right: 0;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  font-size: 10px;
+  background: var(--card);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  z-index: 3;
+}
+
+.layout-block:hover .lb-chrome,
+.layout-block:focus-within .lb-chrome { display: flex; }
+
+.lb-handle { cursor: grab; color: var(--note-text); }
+.lb-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.lb-span-badge { color: var(--note-text); font-variant-numeric: tabular-nums; }
+
+.lb-chrome button {
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: transparent;
+  border: none;
+  color: var(--note-text);
+  cursor: pointer;
+}
+.lb-chrome button:hover { color: var(--text); }
+.lb-break[aria-pressed="true"] { color: var(--button-bg); }
+
+.lb-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 2;
+}
+.lb-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 22px;
+  margin-top: -11px;
+  border-radius: 1px;
+  background: transparent;
+}
+.layout-block:hover .lb-resize::after { background: var(--button-bg); }
+
+/* Block bodies print on a white page, so they are dark-on-light here too —
+   this is a sheet of paper, not a panel of the app. */
+.lb-body { color: #111; }
+
+.lb-section-name {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: #111;
+}
+
+.lb-section-chords { display: grid; gap: 6px; }
+/* Same reason as the flow above: these tracks must be allowed to go narrower
+   than the card sitting in them. */
+.lb-section-chords.piano-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lb-section-chords.guitar-mode { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* Two-hands spans three octaves — one per row, exactly as the board does. */
+.lb-section-chords.piano-two-hands-mode { grid-template-columns: minmax(0, 1fr); }
+
+.lb-text {
+  min-height: 1.4em;
+  padding: 2px;
+  outline: none;
+  color: #111;
+  line-height: 1.45;
+}
+.lb-text-heading { font-size: 16px; font-weight: 700; }
+.lb-text-body { font-size: 11px; }
+.lb-text:empty::before {
+  content: attr(data-placeholder);
+  color: #999;
+}
+
+.lb-pagebreak {
+  padding: 3px 0;
+  font-size: 10px;
+  text-align: center;
+  color: var(--note-text);
+  border-top: 1px dashed var(--note-text);
+}
+
+.lb-missing {
+  padding: 10px;
+  font-size: 11px;
+  text-align: center;
+  color: #b00;
+  border: 1px dashed #b00;
+  border-radius: 4px;
+}
+
+/* The export clone: no chrome, no guides, and the page background is supplied
+   by jsPDF rather than by a drawn rectangle. */
+.layout-export-clone {
+  padding: 0;
+  background: transparent;
+}
+.layout-export-clone .layout-block { border: none; }
+
+@media (max-width: 900px) {
+  .layout-panel { flex-direction: column; }
+  .layout-sidebar { flex: 1 1 auto; width: 100%; max-height: 220px; }
+  .layout-stage { width: 100%; }
+}
+
+/* ---- Fretboard blocks ---- */
+
+/* The board is ~1130px wide with a viewBox, so letting it fill the block and
+   derive its own height keeps it correct at any span without a re-render. */
+.lb-fretboard svg.gs-fretboard {
+  width: 100%;
+  height: auto;
+}
+
+.lb-fretboard-caption {
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #111;
+}
+
+/* Per-block settings. Editor-only: stripped from the export clone, like the
+   rest of the chrome. */
+.lb-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  padding: 3px;
+  border-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--input-border);
+}
+
+.lb-controls select,
+.lb-controls button {
+  padding: 1px 5px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.lb-controls select { max-width: 120px; }
+.lb-controls button:hover { border-color: var(--button-bg); }
+
+.lb-shape-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--note-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Wide content inside a layout block ----
+   `.card.preview .piano` carries a scale(0.9), which leaves the element's
+   layout width and its painted width disagreeing. The fit-to-width pass in
+   layout.js divides one by the other, so inside a block the two are made equal
+   and the keyboard simply fills the column. Single-hand keyboards are fluid, so
+   this makes them fill the block too rather than sitting at 90%. */
+.lb-body .card.preview .piano,
+.lb-body .card.preview .piano.two-hands {
+  transform: none;
+  transform-origin: top left;
+}
+
+/* `min-width: 0` is load-bearing. Flex items and grid items both default to a
+   `min-width: auto` that refuses to shrink below their content, and that beats
+   `max-width: 100%`. Without it the keybed forces the card wider than its
+   block, the card overflows, and — because the available width then measures
+   the same as the content — nothing looks like it needs fixing. Every ancestor
+   between the block and the keyboard needs it, or the innermost one simply
+   re-inflates the chain. */
+.lb-body .piano-scroll,
+.lb-body .lh-piano-wrap,
+.lb-body .card.preview,
+.lb-body .lb-section-chords > * {
+  min-width: 0;
+}
+
+.lb-body .piano-scroll {
+  overflow: hidden;
+  max-width: 100%;
+  flex: 1 1 0;
+}
+
+/* A keyboard in a block is always drawn at its natural size and then scaled
+   uniformly by layout.js to fit its column — never reflowed to a new width.
+   That is what makes it exactly proportional at every size: the geometry the
+   black keys were measured against at build time is the geometry they are
+   painted at, so nothing can drift.
+     The alternative — letting the keybed reflow — thins the white keys while
+   the labels, the black keys and the key spacing keep their own rules, and the
+   keyboard stops looking like a keyboard well before it gets small.
+     `max-content` so the bed keeps its intrinsic width instead of being
+   squeezed by the column; `!important` beats the inline width makePiano writes
+   for a two-hands keybed. */
+.lb-body .card.preview .piano,
+.lb-body .card.preview .piano.two-hands {
+  width: max-content !important;
+  max-width: none !important;
+}
+
+/* Two-hands cards are laid out in one column on the board; inside a block the
+   grid is the block's own, so let the card fill whatever span it was given. */
+.lb-body .card.preview {
+  width: 100%;
 }

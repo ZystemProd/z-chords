@@ -189,6 +189,113 @@ export function getParentMajorRoot(root, mode) {
 }
 
 // Convenience: compute CAGED starts directly for a given key+mode
+// Modes that are drawn as CAGED windows. Outside this set a scale gets its own
+// computed windows instead of the five parent-major shapes.
+export const CAGED_MODES = new Set([
+  "major",
+  "dorian",
+  "phrygian",
+  "lydian",
+  "mixolydian",
+  "aeolian",
+  "harmonicMinor",
+  "melodicMinor",
+  "harmonicMajor",
+  "locrian",
+  "majorPentatonic",
+  "minorPentatonic",
+  "majorBlues",
+  "minorBlues",
+  "blues",
+]);
+
+// Windows are 1-based fret positions and wrap at the octave: fret 14 is fret 2
+// played twelve frets up, and the board only draws 1..17.
+export function normalizeWindowStart(start) {
+  let windowStart = start;
+  while (windowStart < 1) windowStart += 12;
+  while (windowStart > 13) windowStart -= 12;
+  return windowStart;
+}
+
+// Which five-fret window a given shape number covers, and how wide it has to be.
+//
+// The per-shape adjustments below are not derivable — they were arrived at by
+// looking at the fretboard and deciding where each shape really sits. Shapes 2
+// and 4 need a fifth fret to hold the whole pattern; shape 5 starts a fret
+// lower than its computed root; harmonic minor's raised 7th pushes shapes 1 and
+// 3 back one. They live here, once, so the scale tab and any printed fretboard
+// block cannot disagree about where a shape begins.
+//
+// Returns the resolved window plus the clamped shape index, so callers never
+// have to re-clamp.
+export function scaleWindow(root, mode, shapeIndex, intervals) {
+  const isCAGEDMode = CAGED_MODES.has(mode);
+  let starts;
+
+  try {
+    if (mode === "wholeTone") {
+      // Whole tone repeats every two frets, so it has six evenly spaced
+      // windows rather than the five CAGED ones.
+      const ePc = noteIndex("E");
+      const rIdx = noteIndex(root);
+      if (ePc >= 0 && rIdx >= 0) {
+        const start = (rIdx - ePc + 12) % 12;
+        starts = [];
+        for (let k = 0; k < 6; k += 1) {
+          const value = (start + 2 * k) % 12;
+          starts.push(normalizeWindowStart(value === 0 ? 12 : value));
+        }
+      } else {
+        starts = [1, 4, 7, 10, 13];
+      }
+    } else if (isCAGEDMode) {
+      starts = computeCAGEDShapes(getParentMajorRoot(root, mode), SCALE_FORMULAS.major);
+    } else {
+      starts = computeCAGEDShapes(root, intervals);
+    }
+  } catch (_) {
+    starts = [1, 4, 7, 10, 13];
+  }
+
+  let index = shapeIndex;
+  if (index >= starts.length) index = starts.length - 1;
+  if (index < 0) index = 0;
+
+  let windowStart = starts[index];
+  let windowWidth = 4;
+  let fretShift = 0;
+
+  if (isCAGEDMode) {
+    if (index === 1 || index === 3) windowWidth = 5;
+    if (index === 4) {
+      windowWidth = 5;
+      windowStart -= 1;
+    }
+    if (mode === "harmonicMinor" && (index === 0 || index === 2)) windowStart -= 1;
+    windowStart = normalizeWindowStart(windowStart);
+    // A window up at the 12th is the same shape an octave down; draw it there
+    // so it stays on the visible part of the neck.
+    if (windowStart >= 12) {
+      fretShift = -12;
+      windowStart += fretShift;
+    }
+  } else if (mode === "wholeTone") {
+    windowWidth = 5;
+    windowStart = normalizeWindowStart(windowStart);
+  }
+
+  return {
+    starts,
+    index,
+    windowStart,
+    windowWidth,
+    fretShift,
+    // Open strings only make sense where the shape relates to the nut.
+    showOpen: isCAGEDMode,
+  };
+}
+
 export function getCAGEDStartsForMode(root, mode) {
   const parent = getParentMajorRoot(root, mode);
   return computeCAGEDShapes(parent, SCALE_FORMULAS.major);
@@ -262,13 +369,15 @@ export function renderScaleSVG(
   const height = paddingTop + stringHeight * GUITAR_TUNING.length + paddingBottom;
   const svgNS = "http://www.w3.org/2000/svg";
 
+  // Colours live in CSS as `.gs-*` classes, never as inline attributes, so the
+  // fretboard follows the theme and the `.pdf-capture` re-ink the same way
+  // `renderChordDiagram`'s `.gc-*` classes already do. Geometry — stroke-width,
+  // radius, dasharray — stays on the element, because that is not styling.
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("width", width);
   svg.setAttribute("height", height);
-  svg.setAttribute(
-    "style",
-    "font-family: sans-serif; background: linear-gradient(#fdf5e6, #f0e6d2); border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"
-  );
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("class", "gs-fretboard");
 
   // Window options
   const windowStart = typeof opts.windowStart === "number" ? opts.windowStart : null; // 1-based
@@ -319,7 +428,7 @@ export function renderScaleSVG(
     line.setAttribute("y1", paddingTop);
     line.setAttribute("x2", x);
     line.setAttribute("y2", height - paddingBottom + 10);
-    line.setAttribute("stroke", "#bbb");
+    line.setAttribute("class", fret === startFret ? "gs-fret gs-nut" : "gs-fret");
     line.setAttribute("stroke-width", fret === startFret ? 6 : 2);
     svg.appendChild(line);
 
@@ -328,7 +437,7 @@ export function renderScaleSVG(
       marker.setAttribute("cx", x + fretWidth / 2);
       marker.setAttribute("cy", paddingTop + (stringHeight * GUITAR_TUNING.length) / 2);
       marker.setAttribute("r", 5);
-      marker.setAttribute("fill", "#ccc");
+      marker.setAttribute("class", "gs-marker");
       svg.appendChild(marker);
     }
 
@@ -337,7 +446,7 @@ export function renderScaleSVG(
       romanText.setAttribute("x", x + fretWidth / 2);
       romanText.setAttribute("y", height - paddingBottom + 30);
       romanText.setAttribute("text-anchor", "middle");
-      romanText.setAttribute("fill", "#333");
+      romanText.setAttribute("class", "gs-roman");
       romanText.setAttribute("font-size", "14");
       romanText.textContent = romanMap[fret];
       svg.appendChild(romanText);
@@ -357,7 +466,7 @@ export function renderScaleSVG(
     line.setAttribute("y1", y);
     line.setAttribute("x2", width - paddingRight);
     line.setAttribute("y2", y);
-    line.setAttribute("stroke", "#555");
+    line.setAttribute("class", "gs-string");
     const strokeWidths = [1, 1, 1.5, 1.5, 2.5, 2.5];
     line.setAttribute("stroke-width", strokeWidths[stringIdx] || 1.5);
     svg.appendChild(line);
@@ -372,7 +481,7 @@ export function renderScaleSVG(
       label.setAttribute("x", labelX);
       label.setAttribute("y", y + 4);
       label.setAttribute("text-anchor", "end");
-      label.setAttribute("fill", "#333");
+      label.setAttribute("class", "gs-string-label");
       label.setAttribute("font-size", "12");
       label.textContent = stringNote;
       svg.appendChild(label);
@@ -432,8 +541,13 @@ export function renderScaleSVG(
     circle.setAttribute("cx", x);
     circle.setAttribute("cy", y);
     circle.setAttribute("r", active ? 12 : 10);
-    circle.setAttribute("fill", active ? (customMode ? "#333" : (noteIdx === rootIdx ? "#ff6347" : "#333")) : "transparent");
-    circle.setAttribute("stroke", active ? "#fff" : "#7f8c9a");
+    // Root colouring is a scale-mode idea: in custom mode every chosen note is
+    // just a chosen note, so it stays neutral.
+    const isRoot = active && !customMode && noteIdx === rootIdx;
+    circle.setAttribute(
+      "class",
+      active ? (isRoot ? "gs-dot gs-dot-root" : "gs-dot") : "gs-dot gs-dot-inactive"
+    );
     circle.setAttribute("stroke-width", active ? 2 : 1.5);
     circle.setAttribute("stroke-dasharray", active ? "" : "3 2");
     circle.setAttribute("data-note-idx", String(noteIdx));
@@ -452,7 +566,16 @@ export function renderScaleSVG(
       label.setAttribute("x", x);
       label.setAttribute("y", y + 5);
       label.setAttribute("text-anchor", "middle");
-      label.setAttribute("fill", active ? "#fff" : "#9fb0c2");
+      // The root dot prints hollow so it reads on a black-and-white printer,
+      // which means its label has to flip to dark ink with it.
+      label.setAttribute(
+        "class",
+        active
+          ? isRoot
+            ? "gs-label gs-label-on-root"
+            : "gs-label"
+          : "gs-label gs-label-inactive"
+      );
       label.setAttribute("font-size", active ? "12" : "11");
       label.setAttribute("pointer-events", "none");
       label.textContent = customMode

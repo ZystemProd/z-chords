@@ -44,6 +44,13 @@
                     <datalist id="suggestions"></datalist>
                 </div>
                 <div class="right">
+                    <button id="saveSong" class="btn icon-btn" type="button" aria-label="Save song to a file" title="Save song to a file">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5zm2 2v5h8V5zm5 8a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg>
+                    </button>
+                    <button id="loadSong" class="btn icon-btn" type="button" aria-label="Load song from a file" title="Load song from a file">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h5l2 2h9v3H4zm0 6h17l-2 8H4z"/></svg>
+                    </button>
+                    <input id="loadSongInput" type="file" accept=".json,application/json" hidden />
                     <button id="downloadPdf" class="btn icon-btn" aria-label="Preview and download PDF" title="Preview and download PDF">
                         <img src="SVG/downloadpdf.svg" alt="Download PDF" />
                     </button>
@@ -63,6 +70,9 @@
                         <button class="tab" role="tab" id="tab-instrument-piano" data-instrument="piano" aria-selected="true">Piano</button>
                         <button class="tab" role="tab" id="tab-instrument-guitar" data-instrument="guitar" aria-selected="false">Guitar</button>
                         <button class="tab" role="tab" id="tab-instrument-drums" data-instrument="drums" aria-selected="false">Drums</button>
+                        <!-- Layout is cross-instrument: it composes content from every board,
+                             so it sits beside them rather than under one. It has no sub-tabs. -->
+                        <button class="tab" role="tab" id="tab-instrument-layout" data-instrument="layout" aria-selected="false">Layout</button>
                     </div>
                     <span class="toolbar-divider" aria-hidden="true"></span>
                     <!-- Instrument sub-tabs (moved to left) -->
@@ -90,6 +100,13 @@
                             <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
                         </div>
                         <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
+                    </div>
+
+                    <!-- Layout sheet controls -->
+                    <div id="layoutControls" class="control-group" style="display:none;">
+                        <span id="layoutPageCount" class="group-label" aria-live="polite"></span>
+                        <button id="layoutExport" type="button" aria-label="Preview and export the sheet" title="Preview and export the sheet">Export sheet</button>
+                        <button id="layoutClear" type="button" aria-label="Clear the sheet" title="Clear the sheet">Clear</button>
                     </div>
 
                     <!-- Guitar → Chord capo (label only; diagrams stay at concert pitch) -->
@@ -299,6 +316,21 @@
         </div>
 
         <section class="boards" id="boards"></section>
+
+        <!-- Layout sheet. #layoutFlow is the one continuous 12-column grid;
+             pages are computed, not drop targets, and #layoutGuides draws the
+             A4 boundaries behind them. -->
+        <div id="layoutPanel" class="layout-panel" style="display:none;">
+            <aside id="layoutSidebar" class="layout-sidebar" aria-label="Content library"></aside>
+            <div id="layoutStage" class="layout-stage">
+                <div id="layoutSheetWrap" class="layout-sheet-wrap">
+                    <div id="layoutSheet" class="layout-sheet">
+                        <div id="layoutGuides" class="layout-guides" aria-hidden="true"></div>
+                        <div id="layoutFlow" class="layout-flow"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">
             <div id="metronomeBeatsDisplay" class="metronome-beats"></div>

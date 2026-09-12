@@ -17,6 +17,12 @@ import {
   createChordEditor,
   OPEN_MIDI,
 } from "./guitar-chords.js";
+import {
+  initLayout,
+  refreshLayout,
+  layoutForSongFile,
+  applyLayoutFromSongFile,
+} from "./layout.js";
 
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
@@ -185,6 +191,12 @@ function formatChordSymbol(sym) {
 function getNoteNameNoOctave(midi) {
   return NOTES[midi % 12].replace("#", "♯");
 }
+
+// Black key geometry, as fractions of a white key's width. Both are the former
+// hardcoded pixel values over the former fixed 36px white key, so a keyboard at
+// the default size is pixel-identical to before — but now it scales.
+const BLACK_KEY_WIDTH_RATIO = 20 / 36;
+const BLACK_KEY_OFFSET_RATIO = 4 / 36;
 
 function getPianoRange(useTwoHands) {
   return useTwoHands
@@ -360,6 +372,51 @@ function migrateSharedSections() {
   } catch (_) {}
 }
 
+// ---- Stable ids for sections and chords ----
+//
+// Sections and chords have always been addressed by array index, which is fine
+// while the board is the only consumer: it re-renders from scratch every time.
+// Anything that wants to *point at* a chord from outside the board — the layout
+// sheet does — cannot use an index, because dragging a section reorders them all
+// and every reference would silently repoint at different music.
+//
+// So each section and chord carries an `id`, minted lazily. This is additive:
+// nothing else reads the field, the PDF path never sees it, and a board saved by
+// an older build simply gets ids the first time this build loads it.
+function mintId(prefix) {
+  let rand = "";
+  try {
+    rand = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+  } catch (_) {
+    // Older browsers, and any non-secure context, have no randomUUID.
+    rand = Math.random().toString(36).slice(2, 12);
+  }
+  return `${prefix}_${rand}`;
+}
+
+// Returns true when it actually stamped something, so callers know whether the
+// dataset needs re-stringifying. Mutates in place.
+function ensureIds(sections) {
+  let changed = false;
+  if (!Array.isArray(sections)) return false;
+  sections.forEach((section) => {
+    if (!section || typeof section !== "object") return;
+    if (!section.id) {
+      section.id = mintId("s");
+      changed = true;
+    }
+    if (!Array.isArray(section.chords)) return;
+    section.chords.forEach((chord) => {
+      if (!chord || typeof chord !== "object") return;
+      if (!chord.id) {
+        chord.id = mintId("c");
+        changed = true;
+      }
+    });
+  });
+  return changed;
+}
+
 function saveActiveSection() {
   const key = activeSectionKey(boardInstrument());
   try {
@@ -398,13 +455,199 @@ function loadSections() {
   // this board left off rather than restarting at A.
   let count = 0;
   try {
-    count = JSON.parse(boardsEl.dataset.sections || "[]").length;
+    const parsed = JSON.parse(boardsEl.dataset.sections || "[]");
+    // Stamp ids on anything saved before ids existed, before any consumer can
+    // read the board and find a section it cannot name.
+    if (ensureIds(parsed)) boardsEl.dataset.sections = JSON.stringify(parsed);
+    count = parsed.length;
   } catch (_) {
     boardsEl.dataset.sections = "[]";
   }
   sectionCounter = count;
   transposeOffset = transposeOffsets[inst] || 0;
   updateTransposeUI();
+}
+
+// Song files
+//
+// A song is both boards at once: the piano tab and the guitar tab hold separate
+// chords, titles and transpose offsets, and a file that carried only the tab you
+// happened to be looking at would quietly lose the other half. So the file is
+// the whole app state that belongs to the song — every board, plus the capo
+// label, which is a property of the arrangement rather than of the view.
+//
+// Everything lives in localStorage under per-instrument keys, so save flushes
+// the on-screen board first and then reads the same keys `loadSections` reads;
+// load writes those keys and re-enters `loadSections`. Nothing here knows the
+// shape of a section or a chord, which is what keeps it working when they change.
+const SONG_FILE_FORMAT = "z-chords-song";
+// v2 adds the layout sheet. Both directions stay compatible: a v1 file simply
+// has no `layout` key, and a v2 file opened by an older build drops the sheet
+// but keeps every chord — which is why the sheet is a sibling of `boards`
+// rather than something buried inside one of them.
+const SONG_FILE_VERSION = 2;
+
+function readBoardState(inst) {
+  let sections = "[]";
+  let active = null;
+  let title = "";
+  let subtitle = "";
+  try {
+    sections = localStorage.getItem(sectionsKey(inst)) || "[]";
+    active = localStorage.getItem(activeSectionKey(inst));
+    title = localStorage.getItem(titleKey(inst)) || "";
+    subtitle = localStorage.getItem(subtitleKey(inst)) || "";
+  } catch (_) {}
+  let parsed = [];
+  try {
+    parsed = JSON.parse(sections);
+  } catch (_) {}
+  const activeIdx = active === null ? null : Number(active);
+  return {
+    title,
+    subtitle,
+    sections: Array.isArray(parsed) ? parsed : [],
+    activeSection: Number.isFinite(activeIdx) ? activeIdx : null,
+    transpose: transposeOffsets[inst] || 0,
+  };
+}
+
+function writeBoardState(inst, board) {
+  const data = board && typeof board === "object" ? board : {};
+  const sections = Array.isArray(data.sections) ? data.sections : [];
+  try {
+    localStorage.setItem(sectionsKey(inst), JSON.stringify(sections));
+    const active = Number(data.activeSection);
+    if (data.activeSection === null || !Number.isFinite(active))
+      localStorage.removeItem(activeSectionKey(inst));
+    else localStorage.setItem(activeSectionKey(inst), String(active));
+    localStorage.setItem(titleKey(inst), String(data.title || ""));
+    localStorage.setItem(subtitleKey(inst), String(data.subtitle || ""));
+  } catch (_) {}
+  const transpose = Number(data.transpose);
+  transposeOffsets[inst] = Number.isFinite(transpose) ? transpose : 0;
+}
+
+function buildSongFile() {
+  // Flush the board on screen: its edits live in the dataset until saved.
+  saveSections();
+  const boards = {};
+  BOARD_INSTRUMENTS.forEach((inst) => {
+    boards[inst] = readBoardState(inst);
+  });
+  const song = {
+    format: SONG_FILE_FORMAT,
+    version: SONG_FILE_VERSION,
+    savedAt: new Date().toISOString(),
+    capo: capoFret,
+    boards,
+  };
+  const layout = layoutForSongFile();
+  if (layout) song.layout = layout;
+  return song;
+}
+
+// A filename from the song's own title, falling back so a save never fails for
+// want of a name. Windows and POSIX both choke on the same handful of chars.
+function songFileName(song) {
+  const title =
+    (song.boards.piano && song.boards.piano.title) ||
+    (song.boards.guitar && song.boards.guitar.title) ||
+    "";
+  const safe = title
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 60);
+  return `${safe || "chord-viewer-song"}.json`;
+}
+
+function saveSongToFile() {
+  const song = buildSongFile();
+  const blob = new Blob([JSON.stringify(song, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = songFileName(song);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoke on the next tick — revoking synchronously can beat the download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function songHasChords(song) {
+  return BOARD_INSTRUMENTS.some((inst) => {
+    const board = song.boards && song.boards[inst];
+    return (
+      board &&
+      Array.isArray(board.sections) &&
+      board.sections.some((s) => s && Array.isArray(s.chords) && s.chords.length)
+    );
+  });
+}
+
+function applySongFile(song) {
+  if (!song || typeof song !== "object" || !song.boards)
+    throw new Error("Not a Chord Viewer song file.");
+  if (song.format && song.format !== SONG_FILE_FORMAT)
+    throw new Error("Not a Chord Viewer song file.");
+
+  BOARD_INSTRUMENTS.forEach((inst) => writeBoardState(inst, song.boards[inst]));
+  const capo = Number(song.capo);
+  if (Number.isFinite(capo)) setCapo(capo);
+
+  // Re-enter the normal load path so the on-screen board, its title, its
+  // transpose readout and the section counter all come from the same place
+  // they always do.
+  loadSections();
+  renderSections();
+
+  // After the boards, so the sheet's references resolve against the chords the
+  // file just brought in rather than the ones that were there before.
+  applyLayoutFromSongFile(song.layout);
+}
+
+function loadSongFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let song;
+    try {
+      song = JSON.parse(String(reader.result));
+    } catch (_) {
+      alert("That file isn't valid JSON.");
+      return;
+    }
+    try {
+      if (songHasChords(buildSongFile())) {
+        const ok = confirm(
+          "Loading this song replaces the chords on both the piano and guitar tabs. Continue?"
+        );
+        if (!ok) return;
+      }
+      applySongFile(song);
+    } catch (err) {
+      alert(err && err.message ? err.message : "Could not load that song.");
+    }
+  };
+  reader.onerror = () => alert("Could not read that file.");
+  reader.readAsText(file);
+}
+
+const saveSongBtn = document.getElementById("saveSong");
+const loadSongBtn = document.getElementById("loadSong");
+const loadSongInput = document.getElementById("loadSongInput");
+if (saveSongBtn) saveSongBtn.addEventListener("click", saveSongToFile);
+if (loadSongBtn && loadSongInput) {
+  loadSongBtn.addEventListener("click", () => loadSongInput.click());
+  loadSongInput.addEventListener("change", () => {
+    const file = loadSongInput.files && loadSongInput.files[0];
+    // Clear it either way, so picking the same file twice still fires `change`.
+    if (file) loadSongFromFile(file);
+    loadSongInput.value = "";
+  });
 }
 
 function getWhiteKeyWidth() {
@@ -541,6 +784,12 @@ function makePiano(chord, options = {}) {
 
   requestAnimationFrame(() => {
     const whiteEls = whiteGrid.querySelectorAll(".white-key");
+    // Black keys are absolutely positioned, and their containing block is the
+    // piano's padding box — not the keybed. Percentages must resolve against
+    // that same box, or every key is displaced by the ratio between the two and
+    // the error grows across the keyboard.
+    const basisPx = pianoWrap.clientWidth;
+
     whiteEls.forEach((wk) => {
       const midi = parseInt(wk.dataset.midi, 10);
       const note = NOTES[midi % 12];
@@ -552,9 +801,30 @@ function makePiano(chord, options = {}) {
       bk.dataset.midi = blackMidi;
 
       const whiteWidthPx = wk.offsetWidth;
-      const blackWidthPx = bk.offsetWidth;
-      const leftPx = wk.offsetLeft + whiteWidthPx - (blackWidthPx / 2 + -4);
-      bk.style.left = leftPx + "px";
+      // A black key's size and position are proportions of a white key, not
+      // fixed pixels. They used to be: the width came from CSS as a flat 20px
+      // and never changed, so once a keybed was narrower than the default the
+      // black keys were wider than the white keys between them. The ratios here
+      // are the old constants divided by the old 36px white key, so a keyboard
+      // at the default width renders exactly as it always did.
+      //
+      // (The old code also read `bk.offsetWidth` before the element was in the
+      // DOM, so the centring term was always 0 — that is folded into the
+      // offset ratio below rather than "fixed", to keep the look unchanged.)
+      const blackWidthPx = whiteWidthPx * BLACK_KEY_WIDTH_RATIO;
+      const leftPx =
+        wk.offsetLeft + whiteWidthPx + whiteWidthPx * BLACK_KEY_OFFSET_RATIO;
+
+      if (basisPx > 0) {
+        // Percentages rather than pixels, so a keyboard stays correct if its
+        // container is resized without being rebuilt.
+        bk.style.left = `${(leftPx / basisPx) * 100}%`;
+        bk.style.width = `${(blackWidthPx / basisPx) * 100}%`;
+      } else {
+        // Bed not laid out (a board built while its tab is hidden). Fall back to
+        // pixels; whatever renders it will be rebuilt when the tab is shown.
+        bk.style.left = `${leftPx}px`;
+      }
 
       if (blackMidi === rootMidi) bk.classList.add("root");
 
@@ -1639,7 +1909,12 @@ function getActiveVoicing(chord) {
 // Card body for the guitar tab: a chord box plus a stepper through the other
 // playable positions. The section, drag, play, edit and remove machinery is
 // shared with the piano tab.
-function buildGuitarCardBody(card, chord, sections) {
+// `interactive: false` builds the same diagram without the shape stepper, for
+// consumers that render a chord as a static picture (the layout sheet). The
+// stepper is the only part that writes back to the board, so dropping it is
+// also what makes such a card read-only by construction.
+function buildGuitarCardBody(card, chord, sections, opts = {}) {
+  const { interactive = true } = opts;
   const voicings = getGuitarVoicings(chord);
 
   const body = document.createElement("div");
@@ -1659,6 +1934,18 @@ function buildGuitarCardBody(card, chord, sections) {
 
   const host = document.createElement("div");
   host.className = "gc-host";
+
+  if (!interactive) {
+    const v = voicings[idx];
+    host.appendChild(
+      renderChordDiagram(v, {
+        ariaLabel: `${chord.sym}, ${voicingChart(v.frets)}`,
+      })
+    );
+    body.appendChild(host);
+    card.appendChild(body);
+    return;
+  }
 
   const stepper = document.createElement("div");
   stepper.className = "inversion-control gc-shape-control";
@@ -1713,7 +2000,8 @@ function buildGuitarCardBody(card, chord, sections) {
 // Card body for the piano tab: the keyboard, the inversion stepper and the
 // left-hand controls. Split out of renderSections so the guitar tab can
 // substitute its own body without the two instruments tangling.
-function buildPianoCardBody(card, chord, sections) {
+function buildPianoCardBody(card, chord, sections, opts = {}) {
+  const { interactive = true } = opts;
   // --- Build chord piano ---
   const chordData = computeChordData(chord);
 
@@ -1736,6 +2024,22 @@ function buildPianoCardBody(card, chord, sections) {
       }
     }
     builtPiano = makePiano(chordData, pianoOptions);
+  }
+
+  // A static card: the keyboard alone, in the same wrapper the interactive one
+  // uses so it inherits identical `.preview` sizing. The inversion and
+  // left-hand steppers are omitted rather than hidden — `.card.preview` hides
+  // them with `opacity: 0`, which still reserves their height and would leave a
+  // gap under every block on a printed sheet.
+  if (!interactive) {
+    const lpw = document.createElement("div");
+    lpw.className = "lh-piano-wrap";
+    const scroller = document.createElement("div");
+    scroller.className = "piano-scroll";
+    if (builtPiano) scroller.appendChild(builtPiano);
+    lpw.appendChild(scroller);
+    card.appendChild(lpw);
+    return;
   }
 
   // --- Inversion controls ---
@@ -1839,6 +2143,93 @@ function buildPianoCardBody(card, chord, sections) {
   card.insertBefore(lpw, invWrap);
 }
 
+// One chord card. `renderSections` builds the interactive version for the
+// board; the layout sheet builds the static one, and both go through here so a
+// printed card can never drift from the on-screen card it came from.
+//
+// The interactive path needs the board context its buttons write back into
+// (`sections`, `section`, `sectionIndex`, `chordIndex`); the static path needs
+// none of it and must not be given any, because a card that cannot reach the
+// board cannot corrupt it.
+function buildCardElement(chord, opts = {}) {
+  const {
+    instrument = currentInstrument,
+    interactive = true,
+    sections = null,
+    section = null,
+    sectionIndex = 0,
+    chordIndex = 0,
+  } = opts;
+
+  const card = document.createElement("div");
+  card.className = "card preview";
+  if (interactive) card.dataset.chordIndex = chordIndex;
+  card.innerHTML = `<h3>${formatChordSymbol(chord.sym)}</h3>`;
+
+  // Card body differs per instrument; everything around it (sections,
+  // drag and drop, play, edit, remove) is shared.
+  if (instrument === "guitar") {
+    buildGuitarCardBody(card, chord, sections, { interactive });
+  } else {
+    buildPianoCardBody(card, chord, sections, { interactive });
+  }
+
+  if (!interactive) return card;
+
+  // --- Play chord button ---
+  // `no-drag` keeps SortableJS from starting a drag on it (see the
+  // filter on the chords-container instance) and stops the section
+  // click handler treating a press as a section selection.
+  const playBtn = document.createElement("button");
+  playBtn.className = "play-chord-section no-drag";
+  playBtn.type = "button";
+  playBtn.title = "Play this chord";
+  // chord.sym, not formatChordSymbol(): the latter returns <sup> markup,
+  // which a screen reader would read out as literal tag text.
+  playBtn.setAttribute("aria-label", `Play ${chord.sym}`);
+  playBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+      <path d="M4 9.5v5h3.6L12 18V6L7.6 9.5H4z" fill="currentColor"/>
+      <path d="M15.5 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round"/>
+    </svg>`;
+  playBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const midis = getChordPlaybackMIDIs(chord);
+    if (!midis.length) return;
+    playNotes(midis);
+    card.classList.add("playing");
+    clearTimeout(card._playPulse);
+    card._playPulse = setTimeout(() => card.classList.remove("playing"), 320);
+  });
+
+  // --- Edit chord button ---
+  const editBtn = document.createElement("button");
+  editBtn.className = "edit-chord-section no-drag";
+  editBtn.textContent = "Edit";
+  editBtn.title = "Edit chord";
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openCustomChordModalForEdit(sectionIndex, chordIndex);
+  });
+
+  // --- Remove chord button ---
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "remove-chord-section no-drag";
+  removeBtn.textContent = "×";
+  removeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    section.chords.splice(chordIndex, 1);
+    boardsEl.dataset.sections = JSON.stringify(sections);
+    renderSections();
+  });
+
+  card.appendChild(playBtn);
+  card.appendChild(editBtn);
+  card.appendChild(removeBtn);
+  return card;
+}
+
 function renderSections() {
   // Two-hands is a piano-only layout: it widens the cards and drops the chord
   // grid to one column. Guitar cards keep their own columns regardless.
@@ -1848,6 +2239,10 @@ function renderSections() {
   );
   boardsEl.innerHTML = "";
   const sections = JSON.parse(boardsEl.dataset.sections || "[]");
+
+  // Every mutation path funnels through here and then re-persists, so this is
+  // the one place that has to mint ids for freshly added sections and chords.
+  if (ensureIds(sections)) boardsEl.dataset.sections = JSON.stringify(sections);
 
   // Persist and toggle empty state
   saveSections();
@@ -1986,75 +2381,16 @@ function renderSections() {
     chordsContainer.dataset.sectionIndex = sectionIndex;
 
     section.chords.forEach((chord, chordIndex) => {
-      const card = document.createElement("div");
-      card.className = "card preview";
-      card.dataset.chordIndex = chordIndex;
-      card.innerHTML = `<h3>${formatChordSymbol(chord.sym)}</h3>`;
-
-      // Card body differs per instrument; everything around it (sections,
-      // drag and drop, play, edit, remove) is shared.
-      if (currentInstrument === "guitar") {
-        buildGuitarCardBody(card, chord, sections);
-      } else {
-        buildPianoCardBody(card, chord, sections);
-      }
-
-      // --- Play chord button ---
-      // `no-drag` keeps SortableJS from starting a drag on it (see the
-      // filter on the chords-container instance) and stops the section
-      // click handler treating a press as a section selection.
-      const playBtn = document.createElement("button");
-      playBtn.className = "play-chord-section no-drag";
-      playBtn.type = "button";
-      playBtn.title = "Play this chord";
-      // chord.sym, not formatChordSymbol(): the latter returns <sup> markup,
-      // which a screen reader would read out as literal tag text.
-      playBtn.setAttribute("aria-label", `Play ${chord.sym}`);
-      playBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-          <path d="M4 9.5v5h3.6L12 18V6L7.6 9.5H4z" fill="currentColor"/>
-          <path d="M15.5 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor"
-                stroke-width="1.8" stroke-linecap="round"/>
-        </svg>`;
-      playBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const midis = getChordPlaybackMIDIs(chord);
-        if (!midis.length) return;
-        playNotes(midis);
-        card.classList.add("playing");
-        clearTimeout(card._playPulse);
-        card._playPulse = setTimeout(
-          () => card.classList.remove("playing"),
-          320
-        );
-      });
-
-      // --- Edit chord button ---
-      const editBtn = document.createElement("button");
-      editBtn.className = "edit-chord-section no-drag";
-      editBtn.textContent = "Edit";
-      editBtn.title = "Edit chord";
-      editBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openCustomChordModalForEdit(sectionIndex, chordIndex);
-      });
-
-      // --- Remove chord button ---
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "remove-chord-section no-drag";
-      removeBtn.textContent = "×";
-      removeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        section.chords.splice(chordIndex, 1);
-        boardsEl.dataset.sections = JSON.stringify(sections);
-        renderSections();
-      });
-
-      card.appendChild(playBtn);
-      card.appendChild(editBtn);
-      card.appendChild(removeBtn);
-
-      chordsContainer.appendChild(card);
+      chordsContainer.appendChild(
+        buildCardElement(chord, {
+          instrument: currentInstrument,
+          interactive: true,
+          sections,
+          section,
+          sectionIndex,
+          chordIndex,
+        })
+      );
     });
 
     sectionEl.appendChild(chordsContainer);
@@ -2546,7 +2882,7 @@ function renderPdfPreview(pages, host) {
   });
 }
 
-function savePdfFromLayout(pages) {
+function savePdfFromLayout(pages, fileName = "chords.pdf") {
   const pdf = new jspdf.jsPDF("p", "mm", "a4");
 
   pages.forEach((placements, pageIndex) => {
@@ -2587,12 +2923,27 @@ function savePdfFromLayout(pages) {
     });
   });
 
-  pdf.save("chords.pdf");
+  pdf.save(fileName);
 }
 
-// PDF preview modal
-document.addEventListener("DOMContentLoaded", () => {
-  const openBtn = document.getElementById("downloadPdf");
+// ---- PDF preview modal ----
+//
+// The modal is shared by two producers of pages: the auto-flow export, which
+// rasterizes the board and slices it into bands, and the layout sheet, which
+// places composed blocks. Both are expressed as the same pair:
+//
+//   prepare()            -> an opaque context, awaited once per open. The
+//                           expensive step (html2canvas) belongs here.
+//   layout(ctx, scale)   -> pages of placements. Pure and cheap, so the scale
+//                           slider can re-run it on every input event.
+//
+// That split is the whole reason the slider stays responsive, and keeping it in
+// the shared controller means neither producer can accidentally re-rasterize.
+let pdfModal = null;
+
+function getPdfPreviewModal() {
+  if (pdfModal !== null) return pdfModal || null;
+
   const modal = document.getElementById("pdfPreviewModal");
   const closeBtn = document.getElementById("closePdfPreview");
   const pagesHost = document.getElementById("pdfPreviewPages");
@@ -2601,89 +2952,135 @@ document.addEventListener("DOMContentLoaded", () => {
   const scaleReset = document.getElementById("pdfScaleReset");
   const pageCount = document.getElementById("pdfPageCount");
   const exportBtn = document.getElementById("pdfExportConfirm");
-  if (!openBtn || !modal) return;
+  if (!modal || !pagesHost || !scaleInput || !exportBtn) {
+    pdfModal = false; // remember the failure; don't re-query on every click
+    return null;
+  }
 
-  let captures = [];
-  let pages = [];
-  let headings = [];
-  let captureToken = 0;
-
-  try {
-    const saved = Number(localStorage.getItem("cv-pdf-scale"));
-    if (saved >= 40 && saved <= 130) scaleInput.value = String(saved);
-  } catch (_) {}
+  // The session currently on screen. Null when the modal is closed.
+  let session = null;
+  let token = 0;
 
   const saveScale = () => {
+    if (!session) return;
     try {
-      localStorage.setItem("cv-pdf-scale", scaleInput.value);
+      localStorage.setItem(session.scaleKey, scaleInput.value);
     } catch (_) {}
   };
 
   const relayout = () => {
     const percent = Number(scaleInput.value);
-    scaleValue.textContent = `${percent}%`;
-    if (!captures.length) return;
-    pages = layoutPdfPages(captures, percent / 100, headings);
-    renderPdfPreview(pages, pagesHost);
-    pageCount.textContent = `${pages.length} page${
-      pages.length === 1 ? "" : "s"
-    }`;
+    if (scaleValue) scaleValue.textContent = `${percent}%`;
+    if (!session || !session.ctx) return;
+    session.pages = session.layout(session.ctx, percent / 100);
+    renderPdfPreview(session.pages, pagesHost);
+    if (pageCount) {
+      pageCount.textContent = `${session.pages.length} page${
+        session.pages.length === 1 ? "" : "s"
+      }`;
+    }
   };
 
   const close = () => {
-    captureToken += 1; // abandon a capture still in flight
+    token += 1; // abandon a prepare still in flight
     modal.style.display = "none";
     modal.setAttribute("aria-hidden", "true");
     pagesHost.innerHTML = "";
-    captures = [];
-    pages = [];
+    // Drop the captures: each is a full canvas plus a data URL, and a long
+    // session would otherwise hold every sheet it ever previewed.
+    session = null;
   };
-
-  openBtn.addEventListener("click", async () => {
-    modal.style.display = "block";
-    modal.setAttribute("aria-hidden", "false");
-    scaleValue.textContent = `${Number(scaleInput.value)}%`;
-    pageCount.textContent = "";
-    pagesHost.innerHTML = '<p class="pdf-preview-status">Rendering preview…</p>';
-    exportBtn.disabled = true;
-
-    headings = pdfHeadings();
-
-    const token = ++captureToken;
-    const captured = await capturePdfSections();
-    if (token !== captureToken) return; // closed or reopened while capturing
-
-    captures = captured;
-    exportBtn.disabled = captures.length === 0;
-    if (!captures.length) {
-      renderPdfPreview([], pagesHost);
-      return;
-    }
-    relayout();
-  });
 
   scaleInput.addEventListener("input", () => {
     saveScale();
     relayout();
   });
 
-  scaleReset.addEventListener("click", () => {
-    scaleInput.value = "100";
-    saveScale();
-    relayout();
-  });
+  if (scaleReset) {
+    scaleReset.addEventListener("click", () => {
+      scaleInput.value = "100";
+      saveScale();
+      relayout();
+    });
+  }
 
   exportBtn.addEventListener("click", () => {
-    if (pages.length) savePdfFromLayout(pages);
+    if (session && session.pages && session.pages.length) {
+      savePdfFromLayout(session.pages, session.fileName);
+    }
   });
 
-  closeBtn.addEventListener("click", close);
+  if (closeBtn) closeBtn.addEventListener("click", close);
   modal.addEventListener("click", (e) => {
     if (e.target === modal) close();
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modal.style.display === "block") close();
   });
+
+  pdfModal = {
+    async open({ prepare, layout, scaleKey, fileName }) {
+      session = {
+        layout,
+        scaleKey: scaleKey || "cv-pdf-scale",
+        fileName: fileName || "chords.pdf",
+        ctx: null,
+        pages: [],
+      };
+
+      try {
+        const saved = Number(localStorage.getItem(session.scaleKey));
+        if (saved >= 40 && saved <= 130) scaleInput.value = String(saved);
+      } catch (_) {}
+
+      modal.style.display = "block";
+      modal.setAttribute("aria-hidden", "false");
+      if (scaleValue) scaleValue.textContent = `${Number(scaleInput.value)}%`;
+      if (pageCount) pageCount.textContent = "";
+      pagesHost.innerHTML =
+        '<p class="pdf-preview-status">Rendering preview…</p>';
+      exportBtn.disabled = true;
+
+      const mine = ++token;
+      const ctx = await prepare();
+      // Closed, or reopened onto a different sheet, while we were rasterizing.
+      if (mine !== token || !session) return;
+
+      session.ctx = ctx;
+      const empty = !ctx || ctx.isEmpty;
+      exportBtn.disabled = empty;
+      if (empty) {
+        renderPdfPreview([], pagesHost);
+        return;
+      }
+      relayout();
+    },
+  };
+  return pdfModal;
+}
+
+function openPdfPreviewModal(opts) {
+  const ctl = getPdfPreviewModal();
+  if (ctl) ctl.open(opts);
+}
+
+// The auto-flow export: capture the board once, then slice it into pages.
+function openBoardPdfPreview() {
+  openPdfPreviewModal({
+    scaleKey: "cv-pdf-scale",
+    fileName: "chords.pdf",
+    prepare: async () => {
+      const headings = pdfHeadings();
+      const captures = await capturePdfSections();
+      return { captures, headings, isEmpty: captures.length === 0 };
+    },
+    layout: (ctx, scale) => layoutPdfPages(ctx.captures, scale, ctx.headings),
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const openBtn = document.getElementById("downloadPdf");
+  if (openBtn) openBtn.addEventListener("click", openBoardPdfPreview);
 });
 
 // Help modal controls
@@ -2705,7 +3102,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Instrument + Sub-tab state and UI
 let currentInstrument = "piano";
-let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat" };
+// Layout has no sub-tabs; the entry is a placeholder so setSubtab and
+// saveInstrumentState stay total over every instrument.
+let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat", layout: "page" };
 
 function loadInstrumentState() {
   try {
@@ -2778,6 +3177,8 @@ function updateTabsUI(opts = {}) {
   const pianoScaleEl = document.getElementById('pianoScale');
   const guitarStaffEl = document.getElementById('guitarStaff');
   const songMetaEl = document.getElementById('songMeta');
+  const layoutPanel = document.getElementById('layoutPanel');
+  const layoutControls = document.getElementById('layoutControls');
 
   // defaults
   if (boardsEl) boardsEl.style.display = 'none';
@@ -2793,6 +3194,8 @@ function updateTabsUI(opts = {}) {
   if (addSectionCta) addSectionCta.style.display = 'none';
   if (pianoScaleEl) pianoScaleEl.style.display = 'none';
   if (songMetaEl) songMetaEl.style.display = 'none';
+  if (layoutPanel) layoutPanel.style.display = 'none';
+  if (layoutControls) layoutControls.style.display = 'none';
   // The staff belongs to the guitar scale tab; main.js still decides whether
   // custom mode wants it, so only add/remove the class and leave display alone.
   if (guitarStaffEl) guitarStaffEl.classList.add('tab-hidden');
@@ -2840,6 +3243,13 @@ function updateTabsUI(opts = {}) {
     } else if (drumsControls) {
       drumsControls.style.display = 'inline-flex';
     }
+  } else if (currentInstrument === 'layout') {
+    // The sheet reads both boards rather than owning one, so it has to be
+    // refreshed every time it comes on screen — chords may have changed on
+    // either chord tab since it was last drawn.
+    if (layoutPanel) layoutPanel.style.display = 'flex';
+    if (layoutControls) layoutControls.style.display = 'inline-flex';
+    refreshLayout();
   }
 
   if (!(currentInstrument === 'drums' && currentSubtab.drums === 'metronome')) {
@@ -2857,6 +3267,19 @@ function isMetronomeViewActive() {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadInstrumentState();
+
+  // The layout sheet is the one place the two script worlds deliberately meet,
+  // so the coupling is an explicit hand-off rather than a shared global: it
+  // gets exactly these four functions and cannot reach anything else here.
+  // Injection rather than import also keeps the module graph one-directional.
+  initLayout({
+    readBoardState,
+    buildCardElement,
+    openPdfPreviewModal,
+    // Two-hands is a live toggle, not part of a chord, so the sheet has to ask
+    // rather than cache it: it decides how wide a piano block starts.
+    isTwoHandsMode: () => twoHandsMode,
+  });
 
   // Click handlers: instrument tabs
   document.querySelectorAll('.instrument-tabs .tab').forEach(btn => {
@@ -2881,7 +3304,7 @@ document.addEventListener('DOMContentLoaded', () => {
     instContainer.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
-      const order = ['piano','guitar','drums'];
+      const order = ['piano','guitar','drums','layout'];
       const idx = order.indexOf(currentInstrument);
       const next = e.key === 'ArrowRight' ? (idx + 1) % order.length : (idx - 1 + order.length) % order.length;
       setInstrument(order[next]);
