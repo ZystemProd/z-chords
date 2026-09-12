@@ -231,6 +231,141 @@ export function layoutBars(melody) {
   return bars;
 }
 
+// ---- Drums ----
+//
+// A beat is a melody with `clef: "drums"`. It is NOT a fifth notation system:
+// the events, the tick arithmetic, the bar splitting, the layout blocks and the
+// song file all work on it unchanged — which is the whole reason the plan put
+// drums on this model rather than inventing a grid format of its own.
+//
+// A voice is identified by its **General MIDI percussion note**, so `notes:
+// [{midi}]` keeps its existing meaning (something that sounds at that pitch)
+// and nothing downstream needs a drum-shaped special case. The staff position
+// and notehead are presentation, and live here only because the renderer and
+// the grid editor must agree on them.
+//
+// Positions are the standard drum-set mapping read against a treble clef:
+// kick in the bottom space, snare in the third space, cymbals at and above the
+// top line, cymbals with a cross notehead.
+export const DRUM_VOICES = [
+  { id: "crash", label: "Crash", midi: 49, key: "a/5", head: "x2" },
+  { id: "hihat", label: "Hi-hat", midi: 42, key: "g/5", head: "x2" },
+  { id: "ride", label: "Ride", midi: 51, key: "f/5", head: "x2" },
+  { id: "snare", label: "Snare", midi: 38, key: "c/5", head: null },
+  { id: "kick", label: "Kick", midi: 36, key: "f/4", head: null },
+];
+
+const DRUM_BY_MIDI = new Map(DRUM_VOICES.map((v) => [v.midi, v]));
+
+export function drumVoiceForMidi(midi) {
+  return DRUM_BY_MIDI.get(Math.round(midi)) || null;
+}
+
+export function isDrumMelody(melody) {
+  return !!melody && melody.clef === "drums";
+}
+
+// The grid's resolution. 16th notes is what a beat grid means in practice —
+// finer than that and the grid stops being readable, coarser and you cannot
+// write a straight 16th hat pattern.
+export const BEAT_STEP_DEN = 16;
+const STEP_TICKS = TICKS_PER_WHOLE / BEAT_STEP_DEN;
+
+export function stepsPerBar(timeSig) {
+  return Math.max(1, Math.round(barCapacityTicks(timeSig) / STEP_TICKS));
+}
+
+// How many grid columns a beat occupies: always whole bars, and at least one,
+// so an empty beat still presents a bar to click in.
+export function beatStepCount(melody) {
+  const per = stepsPerBar(melody.timeSig);
+  const ticks = totalTicks(melody);
+  const bars = Math.max(1, Math.ceil(ticks / (per * STEP_TICKS)));
+  return bars * per;
+}
+
+// events -> grid. Returns a Map of "voiceId" -> Set(stepIndex).
+//
+// Built by walking ticks rather than by counting events, because an event is
+// not necessarily one step: rests are merged into the longest legal durations
+// on the way out (see melodyFromGrid), so the event list and the grid columns
+// deliberately do not correspond one-to-one.
+export function gridFromMelody(melody) {
+  const grid = new Map(DRUM_VOICES.map((v) => [v.id, new Set()]));
+  let atTicks = 0;
+  (melody.events || []).forEach((event) => {
+    const step = Math.round(atTicks / STEP_TICKS);
+    if (!event.rest) {
+      (event.notes || []).forEach((n) => {
+        const voice = drumVoiceForMidi(n.midi);
+        if (voice) grid.get(voice.id).add(step);
+      });
+    }
+    atTicks += durationTicks(event.den, event.dots || 0);
+  });
+  return grid;
+}
+
+// grid -> events. The inverse, and the one that has real work to do: a run of
+// empty steps becomes the FEWEST legal rests rather than one rest per step,
+// which is the difference between a readable chart and a wall of 16th rests.
+//
+// Runs are clipped to the bar so a merged rest never crosses a barline — not
+// for correctness (layoutBars would split it anyway) but because the split
+// would come back as a *tied* pair, and a tied rest is not a thing.
+function hitsAt(grid, step) {
+  return DRUM_VOICES.filter((v) => {
+    const set = grid.get(v.id);
+    return set && set.has(step);
+  });
+}
+
+export function melodyFromGrid(melody, grid, totalSteps) {
+  const per = stepsPerBar(melody.timeSig);
+  const steps = Math.max(per, Math.round(totalSteps) || beatStepCount(melody));
+  const events = [];
+
+  let step = 0;
+  while (step < steps) {
+    const hits = hitsAt(grid, step);
+
+    // How far this column runs before the next hit, clipped to the end of its
+    // bar. Runs are clipped so nothing produced here crosses a barline: not for
+    // correctness (layoutBars would split it anyway) but because that split
+    // comes back as a *tied* pair, and neither a tied rest nor a tied drum hit
+    // is a thing — a tie across a barline would read as a second strike.
+    const barEnd = (Math.floor(step / per) + 1) * per;
+    let run = step + 1;
+    while (run < barEnd && run < steps && !hitsAt(grid, run).length) run += 1;
+    const parts = decomposeTicks((run - step) * STEP_TICKS);
+
+    if (hits.length) {
+      // A drum hit's written value is the gap to the next hit — that is what
+      // makes a hat on every off-8th read as a row of beamed 8ths instead of
+      // 16ths alternating with 16th rests. Where the gap needs more than one
+      // duration to express, the hit takes the first and the remainder becomes
+      // rests: percussion does not sustain, so it cannot be tied.
+      const [first, ...tail] = parts.length ? parts : [{ den: BEAT_STEP_DEN, dots: 0 }];
+      events.push({
+        den: first.den,
+        dots: first.dots,
+        rest: false,
+        notes: hits.map((v) => ({ midi: v.midi })),
+      });
+      tail.forEach((part) => {
+        events.push({ den: part.den, dots: part.dots, rest: true, notes: [] });
+      });
+    } else {
+      parts.forEach((part) => {
+        events.push({ den: part.den, dots: part.dots, rest: true, notes: [] });
+      });
+    }
+    step = run;
+  }
+
+  return { ...melody, events };
+}
+
 // ---- Pitch spelling ----
 //
 // Not full key-signature-aware engraving (that is real, solved complexity —

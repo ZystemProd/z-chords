@@ -11,6 +11,7 @@
 // file stays testable against fakes. One direction, no module cycle.
 
 import { createMelodyEditor, stopMelodyPlayback } from "./melody-editor.js";
+import { createDrumGridEditor, stopBeatPlayback } from "./drum-grid.js";
 import { createMelody, normalizeMelody } from "./melody-model.js";
 
 // Guitar melodies default to a staff with tab under it; piano to treble. The
@@ -32,6 +33,10 @@ const INSTRUMENT_DEFAULTS = {
       ["treble", "Treble only"],
     ],
   },
+  // A beat is board content on the drums board exactly like a melody is on the
+  // piano's. It has no clef choice: a kit is a kit, and the editor is a grid
+  // rather than a staff — see drum-grid.js for why that is the right input.
+  drums: { clef: "drums", clefOptions: null },
 };
 
 let deps = {
@@ -67,7 +72,7 @@ let els = null;
 let editor = null;
 // Which melody is open, per instrument — a cursor, not content, so it is never
 // saved. Same status as `activeSectionIndex` on the chord board.
-const activeId = { piano: null, guitar: null };
+const activeId = { piano: null, guitar: null, drums: null };
 
 export function initMelodyPanel(injected = {}) {
   deps = { ...deps, ...injected };
@@ -109,7 +114,7 @@ function addMelody(instrument) {
   const list = melodiesFor(instrument);
   const defaults = INSTRUMENT_DEFAULTS[instrument] || INSTRUMENT_DEFAULTS.piano;
   const melody = createMelody({ clef: defaults.clef });
-  melody.name = `Melody ${list.length + 1}`;
+  melody.name = `${instrument === "drums" ? "Beat" : "Melody"} ${list.length + 1}`;
   list.push(melody);
   activeId[instrument] = melody.id;
   save(instrument, list);
@@ -128,7 +133,10 @@ function renderList(instrument, list, current) {
 
   const head = document.createElement("div");
   head.className = "melody-list-head";
-  head.appendChild(mkButton("+ New melody", "Start a new melody", () => addMelody(instrument)));
+  const noun = instrument === "drums" ? "beat" : "melody";
+  head.appendChild(
+    mkButton(`+ New ${noun}`, `Start a new ${noun}`, () => addMelody(instrument))
+  );
   els.list.appendChild(head);
 
   list.forEach((melody) => {
@@ -169,6 +177,10 @@ function renderList(instrument, list, current) {
   });
 }
 
+function panelInstrument(instrument) {
+  return INSTRUMENT_DEFAULTS[instrument] ? instrument : "piano";
+}
+
 function render(instrument) {
   if (!els || !els.panel) return;
   const list = melodiesFor(instrument);
@@ -196,7 +208,11 @@ function render(instrument) {
   }
 
   const defaults = INSTRUMENT_DEFAULTS[instrument] || INSTRUMENT_DEFAULTS.piano;
-  editor = createMelodyEditor(els.stage, current, {
+  // Which editor is chosen by the CLEF, not by the instrument: a beat is a
+  // melody with clef "drums", and both editors expose the same contract, so
+  // everything around this line is identical for either.
+  const build = current.clef === "drums" ? createDrumGridEditor : createMelodyEditor;
+  editor = build(els.stage, current, {
     clefOptions: defaults.clefOptions,
     scale: readZoom(),
     onScaleChange: writeZoom,
@@ -215,11 +231,13 @@ function render(instrument) {
   });
 }
 
-// Called from updateTabsUI whenever the melody sub-tab comes on screen.
+// Called from updateTabsUI whenever the melody (or drums→beat) sub-tab comes on
+// screen.
 export function showMelodyPanel(instrument) {
-  render(instrument === "guitar" ? "guitar" : "piano");
+  render(panelInstrument(instrument));
 }
 
 export function hideMelodyPanel() {
   stopMelodyPlayback();
+  stopBeatPlayback();
 }

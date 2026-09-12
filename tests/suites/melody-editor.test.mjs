@@ -317,6 +317,146 @@ export default async function run({ browser, origin, t }) {
     await page.close();
   }
 
+  // --- drums→beat: the same panel, a grid editor instead of a staff ---
+  //
+  // A beat is a melody with clef "drums", stored on the drums board and placed
+  // on the sheet by reference like any other. These checks exist because that
+  // claim is only worth something if a beat genuinely goes down all the same
+  // paths — storage, reload, the sheet — rather than looking similar.
+  {
+    const page = await openApp(browser, origin, {
+      state: {
+        "cv-instrument": "drums",
+        "cv-subtabs": JSON.stringify({ drums: "beat" }),
+      },
+    });
+    const initial = await page.evaluate(() => ({
+      panelShown:
+        getComputedStyle(document.getElementById("melodyPanel")).display !== "none",
+      boardHidden: getComputedStyle(document.getElementById("boards")).display === "none",
+      emptyHint: !!document.querySelector(".melody-empty"),
+    }));
+    t.ok("the beat sub-tab shows the melody panel", initial.panelShown);
+    t.ok("the chord board is not also on screen", initial.boardHidden);
+    t.ok("an empty drums board offers to start one", initial.emptyHint);
+
+    await page.evaluate(() => document.querySelector(".melody-list-head button").click());
+    await new Promise((r) => setTimeout(r, 300));
+
+    const built = await page.evaluate(() => ({
+      rows: [...document.querySelectorAll(".drum-row-label")].map((n) => n.textContent),
+      cells: document.querySelectorAll(".drum-cell").length,
+      // The grid editor, not the staff editor — picked by clef.
+      staffEditors: document.querySelectorAll(".melody-editor-staff").length,
+    }));
+    t.ok("a new beat gets a row per kit voice", built.rows.length === 5, JSON.stringify(built.rows));
+    t.ok("one bar of 4/4 is 16 columns per row", built.cells === 5 * 16, `${built.cells}`);
+    t.ok("the beat tab does not use the staff editor", built.staffEditors === 0);
+
+    // Place a rock beat by clicking, the way a person would.
+    await page.evaluate(() => {
+      const click = (voice, step) =>
+        document
+          .querySelector(`.drum-cell[data-voice="${voice}"][data-step="${step}"]`)
+          .click();
+      for (let s = 0; s < 16; s += 2) click("hihat", s);
+      click("kick", 0);
+      click("kick", 8);
+      click("snare", 4);
+      click("snare", 12);
+    });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const stored = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("cv-melodies-drums") || "[]")
+    );
+    t.ok("the beat is stored on the drums board", stored.length === 1, `${stored.length}`);
+    t.ok("it is stored as a drums melody", stored[0] && stored[0].clef === "drums");
+    // Eight 8ths, because a hit is written as the gap to the next hit — the
+    // same thing melody-model pins, checked here through the real UI.
+    t.ok(
+      "clicks become events, not one per cell",
+      stored[0] && stored[0].events.length === 8,
+      `${stored[0] && stored[0].events.length} events for 12 clicks`
+    );
+
+    await page.reload({ waitUntil: "networkidle0" });
+    await new Promise((r) => setTimeout(r, 600));
+    const afterReload = await page.evaluate(() => ({
+      on: document.querySelectorAll(".drum-cell.is-on").length,
+      rows: document.querySelectorAll(".drum-row-label").length,
+    }));
+    t.ok(
+      "every hit comes back after a reload",
+      afterReload.on === 12,
+      `${afterReload.on} of 12 cells lit`
+    );
+
+    // Clicking a lit cell turns it off again — the grid is a toggle, and a
+    // round trip through events must not make a hit sticky.
+    await page.evaluate(() =>
+      document.querySelector('.drum-cell[data-voice="kick"][data-step="0"]').click()
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    const toggled = await page.evaluate(
+      () => document.querySelectorAll(".drum-cell.is-on").length
+    );
+    t.ok("clicking a lit cell clears it", toggled === 11, `${toggled}`);
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- a beat reaches the sheet like any other board content ---
+  {
+    const beat = {
+      id: "b_rock",
+      name: "Rock 1",
+      clef: "drums",
+      timeSig: { num: 4, den: 4 },
+      keyRoot: "C",
+      tempo: 100,
+      events: [
+        { den: 8, dots: 0, rest: false, notes: [{ midi: 42 }, { midi: 36 }] },
+        { den: 8, dots: 0, rest: false, notes: [{ midi: 42 }] },
+        { den: 8, dots: 0, rest: false, notes: [{ midi: 42 }, { midi: 38 }] },
+        { den: 8, dots: 0, rest: false, notes: [{ midi: 42 }] },
+      ],
+    };
+    const page = await openApp(browser, origin, {
+      state: {
+        "cv-instrument": "layout",
+        "cv-melodies-drums": JSON.stringify([beat]),
+        "cv-layout": layoutDoc([
+          {
+            id: "b_blk",
+            type: "melody",
+            span: 12,
+            ref: { instrument: "drums", melodyId: "b_rock" },
+          },
+        ]),
+      },
+    });
+    const info = await page.evaluate(() => ({
+      drawn: document.querySelectorAll("#layoutFlow .ms-note").length,
+      missing: document.querySelectorAll("#layoutFlow .lb-missing").length,
+      placeholder: document.querySelectorAll("#layoutFlow .ms-placeholder").length,
+      // The drums board has no sections, so its library group only exists if
+      // emptiness is judged on the items built rather than on section count.
+      groups: [...document.querySelectorAll("#layoutSidebar .layout-lib-title")].map(
+        (n) => n.textContent
+      ),
+    }));
+    t.ok("a beat block draws the referenced beat", info.drawn === 4, JSON.stringify(info));
+    t.ok("it is real notation, not the placeholder", info.placeholder === 0 && info.missing === 0);
+    t.ok(
+      "the drums board appears in the library despite having no sections",
+      info.groups.includes("Drums"),
+      JSON.stringify(info.groups)
+    );
+    t.noErrors(page);
+    await page.close();
+  }
+
   // --- the sheet renders a melody by reference, and does not edit it ---
   {
     const page = await openApp(browser, origin, {

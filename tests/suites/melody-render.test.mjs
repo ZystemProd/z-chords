@@ -42,43 +42,96 @@ export default async function run({ browser, origin, t }) {
   await page.waitForFunction("window.__melodyPreviewReady === true", { timeout: 8000 });
   await new Promise((r) => setTimeout(r, 200));
 
-  const report = await page.evaluate(() => {
+  const report = await page.evaluate(async () => {
     const out = [];
 
-    // How far any painted element extends beyond the SVG's own declared box.
+    // Does anything paint outside the SVG's own declared box?
     //
-    // This was a canvas rasterization — serialize the SVG, draw it into a
-    // padded canvas, scan the padding for ink. That check was STRUCTURALLY
-    // INCAPABLE of catching what it was written for: an SVG loaded through an
-    // <img> is clipped to its own viewBox, so ink outside the viewBox can
-    // never reach the padding being scanned. It passed a guitar melody whose
-    // tab stave was painted 30px below the SVG's declared height.
+    // This check has been wrong twice, in opposite directions, and both
+    // failures are worth keeping in mind before "simplifying" it:
     //
-    // Measuring the DOM catches it, and is trustworthy again now that VexFlow
-    // draws paths: the reason rasterization was reached for in the first place
-    // was that getBoundingClientRect on an SVG <text> set in a music font
-    // reports the FONT's line box rather than the glyph's ink. There are no
-    // text glyphs here any more, so the boxes mean what they say.
-    function paintedOverflow(svg) {
-      const box = svg.getBoundingClientRect();
+    //  1. It rasterized the SVG as-is and scanned a padded canvas for ink.
+    //     STRUCTURALLY INCAPABLE of catching anything: an SVG loaded through an
+    //     <img> is clipped to its own viewBox, so ink outside can never reach
+    //     the padding. It passed a guitar melody whose tab stave was painted
+    //     30px below the declared height.
+    //  2. It measured the DOM with getBoundingClientRect, on the stated
+    //     assumption that "VexFlow draws paths, so the boxes mean what they
+    //     say". VexFlow 5 draws every glyph as <text> in Bravura, and a text
+    //     element's box is the FONT'S LINE BOX — a 10px notehead measures
+    //     160px tall. It reported ~38px of overflow on notation that is
+    //     perfectly inside its box, and it had only been passing because the
+    //     renderer was inflating the SVG using that same wrong number.
+    //
+    // So: rasterize, but EXPAND THE VIEWBOX FIRST. That is what fixes (1) —
+    // the clipping region is the viewBox, so widening it makes the surrounding
+    // area renderable, and ink out there lands in the scanned band. And it is
+    // immune to (2), because pixels are pixels: a font's line box paints
+    // nothing.
+    async function paintedOverflow(svg) {
+      const PAD = 40;
+      const vb = (svg.getAttribute("viewBox") || "").split(/\s+/).map(Number);
+      if (vb.length !== 4 || vb.some((n) => !Number.isFinite(n)))
+        return { over: 0, culprit: "no viewBox" };
+      const [vx, vy, vw, vh] = vb;
+
+      const clone = svg.cloneNode(true);
+      clone.setAttribute(
+        "viewBox",
+        `${vx - PAD} ${vy - PAD} ${vw + PAD * 2} ${vh + PAD * 2}`
+      );
+      clone.setAttribute("width", String(vw + PAD * 2));
+      clone.setAttribute("height", String(vh + PAD * 2));
+      // Standalone in an <img> the page's CSS does not apply, so the colours
+      // come from VexFlow's own presentation attributes on the root — black on
+      // a white canvas, which is exactly what we want to scan for.
+      const url =
+        "data:image/svg+xml;charset=utf-8," +
+        encodeURIComponent(new XMLSerializer().serializeToString(clone));
+
+      const img = new Image();
+      img.src = url;
+      try {
+        await img.decode();
+      } catch (_) {
+        return { over: 0, culprit: "could not rasterize" };
+      }
+
+      const c = document.createElement("canvas");
+      c.width = vw + PAD * 2;
+      c.height = vh + PAD * 2;
+      const cx = c.getContext("2d");
+      cx.fillStyle = "#fff";
+      cx.fillRect(0, 0, c.width, c.height);
+      cx.drawImage(img, 0, 0);
+      const data = cx.getImageData(0, 0, c.width, c.height).data;
+
+      const inked = (x, y) => {
+        const i = (y * c.width + x) * 4;
+        // Anti-aliasing puts faint grey at every edge; only count real ink.
+        return data[i] < 200 || data[i + 1] < 200 || data[i + 2] < 200;
+      };
+
+      // How far into the padding band ink reaches, on any side.
       let worst = 0;
       let culprit = null;
-      for (const e of svg.querySelectorAll("*")) {
-        const b = e.getBoundingClientRect();
-        if (b.width === 0 && b.height === 0) continue;
-        const over = Math.max(
-          box.top - b.top,
-          b.bottom - box.bottom,
-          box.left - b.left,
-          b.right - box.right
-        );
-        if (over > worst) {
-          worst = over;
-          culprit = `${e.tagName}.${e.getAttribute("class") || "-"}`;
+      const note = (d, where) => {
+        if (d > worst) {
+          worst = d;
+          culprit = where;
+        }
+      };
+      for (let y = 0; y < c.height; y += 1) {
+        for (let x = 0; x < c.width; x += 1) {
+          if (!inked(x, y)) continue;
+          if (x < PAD) note(PAD - x, "left");
+          else if (x >= c.width - PAD) note(x - (c.width - PAD) + 1, "right");
+          if (y < PAD) note(PAD - y, "top");
+          else if (y >= c.height - PAD) note(y - (c.height - PAD) + 1, "bottom");
         }
       }
-      // Sub-pixel slop from stroke widths is not a bug.
-      return { over: worst > 1 ? Math.round(worst) : 0, culprit };
+      // A pixel of anti-aliasing at the boundary is not a bug.
+      return { over: worst > 2 ? worst : 0, culprit };
     }
 
     for (const c of document.querySelectorAll(".case")) {
@@ -130,6 +183,12 @@ export default async function run({ browser, origin, t }) {
         // text query returns noteheads and clefs too. Fret numbers live on the
         // tab notes specifically.
         tabNums: [...svg.querySelectorAll(".vf-tabnote text")].map((n) => n.textContent),
+        // A cross notehead is its own SMuFL glyph, so it is distinguishable
+        // from a normal one by codepoint. U+E0A9 is noteheadXBlack.
+        crossHeads: [...svg.querySelectorAll("text")].filter((n) =>
+          (n.textContent || "").includes("")
+        ).length,
+        accidentals: svg.querySelectorAll(".vf-accidental").length,
         paintedCount: painted.length,
         notOverridden,
         hasGeometry:
@@ -138,7 +197,7 @@ export default async function run({ browser, origin, t }) {
           svg.hasAttribute("data-step-px"),
         stepPx: +svg.getAttribute("data-step-px"),
         noteXs: stamped.map((g) => Math.round(g.getBoundingClientRect().left)),
-        overflow: paintedOverflow(svg),
+        overflow: await paintedOverflow(svg),
       });
     }
     return out;
@@ -265,10 +324,53 @@ export default async function run({ browser, origin, t }) {
   }
 
   t.ok("empty-melody: renders a staff and no notes", expectCase("empty-melody").stamped === 0);
-  t.ok(
-    "drums-placeholder: renders nothing but the placeholder",
-    expectCase("drums-placeholder").stamped === 0
-  );
+
+  // Drums are the same model with clef "drums", so the checks that matter are
+  // the ones where a drum event is NOT like a pitched one.
+  {
+    const r = expectCase("drums-beat");
+    t.ok("drums-beat: draws real notation, not a placeholder", !r.placeholder);
+    t.ok(
+      "drums-beat: one stamped item per event",
+      r.events === 4 && r.notes === 4,
+      `${r.events} events, ${r.notes} notes`
+    );
+    t.ok("drums-beat: eighths are beamed", r.beams >= 1, `${r.beams}`);
+    t.ok(
+      "drums-beat: cymbals get a cross notehead",
+      r.crossHeads >= 4,
+      `${r.crossHeads} cross noteheads for 4 hi-hat hits`
+    );
+    // The failure this guards is specific: a GM percussion number read as a
+    // pitch. Kick 36 would be C2 — four ledger lines below a treble staff —
+    // which shows up as ink outside the box the staff was sized for.
+    t.ok(
+      "drums-beat: nothing is placed as if its GM number were a pitch",
+      r.overflow.over === 0,
+      `${r.overflow.culprit} extends ${r.overflow.over}px beyond the SVG`
+    );
+    t.ok(
+      "drums-beat: no accidentals on a kit",
+      r.accidentals === 0,
+      `${r.accidentals} accidentals drawn`
+    );
+  }
+  {
+    const r = expectCase("drums-empty");
+    t.ok("drums-empty: an empty beat still draws a staff", !r.placeholder && r.stamped === 0);
+  }
+
+  // The degraded path must still BE a path: this is the only case that reaches
+  // the placeholder now that drums render real notation, and without it the
+  // `if (r.placeholder)` branch above would silently stop executing.
+  {
+    const r = expectCase("library-unavailable");
+    t.ok(
+      "library-unavailable: falls back to a readable placeholder",
+      r.placeholder === true,
+      "no placeholder drawn when VexFlow is missing"
+    );
+  }
 
   if (errors.length) t.ok("no JS errors", false, errors.join(" | "));
   else t.ok("no JS errors", true);

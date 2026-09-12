@@ -575,6 +575,11 @@ function buildSongFile() {
   BOARD_INSTRUMENTS.forEach((inst) => {
     boards[inst] = readBoardState(inst);
   });
+  // The drums board holds beats and nothing else — no chords, no title, no
+  // transpose — so it is written as a melodies-only board rather than pushed
+  // through BOARD_INSTRUMENTS, which would also seed it with chord-board keys
+  // (and hand `migrateSharedSections` a third board to copy legacy chords into).
+  boards.drums = { melodies: readMelodies("drums") };
   const song = {
     format: SONG_FILE_FORMAT,
     version: SONG_FILE_VERSION,
@@ -636,6 +641,11 @@ function applySongFile(song) {
     throw new Error("Not a Chord Viewer song file.");
 
   BOARD_INSTRUMENTS.forEach((inst) => writeBoardState(inst, song.boards[inst]));
+  // Same rule as melodies inside a chord board: a file without drums leaves the
+  // beats alone rather than clearing them, so loading a song saved before beats
+  // existed does not wipe them.
+  const drums = song.boards.drums;
+  if (drums && Array.isArray(drums.melodies)) writeMelodies("drums", drums.melodies);
   const capo = Number(song.capo);
   if (Number.isFinite(capo)) setCapo(capo);
 
@@ -3285,7 +3295,6 @@ function updateTabsUI(opts = {}) {
   const pianoControls = document.getElementById('pianoChordControls');
   const pianoScaleControls = document.getElementById('pianoScaleControls');
   const capoControls = document.getElementById('guitarCapoControls');
-  const drumsControls = document.getElementById('drumsControls');
   const metronomeControls = document.getElementById('metronomeControls');
   const metronomePanel = document.getElementById('metronomePanel');
   const addSectionCta = document.getElementById('addSectionCta');
@@ -3307,7 +3316,6 @@ function updateTabsUI(opts = {}) {
   if (pianoControls) pianoControls.style.display = 'none';
   if (pianoScaleControls) pianoScaleControls.style.display = 'none';
   if (capoControls) capoControls.style.display = 'none';
-  if (drumsControls) drumsControls.style.display = 'none';
   if (metronomeControls) metronomeControls.style.display = 'none';
   if (metronomePanel) metronomePanel.style.display = 'none';
   if (handModeToggle) handModeToggle.style.display = 'none';
@@ -3368,8 +3376,13 @@ function updateTabsUI(opts = {}) {
     if (sub === 'metronome') {
       if (metronomeControls) metronomeControls.style.display = 'inline-flex';
       if (metronomePanel) metronomePanel.style.display = 'block';
-    } else if (drumsControls) {
-      drumsControls.style.display = 'inline-flex';
+    } else {
+      // The Beat tab is the melody panel with a grid editor instead of a staff:
+      // a beat is board content on the drums board, stored and referenced
+      // exactly like a melody, so it reuses the panel rather than getting a
+      // parallel one. The old drumsControls placeholder is gone with it.
+      if (melodyPanel) melodyPanel.style.display = 'flex';
+      showMelodyPanel('drums');
     }
   } else if (currentInstrument === 'layout') {
     // The sheet reads both boards rather than owning one, so it has to be
@@ -3386,7 +3399,12 @@ function updateTabsUI(opts = {}) {
   // A playing melody has to stop when you leave its tab, for the same reason
   // the metronome does — its notes are scheduled timers that would otherwise
   // keep firing over whatever tab you switched to.
-  if (currentSubtab[currentInstrument] !== 'melody') hideMelodyPanel();
+  // The panel is on screen for piano→melody, guitar→melody AND drums→beat, so
+  // "not the melody sub-tab" is no longer the right test — on the Beat tab it
+  // would stop playback the instant you started it.
+  const panelSub =
+    currentInstrument === 'drums' ? 'beat' : 'melody';
+  if (currentSubtab[currentInstrument] !== panelSub) hideMelodyPanel();
 
   // Move the animated highlights
   positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), true);
@@ -3872,35 +3890,10 @@ function setupMetronomeUI() {
   });
 }
 
-// Drums placeholder controls + metronome wiring
+// The drums Play/Clear/Tempo placeholder that used to live here is gone: the
+// Beat tab is a real grid editor now and owns those controls itself, against
+// the beat it is editing rather than against a number in the DOM.
 document.addEventListener('DOMContentLoaded', () => {
-  const playBtn = document.getElementById('drumsPlayStop');
-  const clearBtn = document.getElementById('drumsClear');
-  const tempoDown = document.getElementById('tempoDown');
-  const tempoUp = document.getElementById('tempoUp');
-  const tempoVal = document.getElementById('tempoValue');
-  let tempo = 120;
-  if (tempoVal) tempo = Number(tempoVal.textContent || '120') || 120;
-
-  if (playBtn) playBtn.addEventListener('click', () => {
-    const pressed = playBtn.getAttribute('aria-pressed') === 'true';
-    const next = !pressed;
-    playBtn.setAttribute('aria-pressed', String(next));
-    playBtn.textContent = next ? 'Stop' : 'Play';
-  });
-  if (clearBtn) clearBtn.addEventListener('click', () => {
-    // Placeholder – integrate with drum grid when available
-    console.log('Drums cleared');
-  });
-  if (tempoDown) tempoDown.addEventListener('click', () => {
-    tempo = Math.max(20, tempo - 5);
-    if (tempoVal) tempoVal.textContent = String(tempo);
-  });
-  if (tempoUp) tempoUp.addEventListener('click', () => {
-    tempo = Math.min(260, tempo + 5);
-    if (tempoVal) tempoVal.textContent = String(tempo);
-  });
-
   setupMetronomeUI();
 });
 

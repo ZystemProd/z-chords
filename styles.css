@@ -2893,6 +2893,98 @@ body.light-mode .metronome-led {
   font-weight: 700;
 }
 
+/* ---- Beat grid (drums→beat) ---- */
+
+.drum-grid-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.drum-grid-controls .drum-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.drum-grid-controls .drum-bars-value {
+  min-width: 48px;
+  text-align: center;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.drum-grid-controls .drum-tempo {
+  width: 66px;
+  /* A bare number input keeps the UA's white field, which is a bright hole in
+     dark mode. Every other control here is themed, so this must be too. */
+  background: var(--input-bg, transparent);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+/* The live staff above the grid. A wide pattern outgrows the panel, so it
+   scrolls rather than shrinking the notation to illegibility. */
+.drum-notation {
+  overflow-x: auto;
+  margin-bottom: 10px;
+  min-height: 1px;
+}
+
+.drum-grid {
+  display: grid;
+  gap: 3px;
+  align-items: center;
+  /* A many-bar pattern is wider than the panel; scroll it rather than letting
+     the cells shrink to unclickable slivers. */
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.drum-row-label {
+  padding-right: 10px;
+  font-size: 0.85em;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.drum-cell {
+  /* Square cells whatever the bar count, so the grid reads as a grid. */
+  aspect-ratio: 1;
+  min-width: 18px;
+  padding: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The beat and bar marks are what stop sixteen identical boxes from being
+   uncountable — the grid's one real legibility problem. */
+.drum-cell.is-beat {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.drum-cell.is-barstart {
+  background: rgba(127, 127, 127, 0.12);
+  border-left-width: 2px;
+  border-left-color: var(--text);
+}
+
+.drum-cell.is-on {
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+}
+
+.drum-cell:focus-visible {
+  outline: 2px solid var(--button-bg);
+  outline-offset: 1px;
+}
+
 /* The staff IS the editing surface — click to add, click a note to select — so
    it is focusable and shows focus, but only when reached deliberately. */
 .melody-editor-staff {

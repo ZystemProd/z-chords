@@ -149,8 +149,44 @@
   }), {}, true);
   host.lastChild.classList.add("pdf-capture");
 
-  // 12. Drums clef placeholder.
-  addCase("drums-placeholder", createMelody({ clef: "drums" }), {});
+  // 12. A drum beat. Cymbals take a cross notehead and every voice sits at its
+  // own fixed staff position, so this case pins that "midi" on a drums melody
+  // is read as a GM percussion VOICE rather than as a pitch — reading 36 as a
+  // C2 would put the kick four ledger lines below the staff.
+  addCase("drums-beat", createMelody({
+    clef: "drums", timeSig: { num: 4, den: 4 },
+    events: [
+      { den: 8, notes: [{ midi: 42 }, { midi: 36 }] }, // hat + kick
+      { den: 8, notes: [{ midi: 42 }] },
+      { den: 8, notes: [{ midi: 42 }, { midi: 38 }] }, // hat + snare
+      { den: 8, notes: [{ midi: 42 }] },
+    ],
+  }), {});
+
+  // 12b. An empty beat still draws a percussion staff rather than a placeholder.
+  addCase("drums-empty", createMelody({ clef: "drums" }), {});
+
+  // 12c. The degraded path, with VexFlow temporarily out of reach. This used to
+  // be covered incidentally by the drums case back when drums rendered a
+  // placeholder; now that drums draw real notation, nothing would exercise the
+  // fallback at all and the suite's placeholder branch would quietly stop
+  // running. The app loads VexFlow from a CDN, so "blocked or offline" is a
+  // real state, not a hypothetical one.
+  {
+    const real = window.VexFlow;
+    const realVex = window.Vex;
+    window.VexFlow = undefined;
+    window.Vex = undefined;
+    try {
+      addCase("library-unavailable", createMelody({
+        clef: "treble", timeSig: { num: 4, den: 4 },
+        events: [{ den: 4, notes: [{ midi: 60 }] }],
+      }), {});
+    } finally {
+      window.VexFlow = real;
+      window.Vex = realVex;
+    }
+  }
 
   // 13. Proportional spacing: a clean progression of durations, same pitch,
   // no accidentals. An 8-beat bar (well over the 4+8+16+32+64=124 ticks

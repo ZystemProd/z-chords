@@ -23,6 +23,12 @@ import {
   assignTab,
   melodyPlaybackSchedule,
   totalTicks,
+  DRUM_VOICES,
+  gridFromMelody,
+  melodyFromGrid,
+  stepsPerBar,
+  beatStepCount,
+  drumVoiceForMidi,
 } from "../../melody-model.js";
 
 export const name = "Melody model";
@@ -236,5 +242,70 @@ export default async function run({ t }) {
     // The middle event is a rest -- itself a quarter note -- so the note-to-note
     // gap spans two quarter notes' worth of time, not one.
     t.near("note-to-rest-to-note gap is two quarter notes at 120bpm", sched[1].atMs - sched[0].atMs, 1000, 0.01, "ms");
+  }
+
+  // ---- Drums: the grid is a view, the events are the storage ----
+  //
+  // The round trip is the whole contract. The grid editor rebuilds the melody
+  // from the grid on every single click, so any hit that does not survive
+  // grid -> events -> grid is a hit the user watches disappear as they place
+  // it. This is also where the non-obvious half of melodyFromGrid lives: a hit
+  // is written with the duration of the GAP to the next hit, not as a 16th, so
+  // the event count is deliberately not the hit count.
+  {
+    const beat = createMelody({ clef: "drums", timeSig: { num: 4, den: 4 } });
+    t.ok("a 4/4 bar is 16 grid steps", stepsPerBar(beat.timeSig) === 16, `${stepsPerBar(beat.timeSig)}`);
+
+    const grid = new Map(DRUM_VOICES.map((v) => [v.id, new Set()]));
+    for (let s = 0; s < 16; s += 2) grid.get("hihat").add(s);
+    grid.get("kick").add(0);
+    grid.get("kick").add(8);
+    grid.get("snare").add(4);
+    grid.get("snare").add(12);
+
+    const built = melodyFromGrid(beat, grid, 16);
+    const back = gridFromMelody(built);
+    const seq = (id) => [...back.get(id)].sort((a, b) => a - b).join(",");
+    t.ok("hi-hat survives the round trip", seq("hihat") === "0,2,4,6,8,10,12,14", seq("hihat"));
+    t.ok("kick survives the round trip", seq("kick") === "0,8", seq("kick"));
+    t.ok("snare survives the round trip", seq("snare") === "4,12", seq("snare"));
+    t.ok("an untouched voice stays empty", seq("ride") === "", seq("ride"));
+
+    // A straight 8th hat is written as EIGHTHS, not as 16ths separated by 16th
+    // rests -- eight events for a bar, and no rests at all.
+    t.ok("a hit takes the duration of the gap to the next hit", built.events.length === 8, `${built.events.length} events`);
+    t.ok("a fully covered bar needs no rests", built.events.every((e) => !e.rest), JSON.stringify(built.events.map((e) => e.rest)));
+    t.ok("the bar still totals one whole note", totalTicks(built) === TICKS_PER_WHOLE, `${totalTicks(built)}`);
+
+    // Two voices on one step are one event with two notes -- that is what lets
+    // a kick and a hat share a stem instead of being written as two columns.
+    t.ok("simultaneous voices become one event", built.events[0].notes.length === 2, JSON.stringify(built.events[0].notes));
+  }
+
+  {
+    // A sparse bar: one kick on beat 1 and nothing else. The rest of the bar
+    // must come back as the FEWEST legal rests, not fifteen sixteenth rests.
+    const beat = createMelody({ clef: "drums", timeSig: { num: 4, den: 4 } });
+    const grid = new Map(DRUM_VOICES.map((v) => [v.id, new Set()]));
+    grid.get("kick").add(0);
+    const built = melodyFromGrid(beat, grid, 16);
+    t.ok("an empty run is merged into few rests", built.events.length <= 4, `${built.events.length} events for one kick in a bar`);
+    t.ok("a sparse bar still totals one whole note", totalTicks(built) === TICKS_PER_WHOLE, `${totalTicks(built)}`);
+    t.ok("the single kick survives", [...gridFromMelody(built).get("kick")].join(",") === "0");
+  }
+
+  {
+    // Voice identity is the GM percussion number, which is what lets a beat
+    // ride through normalizeMelody, the song file and the layout sheet as an
+    // ordinary melody with no drum-shaped special case anywhere.
+    t.ok("kick is GM 36", drumVoiceForMidi(36) && drumVoiceForMidi(36).id === "kick");
+    t.ok("a pitch that is not a kit voice maps to nothing", drumVoiceForMidi(60) === null);
+    const beat = normalizeMelody({
+      clef: "drums",
+      timeSig: { num: 4, den: 4 },
+      events: [{ den: 8, dots: 0, rest: false, notes: [{ midi: 42 }, { midi: 36 }] }],
+    });
+    t.ok("a beat survives normalizeMelody", beat.clef === "drums" && beat.events.length === 1, JSON.stringify(beat));
+    t.ok("an empty beat still offers a bar to click in", beatStepCount(createMelody({ clef: "drums" })) === 16, `${beatStepCount(createMelody({ clef: "drums" }))}`);
   }
 }

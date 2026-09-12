@@ -250,17 +250,8 @@
                         <button id="updateGuitar">Update</button>
                     </div>
 
-                    <!-- Drums → Beat (placeholder) -->
-                    <div id="drumsControls" class="control-group" style="display:none;">
-                        <button id="drumsPlayStop" aria-pressed="false">Play</button>
-                        <button id="drumsClear">Clear</button>
-                        <div class="transpose-group" role="group" aria-label="Tempo">
-                            <span class="group-label" style="margin-right:6px;">Tempo</span>
-                            <button id="tempoDown" class="stepper-btn" type="button" aria-label="Decrease tempo" title="Tempo -">&minus;</button>
-                            <span id="tempoValue" class="stepper-value" aria-live="polite" aria-atomic="true">120</span>
-                            <button id="tempoUp" class="stepper-btn" type="button" aria-label="Increase tempo" title="Tempo +">+</button>
-                        </div>
-                    </div>
+                    <!-- Drums → Beat has no control group: the grid editor in
+                         #melodyPanel owns its own transport and bar controls. -->
 
                     <!-- Drums → Metronome -->
                     <div id="metronomeControls" class="control-group metronome-controls" style="display:none;">

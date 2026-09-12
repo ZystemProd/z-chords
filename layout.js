@@ -95,6 +95,10 @@ function readBoards() {
   boards = {
     piano: deps.readBoardState("piano"),
     guitar: deps.readBoardState("guitar"),
+    // Drums carries beats and no chords, but it is a board like any other as
+    // far as this tab is concerned: blocks reference its content by id exactly
+    // the same way.
+    drums: deps.readBoardState("drums"),
   };
 }
 
@@ -819,11 +823,14 @@ function renderLibrary() {
 
   const groups = [];
 
-  ["piano", "guitar"].forEach((instrument) => {
+  const GROUP_TITLES = { piano: "Piano", guitar: "Guitar", drums: "Drums" };
+
+  ["piano", "guitar", "drums"].forEach((instrument) => {
     const board = boards[instrument];
     const sections = (board && board.sections) || [];
-    if (!sections.length) return;
-
+    // Emptiness is decided at the END, on the items actually built: the drums
+    // board never has sections, and testing for those here would hide its beats
+    // entirely.
     const items = [];
     sections.forEach((section) => {
       if (!section || !section.id) return;
@@ -848,19 +855,21 @@ function renderLibrary() {
 
     // Melodies sit alongside that board's sections because they are the same
     // kind of thing: content authored on the instrument's own tab, placed here
-    // by reference. Written on piano→melody or guitar→melody.
+    // by reference. Written on piano→melody, guitar→melody or drums→beat.
     ((board && board.melodies) || []).forEach((melody) => {
       if (!melody || !melody.id) return;
       const n = (melody.events || []).length;
+      const kind = melody.clef === "drums" ? "Beat" : "Melody";
       items.push(
-        libraryItem(melody.name || "Melody", `${n} event${n === 1 ? "" : "s"}`, {
+        libraryItem(melody.name || kind, `${n} event${n === 1 ? "" : "s"}`, {
           type: "melody",
           ref: { instrument, melodyId: melody.id },
         })
       );
     });
 
-    groups.push({ title: instrument === "piano" ? "Piano" : "Guitar", items });
+    if (!items.length) return;
+    groups.push({ title: GROUP_TITLES[instrument] || instrument, items });
   });
 
   groups.push({

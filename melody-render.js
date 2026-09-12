@@ -1,7 +1,10 @@
-// Notation renderer — a thin wrapper over VexFlow 4.2.2, which is loaded from
-// CDN in index.html as the global `Vex` alongside html2canvas, jsPDF and
+// Notation renderer — a thin wrapper over VexFlow 5.0.0, which is loaded from
+// CDN in index.html as the global `VexFlow` alongside html2canvas, jsPDF and
 // SortableJS. This module is the ONLY file that touches it, so it stays
 // swappable, the same containment `guitar-chords.js` gives chord shapes.
+//
+// It draws melodies and drum beats alike: a beat is a melody with
+// `clef: "drums"`, and the differences are local to a few branches here.
 //
 // This replaced a hand-rolled Bravura/SMuFL renderer. That version worked, but
 // engraving is a deep rulebook — beaming, key signatures, tuplets, multi-voice
@@ -40,7 +43,13 @@
 // handed and returns a fresh SVGSVGElement, the same contract as
 // renderScaleSVG and renderChordDiagram.
 
-import { layoutBars, spellNote, assignTab } from "./melody-model.js";
+import {
+  layoutBars,
+  spellNote,
+  assignTab,
+  drumVoiceForMidi,
+  isDrumMelody,
+} from "./melody-model.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -73,7 +82,17 @@ const TAB_HEIGHT = 6 * 13;
 const CLEF_REF = {
   treble: { bottom: 30 }, // E4
   bass: { bottom: 18 }, // G2
+  // Drum-set positions are written against a treble staff — kick in the bottom
+  // space, snare in the third space — so the percussion stave shares treble's
+  // reference even though nothing on it is a pitch.
+  percussion: { bottom: 30 },
 };
+
+// The vertical reach of the drum voices, in staffSteps: kick (F4, step 31) up
+// to crash (A5, step 40). Fixed rather than derived from the notes present,
+// because a drum "midi" is a GM percussion number and spellNote would read it
+// as a pitch — 36 is not a C2 sitting four ledger lines down.
+const DRUM_EXTENT = { min: 30, max: 40 };
 
 // melody-model speaks {den, dots}; VexFlow speaks a duration code plus a Dot
 // modifier per dot.
@@ -182,6 +201,14 @@ function staveExtent(melody, staveKeys) {
     min: CLEF_REF[key].bottom,
     max: CLEF_REF[key].bottom + TOP_STEP_OFFSET,
   }));
+  // Drum positions are fixed by voice, not derived from the notes present — see
+  // DRUM_EXTENT. Reading their GM numbers as pitches would size the canvas for
+  // notes several ledger lines below the staff that are not drawn there.
+  if (isDrumMelody(melody)) {
+    out[0].min = Math.min(out[0].min, DRUM_EXTENT.min);
+    out[0].max = Math.max(out[0].max, DRUM_EXTENT.max);
+    return out;
+  }
   (melody.events || []).forEach((event) => {
     if (event.rest) return;
     (event.notes || []).forEach((n) => {
@@ -197,6 +224,7 @@ function staveExtent(melody, staveKeys) {
 function staveKeysFor(melody) {
   if (melody.clef === "grand") return ["treble", "bass"];
   if (melody.clef === "bass") return ["bass"];
+  if (melody.clef === "drums") return ["percussion"];
   return ["treble"]; // guitar reads treble, with a tab stave under it
 }
 
@@ -218,8 +246,6 @@ export function renderMelodySVG(melody, opts = {}) {
   // the element's layout box at the old size.
   const scale = clampScale(opts.scale);
 
-  if (melody.clef === "drums")
-    return renderPlaceholder("Drum notation arrives in a later phase.");
   // The app is zero-build and loads VexFlow from a CDN, so it can genuinely be
   // absent (offline, blocked). Degrade to a readable message rather than
   // throwing inside whatever tab is drawing.
@@ -300,9 +326,12 @@ function renderScore(melody, { showTab, scale = 1 }) {
   const ctx = renderer.getContext();
 
   const drawn = []; // { item, note } in score order, for ties
+  // Everything whose extent should count towards the final canvas size. Staves
+  // carry their clef and time signature, so their box already includes the
+  // reach those glyphs add.
+  const measurables = [];
   let x = PAD_LEFT;
   let firstStave = null;
-  let lastTabStave = null;
 
   bars.forEach((bar, barIndex) => {
     const isFirst = barIndex === 0;
@@ -317,6 +346,7 @@ function renderScore(melody, { showTab, scale = 1 }) {
       }
       if (isLast) stave.setEndBarType(VF.Barline.type.END);
       stave.setContext(ctx).draw();
+      measurables.push(stave);
       return stave;
     });
     if (!firstStave) firstStave = staves[0];
@@ -339,7 +369,8 @@ function renderScore(melody, { showTab, scale = 1 }) {
     if (tabStave) {
       if (isFirst) tabStave.addClef("tab");
       tabStave.draw();
-      lastTabStave = tabStave;
+      measurables.push(tabStave);
+
     }
 
     if (!bar.items.length) {
@@ -391,12 +422,23 @@ function renderScore(melody, { showTab, scale = 1 }) {
   const svg = host.querySelector("svg");
   svg.setAttribute("class", "ms-score");
 
-  // Size from what was ACTUALLY painted, not from the estimate the canvas was
+  // Size from what was actually laid out, not from the estimate the canvas was
   // created with. Sizing by arithmetic means knowing how far every glyph
   // reaches, which is VexFlow's business rather than ours — the treble clef's
-  // descender alone put 25px of ink below the declared height on every treble
-  // melody, including an EMPTY one, where there is no note to be "far" from
-  // the staff at all. Measuring is immune to that whole class of mistake.
+  // descender alone put 25px below the declared height on every treble melody,
+  // including an EMPTY one, where there is no note to be "far" from the staff.
+  //
+  // **Ask VexFlow, do not measure the DOM.** This used to call
+  // `svg.getBBox()`, which is wrong now that 5.x draws every glyph as <text> in
+  // Bravura: `getBBox` on an SVG <text> returns the FONT'S LINE BOX, not the
+  // glyph's ink, so a 10px notehead measured 160px tall. Every score came out
+  // ~130px taller than its own contents, which is a lot of blank paper on a
+  // sheet — and it was invisible for a while because the inline-style bug was
+  // separately squeezing the result back down.
+  //
+  // VexFlow's own `getBoundingBox()` is computed from its metrics, which encode
+  // real glyph extents: for a 40px stave with a treble clef it reports 130,
+  // correctly including the clef's reach. That is the number we want.
   //
   // The union with (0,0,width,height) keeps the declared box from ever
   // shrinking below the layout that was planned, and a negative minY is
@@ -407,16 +449,39 @@ function renderScore(melody, { showTab, scale = 1 }) {
   let viewMinY = 0;
   let viewW = width;
   let viewH = height;
-  try {
-    const bb = svg.getBBox();
-    if (bb && (bb.width > 0 || bb.height > 0)) {
-      viewMinX = Math.min(0, Math.floor(bb.x) - 2);
-      viewMinY = Math.min(0, Math.floor(bb.y) - 2);
-      viewW = Math.max(width, Math.ceil(bb.x + bb.width) + 2) - viewMinX;
-      viewH = Math.max(height, Math.ceil(bb.y + bb.height) + 2) - viewMinY;
+  {
+    let minX = 0;
+    let minY = 0;
+    let maxX = width;
+    let maxY = height;
+    let measured = false;
+    const absorb = (obj) => {
+      if (!obj || typeof obj.getBoundingBox !== "function") return;
+      let b;
+      try {
+        b = obj.getBoundingBox();
+      } catch (_) {
+        return;
+      }
+      if (!b) return;
+      const w = b.w != null ? b.w : b.width;
+      const h = b.h != null ? b.h : b.height;
+      if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) return;
+      if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + w);
+      maxY = Math.max(maxY, b.y + h);
+      measured = true;
+    };
+    measurables.forEach(absorb);
+    drawn.forEach((d) => absorb(d.note));
+    if (measured) {
+      viewMinX = Math.floor(minX) - 2;
+      viewMinY = Math.floor(minY) - 2;
+      viewW = Math.ceil(maxX) + 2 - viewMinX;
+      viewH = Math.ceil(maxY) + 2 - viewMinY;
     }
-  } catch (_) {
-    // Never let measurement failure cost us the score.
   }
 
   const outW = Math.round(viewW * scale);
@@ -485,14 +550,34 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
         return;
       }
 
-      const keys = event.notes.map((n) => vfKey(n.midi, melody.keyRoot));
+      // A drum "note" is a voice, not a pitch: its staff position and notehead
+      // come from DRUM_VOICES, and it never takes an accidental. VexFlow reads
+      // a third segment in a key as the notehead glyph, so "g/5/x2" is a hi-hat
+      // cross on the space above the top line.
+      const drums = isDrumMelody(melody);
+      const keys = drums
+        ? event.notes.map((n) => {
+            const v = drumVoiceForMidi(n.midi);
+            if (!v) return "c/5";
+            return v.head ? `${v.key}/${v.head}` : v.key;
+          })
+        : event.notes.map((n) => vfKey(n.midi, melody.keyRoot));
       const note = new VF.StaveNote({ keys, duration: code, clef: staveKeys[i] });
+      // Stems up for the whole kit. Left to itself VexFlow picks a direction per
+      // chord from its average pitch, so a hat+kick chord stems DOWN and drags
+      // its beam below the staff while a hat alone stems up — the beam then
+      // zigzags across the staff. Real drum notation solves this with two
+      // voices (cymbals up, kick down); one voice with a consistent direction
+      // is the honest simplification, and it is at least consistent.
+      if (drums) note.setStemDirection(VF.Stem.UP);
       for (let d = 0; d < (item.dots || 0); d++) note.addModifier(new VF.Dot(), 0);
-      event.notes.forEach((n, ni) => {
-        const acc = spellNote(n.midi, melody.keyRoot).accidental;
-        // A tied continuation does not restate its accidental.
-        if (acc && !item.tiedFrom) note.addModifier(new VF.Accidental(acc), ni);
-      });
+      if (!drums) {
+        event.notes.forEach((n, ni) => {
+          const acc = spellNote(n.midi, melody.keyRoot).accidental;
+          // A tied continuation does not restate its accidental.
+          if (acc && !item.tiedFrom) note.addModifier(new VF.Accidental(acc), ni);
+        });
+      }
       perStave[i].push(note);
       realNotes[i].push(note);
       drawn.push({ item, note, staveIndex: i, rest: false });
@@ -549,11 +634,18 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
     formatter.format(all, Math.max(60, width));
   }
 
-  // Beams — the thing the hand-rolled renderer deferred, and the single
-  // biggest reason for this swap. One line per stave.
+  // Beams — the thing the hand-rolled renderer deferred, and the single biggest
+  // reason for this swap. One line per stave.
+  //
+  // generateBeams re-decides stem direction per group from the notes' average
+  // pitch, which silently undoes the stems-up we set on drum notes above. It
+  // has to be told to keep them.
+  const beamConfig = isDrumMelody(melody)
+    ? { maintainStemDirections: true, stemDirection: VF.Stem.UP }
+    : undefined;
   const beams = [];
   realNotes.forEach((notes) => {
-    if (notes.length > 1) beams.push(...VF.Beam.generateBeams(notes));
+    if (notes.length > 1) beams.push(...VF.Beam.generateBeams(notes, beamConfig));
   });
 
   all.forEach((v) => v.draw(ctx, v.__stave));

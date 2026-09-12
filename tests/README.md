@@ -185,6 +185,23 @@ the suite now also pins that the painted box and the declared box agree — a dr
 between them means the score is being squeezed into a box of the wrong size,
 which it silently had been.
 
+**A measurement is an assumption with a number attached.** The overflow check in
+`melody-render` has now been wrong twice, in opposite directions. First it
+rasterized the SVG as-is and scanned a padded canvas — structurally incapable of
+catching anything, because an `<img>`-loaded SVG is clipped to its viewBox, so
+ink outside it can never reach the padding. Then it measured the DOM with
+`getBoundingClientRect`, on the written assumption that "VexFlow draws paths, so
+the boxes mean what they say" — true of the hand-rolled renderer, false the
+moment VexFlow 5 started drawing glyphs as `<text>`, where the box is the
+**font's line box**: a 10px notehead measures 160px. It reported 38px of
+overflow on notation that was perfectly inside its box, and had only been
+passing because the renderer was inflating the SVG using that same wrong number.
+Two errors cancelling looks exactly like correctness. The check now rasterizes
+with an **expanded viewBox**, which fixes the first failure (widening the clip
+region is what makes outside ink renderable) and is immune to the second (a font's
+line box paints no pixels). When a check starts passing for a new reason, the
+reason is the thing to verify.
+
 **Some bugs only pixels can see.** Exporting a PDF from a non-chord sub-tab
 produced a page with the right number of pages, the right number of images, each
 at a plausible size — and every keyboard on it collapsed into a stack of black
