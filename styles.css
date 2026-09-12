@@ -2687,3 +2687,224 @@ body.light-mode .metronome-led {
 .lb-body .card.preview {
   width: 100%;
 }
+
+/* ============================================================
+   Melody notation (melody-render.js -> VexFlow)
+   ============================================================
+   VexFlow paints its own colours as SVG *presentation attributes*
+   (fill="#000", stroke="#000"). A presentation attribute loses to ANY CSS
+   rule, so plain selectors recolour the whole system for dark/light and for
+   .pdf-capture without touching a single VexFlow styling option -- the same
+   contract .gc-* and .gs-* already have, and the reason the "VexFlow can't be
+   themed with CSS" objection turned out to be wrong.
+
+   These rules deliberately recolour only what ALREADY carries a colour.
+   Blanket `path { fill: ... }` would fill shapes VexFlow left as fill="none"
+   (slur and tie outlines), and a blanket `stroke` would outline every glyph
+   that has no stroke, making the whole score look bold. */
+
+.ms-score {
+  display: block;
+  overflow: visible;
+  /* THE load-bearing rule. VexFlow puts fill="black" stroke="black" on the
+     <svg> ROOT and lets most elements inherit it — only a minority carry their
+     own colour attribute. Styling descendants alone therefore themes almost
+     nothing, and dark mode renders black notation on a black page. */
+  fill: var(--text);
+  stroke: var(--text);
+}
+
+/* The minority that do carry their own colour. Deliberately recolours only
+   what ALREADY has one: a blanket rule would fill the shapes VexFlow leaves as
+   fill="none" (tie and slur outlines) and stroke the ones with no stroke,
+   making the whole score look bold. */
+.ms-score [fill]:not([fill="none"]):not([fill="white"]) {
+  fill: var(--text);
+}
+
+.ms-score [stroke]:not([stroke="none"]) {
+  stroke: var(--text);
+}
+
+.ms-score [fill="white"] {
+  fill: var(--bg);
+}
+
+/* The selected note. Uses the accent colour rather than a ring so it reads at
+   notation scale, where a 6px notehead has no room for an outline. Set on the
+   group VexFlow paints, so it reaches the notehead, stem and flag together. */
+.ms-selected,
+.ms-selected [fill]:not([fill="none"]) {
+  fill: var(--button-bg) !important;
+}
+
+.ms-selected [stroke]:not([stroke="none"]) {
+  stroke: var(--button-bg) !important;
+}
+
+.ms-placeholder {
+  fill: var(--note-text);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* Print: white page, black ink -- same treatment as .gc-* and .gs-*. */
+.pdf-capture .ms-score {
+  fill: #000 !important;
+  stroke: #000 !important;
+}
+
+.pdf-capture .ms-score [fill]:not([fill="none"]):not([fill="white"]) {
+  fill: #000 !important;
+}
+
+.pdf-capture .ms-score [stroke]:not([stroke="none"]) {
+  stroke: #000 !important;
+  opacity: 1 !important;
+}
+
+/* On paper the mask really is white. */
+.pdf-capture .ms-score [fill="white"] {
+  fill: #fff !important;
+}
+
+/* A selection highlight is a cursor, not content, so it never prints as one. */
+.pdf-capture .ms-selected,
+.pdf-capture .ms-selected [fill]:not([fill="none"]) {
+  fill: #000 !important;
+}
+
+/* ---- Melody blocks on the Layout sheet (read-only) ---- */
+
+/* A melody on the sheet is a picture of one, like a chord card: it is authored
+   on piano→melody or guitar→melody and only referenced here. */
+.lb-melody-host svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- The Melody sub-tab ---- */
+
+.melody-panel {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 0 auto;
+  max-width: 1200px;
+  padding: 0 16px;
+}
+
+.melody-list {
+  flex: 0 0 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.melody-list-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.melody-list-item.is-active {
+  border-color: var(--button-bg);
+  background: var(--input-bg);
+}
+
+.melody-list-item .melody-name {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px;
+}
+
+.melody-list-item .melody-remove {
+  opacity: 0;
+  min-width: 20px;
+}
+
+.melody-list-item:hover .melody-remove,
+.melody-list-item .melody-remove:focus-visible {
+  opacity: 1;
+}
+
+.melody-stage {
+  flex: 1;
+  min-width: 0;
+}
+
+.melody-empty {
+  opacity: 0.7;
+}
+
+.melody-editor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.melody-editor-controls .melody-duration-palette {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.melody-editor-controls button {
+  min-width: 22px;
+}
+
+/* Zoom sits apart from the note-entry controls: it changes how the staff is
+   displayed, not what is written, so it is pushed to the far end rather than
+   sitting in the run of editing buttons. */
+.melody-editor-controls .melody-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.melody-editor-controls .melody-zoom-value {
+  min-width: 38px;
+  text-align: center;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.melody-editor-controls button[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.melody-editor-controls button.is-active {
+  /* App buttons already have a --button-bg fill, so the active one cannot be
+     marked by tinting it that same colour — it would disappear. Invert it. */
+  background: var(--button-text);
+  color: var(--button-bg);
+  font-weight: 700;
+}
+
+/* The staff IS the editing surface — click to add, click a note to select — so
+   it is focusable and shows focus, but only when reached deliberately. */
+.melody-editor-staff {
+  outline: none;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.melody-editor-staff:focus-visible {
+  outline: 2px solid var(--button-bg);
+  outline-offset: 2px;
+}
+
+/* .ms-selected lives with the notation block above. */

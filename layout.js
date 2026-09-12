@@ -27,6 +27,8 @@ import {
 } from "./layout-model.js";
 import { renderScaleSVG, scaleWindow } from "./guitar.js";
 import { SCALE_FORMULAS } from "./theory.js";
+import { renderMelodySVG } from "./melody-render.js";
+import { assignTab } from "./melody-model.js";
 
 const LAYOUT_KEY = "cv-layout";
 const LAYOUT_SCALE_KEY = "cv-layout-scale";
@@ -288,6 +290,20 @@ function fretboardControls(block) {
   return row;
 }
 
+// ---- Melody blocks ----
+//
+// Melodies are BOARD content, authored on the Piano and Guitar tabs, not
+// here — a sheet block references one by id exactly as section and chord
+// blocks do, so editing a melody on its instrument tab updates every sheet
+// that places it. The editor itself lives in melody-editor.js; this file
+// only renders melodies read-only, like every other block.
+function resolveMelodyRef(ref) {
+  if (!ref || !ref.instrument) return null;
+  const board = boards[ref.instrument];
+  const list = (board && board.melodies) || [];
+  return list.find((m) => m && m.id === ref.melodyId) || null;
+}
+
 function missingBlock(label) {
   const el = document.createElement("div");
   el.className = "lb-missing";
@@ -373,6 +389,24 @@ function renderBlockContent(block) {
     return host;
   }
 
+  if (block.type === "melody") {
+    const melody = resolveMelodyRef(block.ref);
+    if (!melody) return missingBlock("Melody");
+    // Tab positions are derived from pitch, so they are recomputed here rather
+    // than read from the stored melody — the same reason the editor recomputes
+    // them on every change instead of persisting them.
+    if (melody.clef === "guitar") assignTab(melody);
+
+    const host = document.createElement("div");
+    host.className = "lb-melody-host";
+    host.appendChild(renderMelodySVG(melody, {}));
+
+    const wrap = document.createElement("div");
+    wrap.className = "lb-melody";
+    wrap.appendChild(host);
+    return wrap;
+  }
+
   if (block.type === "chord") {
     const hit = resolveRef(block.ref);
     if (!hit || !hit.chord) return missingBlock("Chord");
@@ -439,6 +473,11 @@ function blockLabel(block) {
   if (block.type === "fretboard") {
     const s = block.scale || {};
     return `${s.root || "A"} ${modeLabel(s.mode || "minorPentatonic")}`;
+  }
+  if (block.type === "melody") {
+    const m = resolveMelodyRef(block.ref);
+    if (!m) return "Melody";
+    return `${m.name || "Melody"} · ${block.ref.instrument}`;
   }
   const hit = resolveRef(block.ref);
   if (block.type === "chord") {
@@ -805,6 +844,20 @@ function renderLibrary() {
           })
         );
       });
+    });
+
+    // Melodies sit alongside that board's sections because they are the same
+    // kind of thing: content authored on the instrument's own tab, placed here
+    // by reference. Written on piano→melody or guitar→melody.
+    ((board && board.melodies) || []).forEach((melody) => {
+      if (!melody || !melody.id) return;
+      const n = (melody.events || []).length;
+      items.push(
+        libraryItem(melody.name || "Melody", `${n} event${n === 1 ? "" : "s"}`, {
+          type: "melody",
+          ref: { instrument, melodyId: melody.id },
+        })
+      );
     });
 
     groups.push({ title: instrument === "piano" ? "Piano" : "Guitar", items });

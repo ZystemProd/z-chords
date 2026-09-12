@@ -23,6 +23,11 @@ import {
   layoutForSongFile,
   applyLayoutFromSongFile,
 } from "./layout.js";
+import {
+  initMelodyPanel,
+  showMelodyPanel,
+  hideMelodyPanel,
+} from "./melody-panel.js";
 
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
@@ -326,6 +331,36 @@ function subtitleKey(inst) {
   return `cv-subtitle-${inst}`;
 }
 
+// Melodies are board content, like sections: written on the instrument's own
+// melody sub-tab, referenced by the layout sheet, and carried into song files
+// by readBoardState/writeBoardState the same way everything else on a board is.
+//
+// They get their own key rather than a slot in the sections JSON, for the same
+// reason the title does — that JSON is an array of sections with nowhere to put
+// anything else. And unlike sections they are NOT mirrored into
+// `boardsEl.dataset`, because `#boards` is the chord board; the melody panel is
+// a separate view with its own state.
+function melodiesKey(inst) {
+  return `cv-melodies-${inst}`;
+}
+
+function readMelodies(inst) {
+  let parsed = [];
+  try {
+    parsed = JSON.parse(localStorage.getItem(melodiesKey(inst)) || "[]");
+  } catch (_) {}
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function writeMelodies(inst, list) {
+  try {
+    localStorage.setItem(
+      melodiesKey(inst),
+      JSON.stringify(Array.isArray(list) ? list : [])
+    );
+  } catch (_) {}
+}
+
 function saveSongMeta() {
   const inst = boardInstrument();
   try {
@@ -507,6 +542,7 @@ function readBoardState(inst) {
     title,
     subtitle,
     sections: Array.isArray(parsed) ? parsed : [],
+    melodies: readMelodies(inst),
     activeSection: Number.isFinite(activeIdx) ? activeIdx : null,
     transpose: transposeOffsets[inst] || 0,
   };
@@ -524,6 +560,10 @@ function writeBoardState(inst, board) {
     localStorage.setItem(titleKey(inst), String(data.title || ""));
     localStorage.setItem(subtitleKey(inst), String(data.subtitle || ""));
   } catch (_) {}
+  // A v1 song file has no melodies at all. Writing `[]` for it would wipe the
+  // melodies already on the board, so absence means "leave them alone" — the
+  // same rule applyLayoutFromSongFile uses for a missing sheet.
+  if (Array.isArray(data.melodies)) writeMelodies(inst, data.melodies);
   const transpose = Number(data.transpose);
   transposeOffsets[inst] = Number.isFinite(transpose) ? transpose : 0;
 }
@@ -3179,6 +3219,11 @@ function updateTabsUI(opts = {}) {
   const songMetaEl = document.getElementById('songMeta');
   const layoutPanel = document.getElementById('layoutPanel');
   const layoutControls = document.getElementById('layoutControls');
+  const melodyPanel = document.getElementById('melodyPanel');
+  // The empty-board hint belongs to the chord board, but only renderSections
+  // ever touched it — so once the board was empty it followed you onto every
+  // other tab. It has to be in the hide-all defaults like every other panel.
+  const emptyState = document.getElementById('emptyState');
 
   // defaults
   if (boardsEl) boardsEl.style.display = 'none';
@@ -3196,6 +3241,8 @@ function updateTabsUI(opts = {}) {
   if (songMetaEl) songMetaEl.style.display = 'none';
   if (layoutPanel) layoutPanel.style.display = 'none';
   if (layoutControls) layoutControls.style.display = 'none';
+  if (melodyPanel) melodyPanel.style.display = 'none';
+  if (emptyState) emptyState.hidden = true;
   // The staff belongs to the guitar scale tab; main.js still decides whether
   // custom mode wants it, so only add/remove the class and leave display alone.
   if (guitarStaffEl) guitarStaffEl.classList.add('tab-hidden');
@@ -3210,6 +3257,9 @@ function updateTabsUI(opts = {}) {
       if (addSectionCta) addSectionCta.style.display = 'block';
       // Re-render: cards may currently be guitar diagrams from the other tab.
       renderSections();
+    } else if (sub === 'melody') {
+      if (melodyPanel) melodyPanel.style.display = 'flex';
+      showMelodyPanel('piano');
     } else {
       // Piano → Scales
       if (pianoScaleControls) pianoScaleControls.style.display = 'inline-flex';
@@ -3224,6 +3274,9 @@ function updateTabsUI(opts = {}) {
       if (guitarControls) guitarControls.style.display = 'inline-flex';
       if (guitarEl) guitarEl.style.display = 'block';
       if (guitarStaffEl) guitarStaffEl.classList.remove('tab-hidden');
+    } else if (sub === 'melody') {
+      if (melodyPanel) melodyPanel.style.display = 'flex';
+      showMelodyPanel('guitar');
     } else {
       // Guitar → Chord: the same board as the piano tab, with each card drawn
       // as a fretboard diagram instead of a keyboard. Transpose and Clear are
@@ -3255,6 +3308,10 @@ function updateTabsUI(opts = {}) {
   if (!(currentInstrument === 'drums' && currentSubtab.drums === 'metronome')) {
     stopMetronome();
   }
+  // A playing melody has to stop when you leave its tab, for the same reason
+  // the metronome does — its notes are scheduled timers that would otherwise
+  // keep firing over whatever tab you switched to.
+  if (currentSubtab[currentInstrument] !== 'melody') hideMelodyPanel();
 
   // Move the animated highlights
   positionSegmentedHighlight(document.querySelector('.instrument-tabs.segmented'), true);
@@ -3279,6 +3336,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Two-hands is a live toggle, not part of a chord, so the sheet has to ask
     // rather than cache it: it decides how wide a piano block starts.
     isTwoHandsMode: () => twoHandsMode,
+  });
+
+  initMelodyPanel({
+    readMelodies,
+    writeMelodies,
+    // The layout sheet lists melodies from the boards, so a melody renamed or
+    // edited here has to invalidate what the sheet already drew. It only costs
+    // anything when the sheet is on screen, which it never is from this tab.
+    onChange: () => {},
   });
 
   // Click handlers: instrument tabs

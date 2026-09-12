@@ -15,6 +15,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <!-- Music notation. Attaches the global `VexFlow`; melody-render.js is the
+         only file that touches it.
+         NOT from cdnjs: every cdnjs "vexflow 4.x" entry serves the npm package's
+         stale `releases/` bundle, which is actually VexFlow 3.0.9 (2019) and
+         logs a deprecation warning. 4.2.2 and 4.2.5 there are byte-identical
+         for that reason. This is the real build directory. Fonts ride along as
+         base64 data URIs, so there is still no network font fetch. -->
+    <script src="https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/cjs/vexflow.js"></script>
 
 
 </head>
@@ -81,9 +89,11 @@
                         <!-- Piano -->
                         <button class="tab" role="tab" data-instrument="piano" data-subtab="chord" id="subtab-piano-chord" aria-selected="true">Chord</button>
                         <button class="tab" role="tab" data-instrument="piano" data-subtab="scales" id="subtab-piano-scales" aria-selected="false">Scales</button>
+                        <button class="tab" role="tab" data-instrument="piano" data-subtab="melody" id="subtab-piano-melody" aria-selected="false">Melody</button>
                         <!-- Guitar -->
                         <button class="tab" role="tab" data-instrument="guitar" data-subtab="chord" id="subtab-guitar-chord" aria-selected="false">Chord</button>
                         <button class="tab" role="tab" data-instrument="guitar" data-subtab="scale" id="subtab-guitar-scale" aria-selected="false">Scales</button>
+                        <button class="tab" role="tab" data-instrument="guitar" data-subtab="melody" id="subtab-guitar-melody" aria-selected="false">Melody</button>
                         <!-- Drums -->
                         <button class="tab" role="tab" data-instrument="drums" data-subtab="beat" id="subtab-drums-beat" aria-selected="false">Beat</button>
                         <button class="tab" role="tab" data-instrument="drums" data-subtab="metronome" id="subtab-drums-metronome" aria-selected="false">Metronome</button>
@@ -330,6 +340,13 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Melody notation. Board content, like #boards: each instrument has
+             its own list, and the layout sheet places them by reference. -->
+        <div id="melodyPanel" class="melody-panel" style="display:none;">
+            <aside id="melodyList" class="melody-list" aria-label="Melodies"></aside>
+            <div id="melodyStage" class="melody-stage"></div>
         </div>
 
         <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">

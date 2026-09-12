@@ -28,7 +28,7 @@ export const DEFAULT_ROW_GAP_MM = 4;
 // Block types that exist today. `fretboard` and `melody` arrive in later
 // phases; the model already tolerates them so a file written by a newer build
 // does not lose blocks when an older one opens it.
-export const BLOCK_TYPES = ["section", "chord", "text", "fretboard", "pagebreak"];
+export const BLOCK_TYPES = ["section", "chord", "text", "fretboard", "melody", "pagebreak"];
 
 // Wide content — a two-hands keyboard, a fretboard — is unreadable in a narrow
 // column, so those types start full width. Chord cards are small and square, so

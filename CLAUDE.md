@@ -10,7 +10,7 @@ Z-Chords ("Chord Viewer") is a zero-build, dependency-free static web app for vi
 
 Serve the folder statically (e.g. `python -m http.server 8000`). A static server is **required** — every script is now `type="module"` and ES module imports fail under `file://`. Opening `index.html` directly no longer works.
 
-Third-party libs are loaded from CDN in `index.html` (html2canvas, jsPDF, SortableJS) and attach globals — there is no npm install step.
+Third-party libs are loaded from CDN in `index.html` (html2canvas, jsPDF, SortableJS, VexFlow) and attach globals — there is no npm install step.
 
 ## Tests
 
@@ -89,7 +89,9 @@ The button carries `no-drag`, which the chords-container Sortable uses as its `f
 
 `#guitarStaff` is the one panel with two owners, and it is why `.tab-hidden` exists. `main.js` sets its inline `display` from the scale settings (it wants the staff only in *custom* view mode); `updateTabsUI` decides whether the guitar-scale tab is on screen at all. Neither world can call the other, so they use separate channels: `main.js` keeps the inline style, `script.js` adds/removes `.tab-hidden`, whose `display: none !important` outranks it. Before that the staff followed you onto every tab — piano, drums, everywhere — once custom mode had been switched on. Don't "simplify" it by having `updateTabsUI` set `display` directly: that would show the staff on the scale tab even in scales mode, where `main.js` wants it gone.
 
-Instrument/subtab pairs today: piano→chord|scales, guitar→chord|scale, drums→beat (UI stub, `console.log` on clear)|metronome.
+Instrument/subtab pairs today: piano→chord|scales|melody, guitar→chord|scale|melody, drums→beat (UI stub, `console.log` on clear)|metronome, plus layout (no sub-tabs).
+
+`#emptyState` — the "start by adding a chord" hint — is the cautionary example for the hide-all rule. It was toggled **only** by `renderSections`, which no tab but the two chord tabs calls, so once a board was empty the hint followed you onto Scales, Melody and Layout. It is now hidden in the defaults and re-shown by `renderSections` from the board's own state; `board` pins both directions, because fixing this the obvious way can just as easily leave it hidden forever.
 
 Piano→chord and guitar→chord share `#boards` but **not** the song in it: each instrument has its own board, so adding, editing, transposing or clearing chords on one tab never touches the other, and a guitar shape or inversion stays where it was set. Both branches call `renderSections()` to draw the card bodies for the current instrument. Guitar→chord also reuses `pianoChordControls` for Transpose and Clear while leaving the two-hands toggle hidden. `renderSections()` is the only place that sets `#boards.two-hands-mode`, and it does so only when `currentInstrument === "piano"` — the class widens cards and drops the chord grid to one column, which is a piano-layout decision that must not follow you onto the guitar tab (playback already guards separately in `getChordPlaybackMIDIs`).
 
@@ -103,7 +105,9 @@ The dataset holds **only the board of the instrument on screen**. Each is persis
 
 ### Song files (save / load)
 
-`#saveSong` downloads the song as JSON and `#loadSong` reads one back. A song file is **both boards at once** — `{ format: "z-chords-song", version, savedAt, capo, boards: { piano, guitar }, layout? }`, each board `{ title, subtitle, sections, activeSection, transpose }`. Carrying only the tab on screen would silently drop the other instrument's chords, which is the whole failure this avoids.
+`#saveSong` downloads the song as JSON and `#loadSong` reads one back. A song file is **both boards at once** — `{ format: "z-chords-song", version, savedAt, capo, boards: { piano, guitar }, layout? }`, each board `{ title, subtitle, sections, melodies, activeSection, transpose }`. Carrying only the tab on screen would silently drop the other instrument's chords, which is the whole failure this avoids.
+
+`writeBoardState` writes `melodies` **only when the key is present**: a v1 file has none, and writing `[]` for it would wipe melodies already on the board. Absence means "leave them alone" — the same rule `applyLayoutFromSongFile` uses for a missing sheet.
 
 `version` is **2**, which added the optional top-level `layout`. Both directions stay compatible: a v1 file simply has no `layout` key, and a v2 file opened by an older build drops the sheet but keeps every chord — which is why the sheet is a sibling of `boards` rather than something buried inside one of them. `applySongFile` restores the layout *after* the boards, so its references resolve against the chords the file just brought in.
 
@@ -160,13 +164,65 @@ Blocks carry `.pdf-capture` on `.lb-body`, not on the flow: a block sits on a wh
 
 **Layout has no write path to a board.** `boardInstrument()` reports `"piano"` while this tab is up, so a flush from here could write the wrong board's chords over the piano's; `readBoards()` is deliberately read-only, and `setInstrument` has already flushed the outgoing board before the tab is ever shown.
 
+### Melody notation
+
+`melody-model.js` is pure note math; `melody-render.js` is a thin wrapper over **VexFlow 5.0.0**, loaded from CDN in `index.html` as the global `VexFlow`. `melody-render.js` is the only file that touches it, so it stays swappable — the same containment `guitar-chords.js` gives chord shapes.
+
+**Do not "fix" the script tag to a cdnjs URL, and do not trust its version label.** Every cdnjs `vexflow` 4.x entry serves **VexFlow 3.0.9** (2019): the npm package carries a legacy `releases/` directory that was never rebuilt, cdnjs mirrors that directory, and so "4.2.2" and "4.2.5" there are byte-identical (same SHA256) and log *"This page uses version 3.0.9, which is no longer supported."* This renderer was originally written against that build without anyone noticing, and its "verified API facts" were all really 3.0.9 behaviour. Real builds live under `build/`; jsDelivr's `vexflow@5.0.0/build/cjs/vexflow.js` is the one used. For completeness: 4.2.6 exists as a GitHub release but was never published to npm, so it is on no CDN at all. **A CDN's version label is a claim, not evidence — check the version string inside the file.**
+
+This wrapper replaced a hand-rolled Bravura/SMuFL renderer. That worked, but engraving is a deep rulebook — beaming, key signatures, tuplets, multi-voice and beam-break rules all interact — and matching it by hand has no natural end. Three objections had been raised against VexFlow when the hand-rolled path was chosen; all three were later **measured against the real library, and all three were wrong**, which is the real lesson here rather than the library choice:
+
+- **Theming is free.** VexFlow writes colours as SVG *presentation attributes*, which any CSS rule outranks — so `.ms-*` selectors handle dark/light and `.pdf-capture` with no JS styling options, the same contract `.gc-*` and `.gs-*` have. But see the trap below: in 5.x it puts `fill`/`stroke` on the **`<svg>` root** and lets most children inherit, so styling only descendants themes almost nothing.
+- **Notes stay addressable.** Each `StaveNote`'s painted group takes our `data-event-index`, so `melody-editor.js` survived the renderer being replaced wholesale, untouched — the payoff of that contract being *data attributes* rather than internals.
+- **Fonts are not a risk.** 5.x draws glyphs as `<text>` in Bravura, but ships the faces as base64 `data:font/woff2` URIs registered at load: no network request, no CORS, and no `document.fonts.ready` race.
+
+The 5.x API is the documented one, and differs from the 3.0.9 build this was first written against on every point that matters: `addModifier(modifier, index)` (3.0.9 wanted index first), `Dot.buildAndAttach` exists, `getSVGElement()` exists on notes **and** tab notes (3.0.9 had neither, so tab notes could not be addressed at all), options are camelCase (`numBeats`/`beatValue`, and `StaveTie({firstNote, lastNote})` — the snake_case spellings throw `BadArguments`). `ctx.openGroup("ms-beam")` produces class **`vf-ms-beam`** — it prefixes whatever name it is given — but it returns the `<g>`, so `inGroup` adds the unprefixed class itself rather than matching VexFlow's scheme. Beams and ties expose no element of their own, so `inGroup` is the only hook for them.
+
+**Theming targets the `<svg>` root, not just descendants.** VexFlow 5 sets `fill`/`stroke` on the root and lets most elements inherit; only a minority carry their own colour attribute. A descendant-only rule (`.ms-score [fill]`) therefore recolours almost nothing, and dark mode renders **black notation on a black page**. `.ms-score` itself must set `fill`/`stroke`, with the descendant rules handling the minority that override. This shipped once and the test suite approved it, because the check counted only descendants, found zero, and passed vacuously — see `tests/README.md`.
+
+**The SVG is sized from what was actually painted**, via `getBBox()`, not from arithmetic. Sizing by arithmetic means knowing how far every glyph reaches, which is the library's business rather than ours: the treble clef's descender alone put 25px of ink below the declared height on *every* treble melody, an empty one included. `getBBox()` returns zeros on a node that was never in the document, so the render host is attached offscreen for the measurement and removed afterwards — a detached div silently measures to nothing. The final viewBox is the union of the planned box and the measured ink, so a negative `minY` is absorbed by the viewBox rather than by shifting coordinates; `getScreenCTM()` already accounts for the viewBox, so the editor's click→pitch inverse is unaffected.
+
+Durations stay **ticks** in `melody-model.js`, not seconds or note-name strings: `TICKS_PER_WHOLE = 64`, so every supported value down to a double-dotted 16th is an integer and bar arithmetic (`layoutBars`) is exact integer math with no drift. `layoutBars` also splits a note crossing a barline into tied fragments, which is precisely the shape VexFlow wants — it does not split for you. The split uses `decomposeTicks`, a small DP finding the *shortest* exact decomposition rather than a greedy take-the-largest-first pass. Greedy looks equivalent until you measure it: over a full sweep it failed 147 times out of 256, because committing to the largest duration first can strand a leftover a smaller first choice would have avoided (`10` greedily becomes `8+2`, which has no representation, when `6+4` exists and is exact). The DP fails only on the five tick counts (`1,2,3,5,9`) that are genuinely unrepresentable — a coin-problem consequence of the duration vocabulary's tick values having gcd 1 — and folds that rare leftover into the nearest fragment so the total is still exact.
+
+Accidental spelling (`spellNote`) remains a sharp-keys/flat-keys heuristic rather than full key-signature-aware engraving; that is ours, not VexFlow's, and is the one notation shortcut still standing. Beaming, which the hand-rolled renderer deferred indefinitely, is now one line (`Beam.generateBeams`) and is pinned by a test.
+
+### Melody editing
+
+**Melodies are board content**, authored on **piano→melody** and **guitar→melody**, stored per board under `cv-melodies-<inst>`, and placed on the Layout sheet **by reference** (`{instrument, melodyId}`) exactly as sections and chords are. They were briefly authored in place on the sheet instead; moving them out is what makes a melody have one home — edit it on its instrument tab and every sheet that places it shows the same music, and it rides into song files through `readBoardState`/`writeBoardState` like everything else on a board. A layout melody block is now read-only, which keeps the sheet from being a second, competing editor, the same rule its chord cards already follow (`interactive: false`).
+
+The split is the repo's usual one:
+
+- `melody-editor.js` — `createMelodyEditor(host, melody, { onChange, showControls, clefOptions })` → `{ el, getMelody, setMelody, destroy }`. Mirrors `createChordEditor`'s contract: it owns the DOM inside `host`, holds the caret, reports committed changes through `onChange`, and knows nothing about boards, tabs or storage.
+- `melody-panel.js` — owns the `#melodyPanel` DOM (the melody list plus one editor) and takes `readMelodies`/`writeMelodies` as injected deps, so `script.js` keeps the single localStorage vocabulary and no module cycle forms. Same shape as `initLayout(deps)`.
+
+The clef choices differ per instrument (guitar offers staff+tab, piano offers treble/bass/grand) for the same reason the chord tabs draw different cards: a tab stave under a piano melody means nothing.
+
+The staff SVG is the editing surface: clicking a notehead or rest selects it (every one carries `data-event-index`, which is the addressability that justified emitting each element ourselves), and clicking anywhere else on the staff adds a note at the pitch clicked. Both are clicks on the same SVG; the hit test decides which, exactly as `createChordEditor` does for guitar shapes.
+
+Turning a click into a pitch uses `svg.getScreenCTM().inverse()`, not offset or rect arithmetic — the CTM already accounts for every ancestor transform, which is what let the editor move from inside the sheet's fit-to-screen `transform: scale()` to the plain melody tab without changing a line of the conversion. `melody-render.js` publishes the primary stave's geometry on the SVG root (`data-stave-bottom-y`, `data-stave-ref-bottom`, `data-step-px`) so the editor inverts it without duplicating `LINE_GAP`/`CLEF_REF`; `midiFromStaffStep` in the model does the diatonic half. A grand staff has two staves and only the first is published — click-to-enter there is a documented limit, not an oversight.
+
+Two things about how edits are applied:
+
+- **`drawStaff` redraws only the staff, preserving focus.** Rebuilding the whole editor destroys focus on every keystroke, which makes keyboard editing impossible. The duration palette is the exception — it also redraws the controls, since its active-button state lives there.
+- **The caret and selected duration are not persisted**, and neither is which melody is open. A cursor is view state, not content, the same way `activeSectionIndex` is.
+
+**The painted size is governed by the SVG's inline `style`, not its `width` attribute.** `renderer.resize()` writes `style.width`/`style.height` in px, and an inline style outranks a presentation attribute — so any code that resizes the score must set the style, and a test that watches the attribute is watching the wrong thing. This mattered twice over: because `resize()` is called with the pre-`getBBox()` *estimate*, leaving that style in place displayed every score squeezed into a box narrower than the viewBox it had grown to, which is why notation looked small even before zoom existed.
+
+**Zoom scales the declared `width`/`height`, never the viewBox.** VexFlow's default engraving is too small to edit comfortably, so the editor renders at `scale` (default 1.6, persisted as `cv-melody-zoom`, clamped 1–3 by `clampScale`). The viewBox stays in VexFlow's own user space, which is what makes this free: `data-step-px` and `data-stave-bottom-y` are user-space coordinates and `getScreenCTM()` already folds in the viewBox→viewport ratio, so the click→pitch inverse needs no knowledge of the zoom at all. The two alternatives both cost more — re-rendering at a larger size would change VexFlow's own spacing decisions, and a CSS `transform` would leave the element's layout box at the old size, so the container would not scroll. `cv-melody-zoom` is view state, so it is **not** per-board and does not ride into song files; it is the same status `cv-layout-scale` has.
+
+Guitar tab positions are **derived, never stored**: `assignTab` runs at render time from the pitches, so a fret can never go stale after an edit, and the saved melody carries no `fret`/`stringIdx` at all. Only a manual override would need persisting (`manualTab`), and arrow-key transposition deletes that flag, because a hand-picked position stops being valid once the pitch moves.
+
+A melody carries a `name` (set in the melody list, shown by the layout library). `normalizeMelody` runs on every edit, so **any field it does not know about is silently dropped** — that is why `name` is part of `createMelody` rather than bolted on by the panel, and why a test pins that an edit does not erase it.
+
+Playback schedules one `setTimeout` per note against `melodyPlaybackSchedule`, through `audio.js`'s shared `playNotes`. `updateTabsUI` stops it whenever the melody sub-tab is not the one on screen, for the same reason it calls `stopMetronome()` — scheduled timers would otherwise keep firing over whatever tab you switched to.
+
 ### Styling / theming
 
 Theme is CSS custom properties on `:root` (dark, the default) overridden under `body.light-mode`; toggling swaps the class and persists `cv-theme`. Dimensions that JS needs to know (notably `--white-key-width`) are read back out of computed styles rather than hardcoded — keep them in sync when changing key geometry.
 
 ## localStorage keys
 
-`cv-sections-piano`, `cv-sections-guitar`, `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` (script.js); `cv-guitar-scale-settings` (main.js); `cv-layout` and `cv-layout-scale` (layout.js — cross-instrument, so unlike `cv-sections-*` they are **not** per-board and do not go through `saveSections`/`loadSections`).
+`cv-sections-piano`, `cv-sections-guitar`, `cv-melodies-piano`, `cv-melodies-guitar`, `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-melody-zoom` (melody-panel.js — view state, not per-board), `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` (script.js); `cv-guitar-scale-settings` (main.js); `cv-layout` and `cv-layout-scale` (layout.js — cross-instrument, so unlike `cv-sections-*` they are **not** per-board and do not go through `saveSections`/`loadSections`).
 
 ## Dead / stale files
 

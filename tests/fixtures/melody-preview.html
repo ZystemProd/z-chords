@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>melody-render.js preview</title>
+<!-- Avoids a harmless favicon 404 that Chrome's auto-request would otherwise
+     trip the test suite's console-error listener on. -->
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="/styles.css" />
+<!-- melody-render.js wraps VexFlow, which the real app loads the same way. -->
+<script src="https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/cjs/vexflow.js"></script>
+<style>
+  body { background: #0b0f15; padding: 20px; }
+  .case { margin-bottom: 30px; }
+  .case h3 { color: #9fb0c2; font-family: sans-serif; font-size: 12px; }
+  .case.light { background: #fff; padding: 10px; }
+</style>
+</head>
+<body>
+<div id="host"></div>
+<script type="module">
+  // No font to preload: VexFlow embeds its glyphs as path data, which is
+  // what retired the whole Bravura loading dance this fixture used to open
+  // with. Wait for the library itself instead.
+  if (!window.VexFlow) throw new Error("VexFlow did not load");
+
+  import { renderMelodySVG } from "/melody-render.js";
+  import { createMelody } from "/melody-model.js";
+
+  const host = document.getElementById("host");
+  function addCase(label, melody, opts, lightBg) {
+    const wrap = document.createElement("div");
+    wrap.className = "case" + (lightBg ? " light" : "");
+    wrap.dataset.caseLabel = label;
+    if (lightBg) {
+      // The real theme toggle is a body-level class (styles.css:26), which
+      // can't be scoped to one case on a page showing every case at once. This
+      // re-declares the same tokens body.light-mode sets, locally, so the
+      // rendered SVG resolves the identical var(--text) etc. a real light-mode
+      // page would give it -- a faithful test, not just a white rectangle.
+      wrap.style.cssText =
+        "--bg:#fff;--card:#f7f9fb;--text:#222;--note-text:#444;--white:#fff;--black:#0b0b0b;";
+    }
+    const h = document.createElement("h3");
+    h.textContent = label;
+    wrap.appendChild(h);
+    wrap.appendChild(renderMelodySVG(melody, opts));
+    host.appendChild(wrap);
+  }
+
+  // 1. Simple treble melody, mixed durations, a rest, a barline crossing.
+  addCase("treble-basic", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 60 }] },
+      { den: 4, notes: [{ midi: 62 }] },
+      { den: 8, notes: [{ midi: 64 }] },
+      { den: 8, notes: [{ midi: 65 }] },
+      { rest: true, den: 4 },
+      { den: 4, dots: 1, notes: [{ midi: 67 }] },
+      { den: 16, notes: [{ midi: 69 }] },
+      { den: 4, notes: [{ midi: 71 }] },
+      { den: 4, notes: [{ midi: 72 }] },
+    ],
+  }), {});
+
+  // 2. Ledger lines above and below, accidentals, whole note.
+  addCase("treble-ledgers-accidentals", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 84 }] },  // C6, well above staff
+      { den: 4, notes: [{ midi: 48 }] },  // C3, well below staff
+      { den: 4, notes: [{ midi: 61 }] },  // C#4
+      { den: 1, notes: [{ midi: 60 }] },  // whole note
+    ],
+  }), {});
+
+  // 3. Bass clef.
+  addCase("bass-basic", createMelody({
+    clef: "bass", timeSig: { num: 3, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 43 }] },
+      { den: 4, notes: [{ midi: 45 }] },
+      { den: 4, notes: [{ midi: 47 }] },
+      { den: 2, dots: 1, notes: [{ midi: 48 }] },
+    ],
+  }), {});
+
+  // 4. Grand staff.
+  addCase("grand-basic", createMelody({
+    clef: "grand", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 72 }] },
+      { den: 4, notes: [{ midi: 48 }] },
+      { den: 4, notes: [{ midi: 64 }] },
+      { den: 4, notes: [{ midi: 40 }] },
+    ],
+  }), {});
+
+  // 5. Guitar clef + tab.
+  addCase("guitar-tab", createMelody({
+    clef: "guitar", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 64, stringIdx: 0, fret: 0 }] },
+      { den: 4, notes: [{ midi: 67, stringIdx: 1, fret: 3 }] },
+      { den: 8, notes: [{ midi: 69, stringIdx: 1, fret: 5 }] },
+      { den: 8, notes: [{ midi: 71, stringIdx: 1, fret: 7 }] },
+      { den: 4, notes: [{ midi: 72, stringIdx: 2, fret: 1 }] },
+    ],
+  }), {});
+
+  // 6. Multi-bar with an explicit barline-crossing tie (dotted quarter across 4/4).
+  addCase("tied-across-barline", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 60 }] },
+      { den: 4, notes: [{ midi: 62 }] },
+      { den: 4, notes: [{ midi: 64 }] },
+      { den: 4, dots: 1, notes: [{ midi: 65 }] }, // crosses into bar 2
+      { den: 8, notes: [{ midi: 67 }] },
+    ],
+  }), {});
+
+  // 7. Empty melody -- must not throw, must render an empty staff.
+  addCase("empty-melody", createMelody({ clef: "treble" }), {});
+
+  // 8. Light theme rendering (same melody as case 1, forced light background)
+  addCase("light-theme", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 60 }] },
+      { den: 8, notes: [{ midi: 64 }] },
+      { den: 8, notes: [{ midi: 67 }] },
+      { den: 4, dots: 1, notes: [{ midi: 72 }] },
+      { den: 16, notes: [{ midi: 74 }] },
+    ],
+  }), {}, true);
+
+  // 9. Print (.pdf-capture) rendering of the same melody.
+  addCase("print-capture", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 60 }] },
+      { den: 8, notes: [{ midi: 64 }] },
+      { den: 8, notes: [{ midi: 67 }] },
+      { den: 4, dots: 1, notes: [{ midi: 72 }] },
+      { den: 16, notes: [{ midi: 74 }] },
+    ],
+  }), {}, true);
+  host.lastChild.classList.add("pdf-capture");
+
+  // 12. Drums clef placeholder.
+  addCase("drums-placeholder", createMelody({ clef: "drums" }), {});
+
+  // 13. Proportional spacing: a clean progression of durations, same pitch,
+  // no accidentals. An 8-beat bar (well over the 4+8+16+32+64=124 ticks
+  // needed) keeps the whole progression in one bar, so nothing here crosses a
+  // barline and splits into tied pieces -- which would otherwise confuse a
+  // test that wants to isolate "does a longer duration get more room".
+  addCase("spacing-progression", createMelody({
+    clef: "treble", timeSig: { num: 8, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 16, notes: [{ midi: 64 }] },
+      { den: 8, notes: [{ midi: 64 }] },
+      { den: 4, notes: [{ midi: 64 }] },
+      { den: 2, notes: [{ midi: 64 }] },
+      { den: 1, notes: [{ midi: 64 }] },
+    ],
+  }), {});
+
+  window.__melodyPreviewReady = true;
+</script>
+</body>
+</html>

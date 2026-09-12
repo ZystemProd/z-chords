@@ -54,4 +54,36 @@ export default async function run({ browser, origin, t }) {
     t.noErrors(page);
     await page.close();
   }
+
+  // --- the empty-board hint belongs to the chord board, and only to it ---
+  //
+  // #emptyState was toggled only by renderSections, which no other tab calls,
+  // so once the board was empty the "start by adding a chord" panel followed
+  // you onto Scales, Melody and Layout. Fixing that by hiding it in the
+  // hide-all defaults can just as easily break it the other way, so both
+  // directions are pinned here.
+  {
+    const page = await openApp(browser, origin, {
+      state: {
+        "cv-sections-piano": [],
+        "cv-instrument": "piano",
+        "cv-subtabs": { piano: "chord" },
+      },
+    });
+    const onChordTab = await page.evaluate(
+      () => !document.getElementById("emptyState").hidden
+    );
+    t.ok("an empty chord board still shows its hint", onChordTab);
+
+    await page.evaluate(() =>
+      document.querySelector('#instrumentSubTabs .tab[data-instrument="piano"][data-subtab="melody"]').click()
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    const onMelodyTab = await page.evaluate(
+      () => !document.getElementById("emptyState").hidden
+    );
+    t.ok("the hint does not follow you to another tab", !onMelodyTab);
+    t.noErrors(page);
+    await page.close();
+  }
 }
