@@ -841,6 +841,9 @@ function makePiano(chord, options = {}) {
       bk.dataset.midi = blackMidi;
 
       const whiteWidthPx = wk.offsetWidth;
+      // Which white key this one hangs off, recorded so the geometry can be
+      // recomputed later against a different layout — see positionBlackKeys.
+      bk.dataset.anchorMidi = String(midi);
       // A black key's size and position are proportions of a white key, not
       // fixed pixels. They used to be: the width came from CSS as a flat 20px
       // and never changed, so once a keybed was narrower than the default the
@@ -887,6 +890,37 @@ function makePiano(chord, options = {}) {
   });
 
   return pianoWrap;
+}
+
+// Re-place the black keys of an already-built piano against its CURRENT layout.
+//
+// makePiano measures white keys inside a requestAnimationFrame, which reports
+// zero for a board built while its tab is hidden — every black key then lands at
+// left:0, stacked at the edge of the keybed. makePiano tolerates that because a
+// hidden board is rebuilt when its tab is shown, but the PDF export clones the
+// board WITHOUT it ever being shown, so that assumption does not hold there and
+// the sheet printed a row of collapsed keyboards. Splitting the geometry out
+// means the export can fix the clone once it has a real width, rather than
+// makePiano having to guess one.
+function positionBlackKeys(pianoWrap) {
+  if (!pianoWrap) return;
+  const basisPx = pianoWrap.clientWidth;
+  if (!(basisPx > 0)) return;
+
+  pianoWrap.querySelectorAll(".black-key").forEach((bk) => {
+    const anchorMidi = bk.dataset.anchorMidi;
+    if (anchorMidi == null) return;
+    const wk = pianoWrap.querySelector(`.white-key[data-midi="${anchorMidi}"]`);
+    if (!wk) return;
+    const whiteWidthPx = wk.offsetWidth;
+    if (!(whiteWidthPx > 0)) return;
+
+    const blackWidthPx = whiteWidthPx * BLACK_KEY_WIDTH_RATIO;
+    const leftPx =
+      wk.offsetLeft + whiteWidthPx + whiteWidthPx * BLACK_KEY_OFFSET_RATIO;
+    bk.style.left = `${(leftPx / basisPx) * 100}%`;
+    bk.style.width = `${(blackWidthPx / basisPx) * 100}%`;
+  });
 }
 
 function getName(midi) {
@@ -2716,20 +2750,61 @@ function pdfHeadings() {
 
 // Rasterize each section once. Changing the scale re-runs only the layout,
 // never html2canvas, which is what keeps the slider responsive.
+// The width an element WOULD occupy in its parent, usable while the element
+// itself is hidden and measures zero.
+function parentContentWidth(el) {
+  const parent = el.parentElement;
+  if (!parent) return 0;
+  const cs = getComputedStyle(parent);
+  const w =
+    parent.clientWidth -
+    (parseFloat(cs.paddingLeft) || 0) -
+    (parseFloat(cs.paddingRight) || 0);
+  return w > 0 ? w : 0;
+}
+
 async function capturePdfSections() {
   const boards = document.querySelector(".boards.preview");
   if (!boards) return [];
 
   const clone = boards.cloneNode(true);
   clone.classList.add("pdf-capture");
+  // `updateTabsUI` hides the board with an INLINE `display:none` on every
+  // sub-tab that is not a chord tab, and cloneNode copies inline styles — so
+  // capturing from Melody or Scales rasterized a zero-sized element. That is
+  // not merely an empty PDF: html2canvas computes the `.card` gradient over a
+  // zero-length gradient line, and `addColorStop(NaN)` throws, so the preview
+  // died with a console error instead of producing anything.
+  //
+  // The export is "this instrument's chord board", which exists in state
+  // whether or not that tab is on screen, so the fix is to lay the clone out
+  // rather than to refuse: forcing display here makes the button behave the
+  // same from every sub-tab.
+  clone.style.display = "block";
 
   const hiddenContainer = document.createElement("div");
   hiddenContainer.style.position = "fixed";
   hiddenContainer.style.top = "-9999px";
   hiddenContainer.style.left = "-9999px";
   hiddenContainer.style.opacity = "0";
+  // A hidden board measures 0, so the clone has nothing to size itself against
+  // and would shrink-wrap to its content at a different width than the chord
+  // tab captures at — the same song would export differently depending on which
+  // tab you happened to be on. Pin the width to the board's own layout slot,
+  // which its parent still has even while the board itself is hidden.
+  // `clientWidth` INCLUDES the parent's padding, so using it raw made the
+  // hidden-tab capture 40px wider than the chord tab's — the same song
+  // exporting at two different widths. Take the parent's content box.
+  const slot = boards.offsetWidth || parentContentWidth(boards) || 0;
+  if (slot) hiddenContainer.style.width = `${slot}px`;
   hiddenContainer.appendChild(clone);
   document.body.appendChild(hiddenContainer);
+
+  // Now that the clone has a real width, re-place any black keys that were
+  // positioned against a hidden (zero-width) board. On the chord tab this is a
+  // no-op recomputation; off it, it is the difference between a keyboard and a
+  // stack of black keys at the left edge.
+  clone.querySelectorAll(".piano").forEach(positionBlackKeys);
 
   try {
     const sectionData = JSON.parse(boardsEl.dataset.sections || "[]");

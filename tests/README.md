@@ -185,6 +185,15 @@ the suite now also pins that the painted box and the declared box agree — a dr
 between them means the score is being squeezed into a box of the wrong size,
 which it silently had been.
 
+**Some bugs only pixels can see.** Exporting a PDF from a non-chord sub-tab
+produced a page with the right number of pages, the right number of images, each
+at a plausible size — and every keyboard on it collapsed into a stack of black
+keys at the left edge, because the board was hidden when it was measured. No
+structural assertion available caught it; comparing the chord-tab capture with
+the melody-tab capture pixel-for-pixel caught it instantly and located it
+exactly. When two paths are supposed to produce *the same* output, comparing the
+outputs directly beats enumerating properties you hope are sufficient.
+
 ## Adding a suite
 
 Drop a `*.test.mjs` in `suites/`:
