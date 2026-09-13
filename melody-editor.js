@@ -21,6 +21,8 @@ import {
   melodyPlaybackSchedule,
   midiFromStaffStep,
   DURATION_DENOMS,
+  notesMatchPitch,
+  pruneInvalidTies,
 } from "./melody-model.js";
 import { playNotes, stopAll } from "./audio.js";
 
@@ -31,6 +33,74 @@ const DURATION_LABEL = {
   8: "Eighth",
   16: "Sixteenth",
 };
+
+// SMuFL codepoints for the note values, in Bravura.
+//
+// The palette used to be plain digits, on the reasoning that "note symbols live
+// in a music font and a button's label is ordinary UI text". That stopped being
+// true with VexFlow 5: it registers Bravura through the FontFace API at load, so
+// the face is in `document.fonts` and any CSS on the page can ask for it — we
+// get the glyphs without shipping, hosting or fetching a font ourselves.
+//
+// Unicode's own musical symbols (U+1D15D and friends) would need no font, but
+// nothing in a normal system font stack actually draws them.
+const DURATION_GLYPH = {
+  1: "", // noteWhole
+  2: "", // noteHalfUp
+  4: "", // noteQuarterUp
+  8: "", // note8thUp
+  16: "", // note16thUp
+};
+const GLYPH_DOT = ""; // augmentationDot
+const GLYPH_REST = ""; // restQuarter
+
+const GLYPH_NOTE_INPUT = "✎"; // pencil — plain Unicode, not a Bravura glyph
+const GLYPH_TIE = "⌣"; // a tie is a curve, not a note shape — plain Unicode too
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// A five-line stave's own top line sits this many diatonic steps above its
+// bottom line (5 lines = 4 gaps = 8 steps). Mirrors melody-render.js's
+// TOP_STEP_OFFSET, which that file does not export — but a five-line staff is
+// not going to change shape, and the preview only needs it to know where
+// ledger lines start.
+const TOP_STEP_OFFSET = 8;
+
+// Bravura arrives with VexFlow, which is a CDN script and can genuinely be
+// absent. Asking `document.fonts` is the honest test — without it the buttons
+// would render tofu boxes, so they fall back to the digits they used to show.
+function bravuraReady() {
+  try {
+    return typeof document !== "undefined" && document.fonts.check('16px Bravura');
+  } catch (_) {
+    return false;
+  }
+}
+
+// Letter-key entry needs a starting octave when there is nothing to be near.
+// Middle of each clef's staff, so the first note lands on the staff rather than
+// several ledger lines away from it.
+const CLEF_HOME_MIDI = { treble: 60, grand: 60, guitar: 60, bass: 43, drums: 60 };
+
+// Semitone above C for each letter name. Letters enter naturals; the arrow keys
+// alter them, which is the same division of labour the staff click has.
+const LETTER_SEMITONE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+// The octave of `letter` that lands nearest `refMidi` — step entry the way a
+// notation program does it, so typing C D E after a G4 walks around G rather
+// than leaping to octave 4 every time. A tie goes upward.
+export function midiForLetterNear(letter, refMidi) {
+  const pc = LETTER_SEMITONE[letter];
+  if (pc == null) return null;
+  let best = null;
+  for (let octave = 0; octave <= 9; octave += 1) {
+    const midi = (octave + 1) * 12 + pc;
+    if (midi < 0 || midi > 127) continue;
+    const d = Math.abs(midi - refMidi);
+    if (!best || d < best.d || (d === best.d && midi > best.midi)) best = { midi, d };
+  }
+  return best ? best.midi : null;
+}
 
 // One shared set of playback timers: two editors on screen should not be able
 // to play over each other, and leaving the view has a single thing to stop.
@@ -54,23 +124,50 @@ export function playMelody(melody) {
   });
 }
 
-// A click's position, converted back to a staff position. getScreenCTM() is
-// the right tool rather than any offset/rect arithmetic: an editor may sit
-// inside a scaled container, and the CTM already accounts for every ancestor
-// transform between the SVG and the screen.
-function staffStepFromEvent(svg, event) {
+// A pointer position, converted to the SVG's own user-space coordinates.
+// getScreenCTM() is the right tool rather than any offset/rect arithmetic: an
+// editor may sit inside a scaled container, and the CTM already accounts for
+// every ancestor transform between the SVG and the screen. Shared by the click
+// handler and the note-input mouse preview, which both need it.
+function svgLocalPoint(svg, event) {
   const ctm = svg.getScreenCTM();
   if (!ctm) return null;
   const pt = svg.createSVGPoint();
   pt.x = event.clientX;
   pt.y = event.clientY;
-  const local = pt.matrixTransform(ctm.inverse());
+  return pt.matrixTransform(ctm.inverse());
+}
 
+function staffStepFromLocal(svg, local) {
+  if (!local) return null;
   const bottomY = Number(svg.getAttribute("data-stave-bottom-y"));
   const refBottom = Number(svg.getAttribute("data-stave-ref-bottom"));
   const stepPx = Number(svg.getAttribute("data-step-px"));
   if (!Number.isFinite(bottomY) || !Number.isFinite(refBottom) || !stepPx) return null;
   return Math.round(refBottom + (bottomY - local.y) / stepPx);
+}
+
+function staffStepFromEvent(svg, event) {
+  return staffStepFromLocal(svg, svgLocalPoint(svg, event));
+}
+
+// Which ledger-line offsets (relative to the stave's bottom line, in the same
+// units as staffStep) a note at `offset` needs. Offsets 0..TOP_STEP_OFFSET are
+// the five lines themselves; a note one step outside that range sits in open
+// air just past the staff and needs no ledger (that is what a plain space
+// above/below the staff looks like), so the first ledger line only appears two
+// steps out, and every one closer to the staff than the note's own line is
+// implied along with it.
+function ledgerOffsetsFor(offset) {
+  const list = [];
+  if (offset <= -2) {
+    const lowest = offset % 2 === 0 ? offset : offset + 1;
+    for (let e = -2; e >= lowest; e -= 2) list.push(e);
+  } else if (offset >= TOP_STEP_OFFSET + 2) {
+    const highest = offset % 2 === 0 ? offset : offset - 1;
+    for (let e = TOP_STEP_OFFSET + 2; e <= highest; e += 2) list.push(e);
+  }
+  return list;
 }
 
 /**
@@ -96,8 +193,16 @@ export function createMelodyEditor(host, melody, options = {}) {
     dots: 0,
     caret: null,
     scale: clampScale(options.scale != null ? options.scale : 1.6),
+    // Note input starts OFF: arrow-key navigation, deletion and the duration
+    // palette all work regardless, but letters, R and a blank-staff click only
+    // write notes while this is on — the same split notation software makes so
+    // that browsing a melody cannot accidentally add to it.
+    noteInput: false,
   };
   const onScaleChange = options.onScaleChange || (() => {});
+  // Checked once per editor rather than per button: the font either arrived
+  // with VexFlow or it did not, and that cannot change mid-session.
+  const glyphsAvailable = bravuraReady();
 
   host.innerHTML = "";
   const root = document.createElement("div");
@@ -112,7 +217,11 @@ export function createMelodyEditor(host, melody, options = {}) {
   staffHost.setAttribute("role", "application");
   staffHost.setAttribute(
     "aria-label",
-    "Melody staff. Click the staff to add a note, click a note to select it, arrow keys to move and transpose."
+    "Melody staff. Type A to G to add notes, R for a rest, 1 to 5 for the note value, " +
+      "full stop to dot it. Click the staff to add a note at that pitch, click a note to " +
+      "select it, arrow keys to move and transpose. T ties the selected note to the next " +
+      "one, when they share a pitch. N toggles note input mode, which is what lets the " +
+      "keyboard and staff clicks write notes rather than just navigate."
   );
 
   if (showControls) root.appendChild(controls);
@@ -123,7 +232,30 @@ export function createMelodyEditor(host, melody, options = {}) {
     // Tab positions are derived from pitch, so they are recomputed on every
     // change rather than stored and left to go stale after an edit.
     if (current.clef === "guitar") assignTab(current);
+    // A tie only means anything while it still points at a matching pitch
+    // right after it — any edit (transpose, delete, a duration change that
+    // shifts what follows) can invalidate one, so this runs after EVERY edit
+    // rather than being trusted to stay correct on its own.
+    pruneInvalidTies(current.events);
     onChange(current);
+  }
+
+  // Whether the event at `i` can be tied to the one right after it: both must
+  // be real notes (not rests) and share the same pitch(es) — a tie says
+  // "keep sounding this note", which only means something between two notes
+  // that ARE the same note.
+  function canTie(i) {
+    const a = current.events[i];
+    const b = current.events[i + 1];
+    return !!(a && b && notesMatchPitch(a, b));
+  }
+
+  function toggleTie() {
+    if (state.caret == null || !canTie(state.caret)) return;
+    const ev = current.events[state.caret];
+    ev.tie = !ev.tie;
+    commit();
+    drawStaff();
   }
 
   function markSelection() {
@@ -134,6 +266,126 @@ export function createMelodyEditor(host, melody, options = {}) {
       .forEach((n) => n.classList.add("ms-selected"));
   }
 
+  function clearGhost() {
+    const svg = staffHost.querySelector("svg");
+    const g = svg && svg.querySelector(".ms-input-preview");
+    if (g) g.remove();
+  }
+
+  // The floating notehead that follows the pointer in note-input mode, at the
+  // pitch a click would write there — musescore-style. `x` is the pointer's
+  // own position (so the preview tracks the cursor left-to-right too), `y`
+  // comes from `staffStep` through the same offset math the renderer and the
+  // click-to-pitch inverse both use, so the preview can never disagree with
+  // where the note would actually land. staffStep is always an integer (snapped
+  // to staff lines and spaces).
+  function drawGhost(svg, x, staffStep) {
+    clearGhost();
+    const bottomY = Number(svg.getAttribute("data-stave-bottom-y"));
+    const refBottom = Number(svg.getAttribute("data-stave-ref-bottom"));
+    const stepPx = Number(svg.getAttribute("data-step-px"));
+    if (!Number.isFinite(bottomY) || !Number.isFinite(refBottom) || !stepPx) return;
+    const offset = staffStep - refBottom;
+    const y = bottomY - offset * stepPx;
+
+    const g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("class", "ms-input-preview");
+    g.setAttribute("aria-hidden", "true");
+
+    ledgerOffsetsFor(offset).forEach((e) => {
+      const ly = bottomY - e * stepPx;
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", "ms-input-ledger");
+      line.setAttribute("x1", String(x - stepPx * 1.6));
+      line.setAttribute("x2", String(x + stepPx * 1.6));
+      line.setAttribute("y1", String(ly));
+      line.setAttribute("y2", String(ly));
+      g.appendChild(line);
+    });
+
+    const notehead = document.createElementNS(SVG_NS, "ellipse");
+    notehead.setAttribute("class", "ms-input-notehead");
+    notehead.setAttribute("cx", String(x));
+    notehead.setAttribute("cy", String(y));
+    notehead.setAttribute("rx", String(stepPx * 1.05));
+    notehead.setAttribute("ry", String(stepPx * 0.8));
+    notehead.setAttribute("transform", `rotate(-18 ${x} ${y})`);
+    g.appendChild(notehead);
+
+    svg.appendChild(g);
+  }
+
+  // The translucent band marking where the NEXT typed or clicked note will
+  // land — separate from the mouse ghost, because it answers "where does the
+  // keyboard write" rather than "what does the pointer point at", and the two
+  // agree only when the mouse happens to be sitting over the caret.
+  //
+  // `insertAt` is exactly the index `insertEvent` will splice into: the event
+  // there (if any) is what a new note would push right, so highlighting its
+  // own painted position is the right target; past the last event there is
+  // nothing to anchor to, so the band sits just after the previous note, or
+  // — on an empty melody — approximately where the first note will land, just
+  // past the clef and time signature.
+  // Where the NEXT note actually lands: the horizontal slot next to whatever
+  // is at the caret. This is what a click writes into regardless of the
+  // mouse's x position — insertion is caret-based, not click-x-based — so it
+  // is the single source of truth for both the insertion-cursor rectangle and
+  // the ghost notehead's x, which is what makes the ghost "snap" horizontally
+  // to the nearest already-written note instead of floating with the pointer.
+  function insertionSlot(svg) {
+    const stepPx = Number(svg.getAttribute("data-step-px")) || 10;
+    const insertAt = state.caret == null ? current.events.length : state.caret + 1;
+    const targetEl = svg.querySelector(`[data-event-index="${insertAt}"]`);
+    const prevEl = insertAt > 0 ? svg.querySelector(`[data-event-index="${insertAt - 1}"]`) : null;
+
+    if (targetEl) {
+      const bb = targetEl.getBBox();
+      return { x: bb.x - 4, w: bb.width + 8 };
+    }
+    if (prevEl) {
+      const bb = prevEl.getBBox();
+      return { x: bb.x + bb.width + 2, w: stepPx * 3.5 };
+    }
+    // Past the clef and time signature, on an otherwise empty stave.
+    return { x: 72, w: stepPx * 3.5 };
+  }
+
+  function updateInsertCursor() {
+    const svg = staffHost.querySelector("svg");
+    if (!svg) return;
+    const old = svg.querySelector(".ms-insert-cursor");
+    if (old) old.remove();
+    if (!state.noteInput) return;
+
+    const bottomY = Number(svg.getAttribute("data-stave-bottom-y"));
+    const stepPx = Number(svg.getAttribute("data-step-px"));
+    if (!Number.isFinite(bottomY) || !stepPx) return;
+
+    const top = bottomY - (TOP_STEP_OFFSET + 2) * stepPx;
+    const bottom = bottomY + 2 * stepPx;
+    const { x, w } = insertionSlot(svg);
+
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("class", "ms-insert-cursor");
+    rect.setAttribute("x", String(x));
+    rect.setAttribute("y", String(top));
+    rect.setAttribute("width", String(Math.max(w, 4)));
+    rect.setAttribute("height", String(bottom - top));
+    rect.setAttribute("aria-hidden", "true");
+    // Behind the notation (SVG paints in document order), so it reads as a
+    // highlighted slot rather than a box drawn over the notes.
+    svg.insertBefore(rect, svg.firstChild);
+  }
+
+  function updateCaretVisuals() {
+    markSelection();
+    updateInsertCursor();
+    // The tie button's active/disabled state depends on which event is
+    // selected, so a plain caret move (arrow keys, clicking a note) has to
+    // refresh it too, not just edits that already redraw controls anyway.
+    drawControls();
+  }
+
   // Redraws only the staff, keeping focus. Rebuilding the whole editor would
   // destroy focus on every keystroke, which makes keyboard editing impossible.
   function drawStaff() {
@@ -141,8 +393,17 @@ export function createMelodyEditor(host, melody, options = {}) {
     const hadFocus = document.activeElement === staffHost;
     staffHost.innerHTML = "";
     staffHost.appendChild(renderMelodySVG(current, { scale: state.scale }));
-    markSelection();
+    updateCaretVisuals();
     if (hadFocus) staffHost.focus();
+  }
+
+  function setNoteInput(v) {
+    if (state.noteInput === v) return;
+    state.noteInput = v;
+    staffHost.classList.toggle("ms-note-input-active", v);
+    if (!v) clearGhost();
+    drawControls();
+    updateInsertCursor();
   }
 
   function insertEvent(event) {
@@ -186,6 +447,25 @@ export function createMelodyEditor(host, melody, options = {}) {
     return b;
   }
 
+  // A button whose face is a music glyph. The glyph is decorative — the button
+  // still carries a real `aria-label` and tooltip, because "" tells a screen
+  // reader nothing and a private-use codepoint is not text.
+  function mkGlyphButton(glyph, fallback, title, onClick, active) {
+    const b = mkButton("", title, onClick, active);
+    b.classList.add("melody-glyph-btn");
+    b.setAttribute("aria-label", title);
+    const face = document.createElement("span");
+    if (glyphsAvailable) {
+      face.className = "ms-glyph";
+      face.textContent = glyph;
+    } else {
+      face.textContent = fallback;
+    }
+    face.setAttribute("aria-hidden", "true");
+    b.appendChild(face);
+    return b;
+  }
+
   function drawControls() {
     if (!showControls) return;
     controls.innerHTML = "";
@@ -225,15 +505,30 @@ export function createMelodyEditor(host, melody, options = {}) {
     });
     controls.appendChild(timeSel);
 
-    // Plain digits rather than note glyphs: the note-value symbols live in the
-    // Bravura font, but a button's label is ordinary UI text.
+    // Note input is off by default: browsing and selecting a melody must not
+    // risk writing to it. Toggling this is what lets letters, R and a blank
+    // staff click add notes, the same gate MuseScore's own N key opens. Plain
+    // Unicode rather than mkGlyphButton — a pencil is not a Bravura codepoint.
+    controls.appendChild(
+      mkButton(
+        GLYPH_NOTE_INPUT,
+        "Note input — type notes or click the staff to write them  (N)",
+        () => setNoteInput(!state.noteInput),
+        state.noteInput
+      )
+    );
+
+    // The note values, drawn as the notes they are. Each also names its number
+    // key in the tooltip, which is how a keyboard shortcut gets discovered at
+    // all — nobody guesses that 3 means a quarter note.
     const palette = document.createElement("span");
     palette.className = "melody-duration-palette no-drag";
-    DURATION_DENOMS.forEach((den) => {
+    DURATION_DENOMS.forEach((den, i) => {
       palette.appendChild(
-        mkButton(
+        mkGlyphButton(
+          DURATION_GLYPH[den],
           String(den),
-          `${DURATION_LABEL[den]} note`,
+          `${DURATION_LABEL[den]} note  (${i + 1})`,
           () => {
             state.den = den;
             applyDuration();
@@ -245,9 +540,10 @@ export function createMelodyEditor(host, melody, options = {}) {
     controls.appendChild(palette);
 
     controls.appendChild(
-      mkButton(
+      mkGlyphButton(
+        state.dots === 2 ? `${GLYPH_DOT}${GLYPH_DOT}` : GLYPH_DOT,
         state.dots === 2 ? ".." : ".",
-        "Dotted (adds half the duration again)",
+        `Dotted — adds half the duration again  (.)`,
         () => {
           state.dots = state.dots === 0 ? 1 : state.dots === 1 ? 2 : 0;
           applyDuration();
@@ -257,11 +553,30 @@ export function createMelodyEditor(host, melody, options = {}) {
     );
 
     controls.appendChild(
-      mkButton("rest", "Insert a rest at the caret", () =>
+      mkGlyphButton(GLYPH_REST, "rest", "Insert a rest at the caret  (R)", () =>
         insertEvent({ den: state.den, dots: state.dots, rest: true, notes: [] })
       )
     );
-    controls.appendChild(mkButton("×", "Delete the selected note", deleteSelection));
+
+    // A tie only makes sense between two real notes of the same pitch, and
+    // never on a beat (a drum "note" is a voice, not a sustained pitch — see
+    // melody-model.js). Disabled rather than hidden when the caret can't tie,
+    // so the button stays a discoverable affordance instead of vanishing.
+    if (current.clef !== "drums") {
+      const caretEvent = state.caret != null ? current.events[state.caret] : null;
+      const tieBtn = mkButton(
+        GLYPH_TIE,
+        "Tie to the next note — requires the same pitch  (T)",
+        toggleTie,
+        !!(caretEvent && caretEvent.tie)
+      );
+      tieBtn.disabled = state.caret == null || !canTie(state.caret);
+      controls.appendChild(tieBtn);
+    }
+
+    controls.appendChild(
+      mkButton("×", "Delete the selected note  (Delete)", deleteSelection)
+    );
     controls.appendChild(mkButton("▶", "Play this melody", () => playMelody(current)));
     controls.appendChild(mkButton("■", "Stop playback", stopMelodyPlayback));
 
@@ -297,9 +612,14 @@ export function createMelodyEditor(host, melody, options = {}) {
     const hit = e.target.closest && e.target.closest("[data-event-index]");
     if (hit) {
       state.caret = Number(hit.getAttribute("data-event-index"));
-      markSelection();
+      updateCaretVisuals();
       return;
     }
+
+    // A click on open staff only writes a note in note-input mode — otherwise
+    // it is just a way to focus the staff, the same as clicking blank space
+    // anywhere else in the app does nothing destructive.
+    if (!state.noteInput) return;
 
     const staffStep = staffStepFromEvent(svg, e);
     if (staffStep == null) return;
@@ -311,14 +631,117 @@ export function createMelodyEditor(host, melody, options = {}) {
     });
   });
 
+  // The pointer's live pitch preview — only meaningful in note-input mode,
+  // and only while the pointer is actually over the staff. The pitch (y)
+  // tracks the mouse and snaps to the nearest staff line/space; the horizontal
+  // position does NOT follow the mouse at all — insertion is caret-based, not
+  // click-x-based (a click's x was never used to decide WHERE in the sequence
+  // a note goes, only its y decided the pitch), so the ghost's x snaps to the
+  // actual insertion slot next to the nearest already-written note. Anything
+  // else would show the preview in a place a click could never actually write.
+  staffHost.addEventListener("mousemove", (e) => {
+    const svg = staffHost.querySelector("svg");
+    if (!state.noteInput || !svg) {
+      clearGhost();
+      return;
+    }
+    const local = svgLocalPoint(svg, e);
+    const staffStep = staffStepFromLocal(svg, local);
+    if (staffStep == null) {
+      clearGhost();
+      return;
+    }
+    const { x, w } = insertionSlot(svg);
+    drawGhost(svg, x + w / 2, staffStep);
+  });
+  staffHost.addEventListener("mouseleave", clearGhost);
+
+  // The pitch a letter-entered note should be measured against: the note at the
+  // caret if there is one, else the last note written, else the middle of the
+  // clef. Rests are skipped — they have no pitch to be near.
+  function referenceMidi() {
+    const upTo =
+      state.caret != null ? Math.min(state.caret + 1, current.events.length) : current.events.length;
+    for (let i = upTo - 1; i >= 0; i -= 1) {
+      const ev = current.events[i];
+      if (ev && !ev.rest && ev.notes && ev.notes.length) return ev.notes[0].midi;
+    }
+    return CLEF_HOME_MIDI[current.clef] != null ? CLEF_HOME_MIDI[current.clef] : 60;
+  }
+
   staffHost.addEventListener("keydown", (e) => {
+    // Letter and number entry must work on an EMPTY melody — that is the whole
+    // point of typing a melody in. Only the commands that act on an existing
+    // event need something to act on, so the emptiness guard moved down to them
+    // rather than covering the whole handler as it used to.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const key = e.key.toUpperCase();
+
+    if (key === "N") {
+      e.preventDefault();
+      setNoteInput(!state.noteInput);
+      return;
+    }
+
+    if (key === "ESCAPE" && state.noteInput) {
+      e.preventDefault();
+      setNoteInput(false);
+      return;
+    }
+
+    // Letters and R only WRITE while note input is on — see the toggle button
+    // and the state.noteInput comment above for why browsing must not.
+    if (state.noteInput && LETTER_SEMITONE[key] != null) {
+      e.preventDefault();
+      const midi = midiForLetterNear(key, referenceMidi());
+      if (midi == null) return;
+      insertEvent({ den: state.den, dots: state.dots, rest: false, notes: [{ midi }] });
+      // Hearing the note as it is entered is what makes typing a melody
+      // possible without constantly replaying from the top.
+      playNotes([midi], { duration: 0.35 });
+      return;
+    }
+
+    if (state.noteInput && key === "R") {
+      e.preventDefault();
+      insertEvent({ den: state.den, dots: state.dots, rest: true, notes: [] });
+      return;
+    }
+
+    // Tie is not gated on note-input: it acts on the already-selected note,
+    // the same as transpose and delete below rather than writing a new one.
+    if (key === "T") {
+      e.preventDefault();
+      toggleTie();
+      return;
+    }
+
+    // 1..5 select the duration, in palette order — whole through sixteenth.
+    // Deliberately positional rather than "the key whose digit matches the
+    // denominator": that would need 1,2,4,8 plus something arbitrary for 16.
+    const slot = Number(e.key);
+    if (Number.isInteger(slot) && slot >= 1 && slot <= DURATION_DENOMS.length) {
+      e.preventDefault();
+      state.den = DURATION_DENOMS[slot - 1];
+      applyDuration();
+      return;
+    }
+
+    if (e.key === ".") {
+      e.preventDefault();
+      state.dots = state.dots === 0 ? 1 : state.dots === 1 ? 2 : 0;
+      applyDuration();
+      return;
+    }
+
     const count = current.events.length;
     if (!count) return;
 
     const move = (delta) => {
       state.caret = state.caret == null ? (delta > 0 ? 0 : count - 1) : state.caret + delta;
       state.caret = Math.max(0, Math.min(count - 1, state.caret));
-      markSelection();
+      updateCaretVisuals();
     };
 
     const transpose = (semitones) => {

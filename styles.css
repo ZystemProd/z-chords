@@ -815,11 +815,6 @@ select:focus-visible {
 .guitar-staff svg {
   max-width: 100%;
   height: auto;
-  color: #111;
-  background: #fffdf7;
-  border: 1px solid #d9d9d9;
-  border-radius: 8px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 .guitar-staff-empty {
@@ -2742,10 +2737,52 @@ body.light-mode .metronome-led {
   stroke: var(--button-bg) !important;
 }
 
+/* ---- Note-input mode: pointer pitch preview and insertion cursor ----
+   Modeled on how notation software marks where typed or clicked input will
+   land: a floating notehead follows the pointer at the pitch a click would
+   write (snapped to staff lines/spaces), and a translucent band marks the beat
+   the keyboard writes into. Both are cursors, not content — plain CSS colour
+   rather than the `[fill]` recolouring rules above, since these elements carry
+   no VexFlow attributes for those rules to match in the first place. */
+.ms-input-notehead {
+  fill: var(--button-bg);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.ms-input-ledger {
+  stroke: var(--button-bg);
+  stroke-width: 1.2;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.ms-insert-cursor {
+  fill: var(--button-bg);
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+/* The crosshair is the only affordance that a staff click currently writes a
+   note — the button's is-active state is easy to miss mid-edit. */
+.melody-editor-staff.ms-note-input-active {
+  cursor: crosshair;
+}
+
 .ms-placeholder {
   fill: var(--note-text);
   font-size: 12px;
   font-family: inherit;
+}
+
+/* Note name labels under each notehead. */
+.ms-note-name {
+  fill: var(--note-text);
+  font-size: 11px;
+  font-family: Inter, system-ui, monospace;
+  font-weight: 600;
+  pointer-events: none;
+  dominant-baseline: hanging;
 }
 
 /* Print: white page, black ink -- same treatment as .gc-* and .gs-*. */
@@ -2861,6 +2898,42 @@ body.light-mode .metronome-led {
 
 .melody-editor-controls button {
   min-width: 22px;
+  padding: 6px 8px;
+}
+
+/* Buttons whose face is a Bravura glyph.
+   The font comes from VexFlow, which registers it via the FontFace API at load,
+   so there is no @font-face here and nothing to host or fetch. The fallback
+   stack matters: if VexFlow is absent the JS substitutes digits, but a stray
+   glyph must still not render as a tofu box. */
+.melody-editor-controls .melody-glyph-btn,
+.drum-grid-controls .melody-glyph-btn {
+  box-sizing: border-box;
+  /* A fixed box keeps the row from jumping as glyphs of different widths and
+     heights swap in — a whole note is wide and squat, a 16th tall and narrow. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 6px 8px;
+  line-height: 1;
+}
+
+.melody-glyph-btn .ms-glyph {
+  font-family: "Bravura", "Academico", serif;
+  /* Note glyphs hang far above the baseline (the stem) and barely below it, so
+     centring the em box leaves them looking low. The nudge is the difference
+     between "a note on a button" and "a note falling off a button". */
+  font-size: 21px;
+  line-height: 1;
+  transform: translateY(0.18em);
+  pointer-events: none;
+}
+
+/* The dot and rest read small next to a stemmed note at the same size. */
+.melody-glyph-btn .ms-glyph:only-child:not(:empty) {
+  letter-spacing: 0.04em;
 }
 
 /* Zoom sits apart from the note-entry controls: it changes how the staff is
@@ -2885,11 +2958,20 @@ body.light-mode .metronome-led {
   cursor: default;
 }
 
-.melody-editor-controls button.is-active {
+.melody-editor-controls button.is-active,
+.drum-grid-controls button.is-active {
   /* App buttons already have a --button-bg fill, so the active one cannot be
-     marked by tinting it that same colour — it would disappear. Invert it. */
+     marked by tinting it that same colour — it would disappear. Invert it.
+
+     The border is not decoration. `--button-text` is #ffffff in BOTH themes, so
+     the inverted fill alone is a white pill — which reads fine on the dark
+     theme and vanishes completely on the light one, leaving a glyph floating on
+     the page with no button under it. An explicit edge in the accent colour
+     gives the control a visible boundary against either background. */
   background: var(--button-text);
   color: var(--button-bg);
+  border: 2px solid var(--button-bg);
+  box-sizing: border-box;
   font-weight: 700;
 }
 

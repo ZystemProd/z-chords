@@ -121,6 +121,21 @@
     ],
   }), {});
 
+  // 6b. A manual tie: `event.tie` between two SEPARATE same-pitch events, not
+  // the automatic split layoutBars draws when one event crosses a barline.
+  // The middle note (E4) is tied on both sides, to distinguish "eventIndex+1"
+  // wiring from "any two adjacent notes" -- a bug that connected the wrong
+  // pair would still draw two curves here, just between the wrong noteheads.
+  addCase("manual-tie", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 64 }], tie: true },
+      { den: 4, notes: [{ midi: 64 }], tie: true },
+      { den: 4, notes: [{ midi: 64 }] },
+      { den: 4, notes: [{ midi: 67 }] }, // different pitch: no tie reaches here
+    ],
+  }), {});
+
   // 7. Empty melody -- must not throw, must render an empty staff.
   addCase("empty-melody", createMelody({ clef: "treble" }), {});
 

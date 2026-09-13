@@ -1,5 +1,7 @@
 import { renderScaleSVG, scaleWindow, CAGED_MODES } from "./guitar.js";
-import { NOTES, SCALE_FORMULAS } from "./theory.js";
+import { SCALE_FORMULAS } from "./theory.js";
+import { createMelody } from "./melody-model.js";
+import { renderMelodySVG } from "./melody-render.js";
 
 const guitarEl = document.getElementById("guitar");
 const keySel = document.getElementById("guitarKey");
@@ -116,26 +118,6 @@ function updateShapeUI() {
   if (shapeValue) shapeValue.textContent = String(shapeIndex + 1);
 }
 
-function midiToNoteName(midi) {
-  const note = NOTES[((midi % 12) + 12) % 12];
-  const octave = Math.floor(midi / 12) - 1;
-  return `${note}${octave}`;
-}
-
-function midiToSpelledNote(midi) {
-  const pitchClass = ((midi % 12) + 12) % 12;
-  const note = NOTES[pitchClass];
-  const octave = Math.floor(midi / 12) - 1;
-  const letter = note[0];
-  const accidental = note.length > 1 ? note.slice(1) : "";
-  return { note, octave, letter, accidental };
-}
-
-function trebleStepFromSpelledNote(spelled) {
-  const letterOrder = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
-  return (spelled.octave - 4) * 7 + (letterOrder[spelled.letter] - letterOrder.E);
-}
-
 function parseCustomNoteKey(key) {
   if (typeof key !== "string") return null;
   const parts = key.split(":");
@@ -168,162 +150,22 @@ function renderCustomStaff() {
     return;
   }
 
-  const lineGap = 14;
-  const staffStep = lineGap / 2;
-  const bottomLineY = 112;
-  const topLineY = bottomLineY - 4 * lineGap;
-  const staffLeft = 58;
-  const staffRight = 18;
-  const noteSpacing = 60;
-  const leftMargin = 120;
-  const width = Math.max(760, leftMargin + selected.length * noteSpacing + staffRight);
-  const height = 170;
-
-  const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.setAttribute("width", width);
-  svg.setAttribute("height", height);
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Selected custom notes on treble clef staff");
-  svg.style.color = "#111";
-
-  const bg = document.createElementNS(svgNS, "rect");
-  bg.setAttribute("x", "0");
-  bg.setAttribute("y", "0");
-  bg.setAttribute("width", width);
-  bg.setAttribute("height", height);
-  bg.setAttribute("fill", "#fffdf7");
-  svg.appendChild(bg);
-
-  const clef = document.createElementNS(svgNS, "text");
-  clef.setAttribute("x", 10);
-  clef.setAttribute("y", 104);
-  clef.setAttribute("fill", "#111");
-  clef.setAttribute("font-size", "64");
-  clef.setAttribute("font-family", "serif");
-  clef.textContent = "𝄞";
-  svg.appendChild(clef);
-
-  for (let i = 0; i < 5; i += 1) {
-    const y = topLineY + i * lineGap;
-    const line = document.createElementNS(svgNS, "line");
-    line.setAttribute("x1", staffLeft);
-    line.setAttribute("y1", y);
-    line.setAttribute("x2", width - staffRight);
-    line.setAttribute("y2", y);
-    line.setAttribute("stroke", "#111");
-    line.setAttribute("stroke-width", "1.4");
-    line.setAttribute("opacity", "0.65");
-    svg.appendChild(line);
-  }
-
-  const staffBottomStep = 0;
-  const staffTopStep = 8;
-  const noteWidth = 18;
-  const noteHeight = 13;
-  const stemLength = 36;
-  const xStart = 96;
-  const measureSize = 7;
-
-  selected.forEach((note, index) => {
-    const x = xStart + index * noteSpacing;
-    const notatedMidi = note.midi + 12;
-    const spelled = midiToSpelledNote(notatedMidi);
-    const step = trebleStepFromSpelledNote(spelled);
-    const y = bottomLineY - step * staffStep;
-    const stemUp = step < 4;
-
-    if (step < staffBottomStep) {
-      for (let s = -2; s >= step; s -= 2) {
-        const ledgerY = bottomLineY - s * staffStep;
-        const ledger = document.createElementNS(svgNS, "line");
-        ledger.setAttribute("x1", x - 16);
-        ledger.setAttribute("y1", ledgerY);
-        ledger.setAttribute("x2", x + 16);
-        ledger.setAttribute("y2", ledgerY);
-        ledger.setAttribute("stroke", "#111");
-        ledger.setAttribute("stroke-width", "1.3");
-        ledger.setAttribute("opacity", "0.6");
-        svg.appendChild(ledger);
-      }
-    } else if (step > staffTopStep) {
-      for (let s = 10; s <= step; s += 2) {
-        const ledgerY = bottomLineY - s * staffStep;
-        const ledger = document.createElementNS(svgNS, "line");
-        ledger.setAttribute("x1", x - 16);
-        ledger.setAttribute("y1", ledgerY);
-        ledger.setAttribute("x2", x + 16);
-        ledger.setAttribute("y2", ledgerY);
-        ledger.setAttribute("stroke", "#111");
-        ledger.setAttribute("stroke-width", "1.3");
-        ledger.setAttribute("opacity", "0.6");
-        svg.appendChild(ledger);
-      }
-    }
-
-    const head = document.createElementNS(svgNS, "ellipse");
-    head.setAttribute("cx", x);
-    head.setAttribute("cy", y);
-    head.setAttribute("rx", String(noteWidth / 2));
-    head.setAttribute("ry", String(noteHeight / 2));
-    head.setAttribute("fill", "#111");
-    head.setAttribute("stroke", "#111");
-    head.setAttribute("stroke-width", "1");
-    svg.appendChild(head);
-
-    const accidental = spelled.accidental === "#" ? "♯" : spelled.accidental === "b" ? "♭" : "";
-    if (accidental) {
-      const acc = document.createElementNS(svgNS, "text");
-      acc.setAttribute("x", x - 18);
-      acc.setAttribute("y", y + 4);
-      acc.setAttribute("fill", "#111");
-      acc.setAttribute("font-size", "14");
-      acc.textContent = accidental;
-      svg.appendChild(acc);
-    }
-
-    const stem = document.createElementNS(svgNS, "line");
-    stem.setAttribute("x1", stemUp ? x + noteWidth / 2 - 1 : x - noteWidth / 2 + 1);
-    stem.setAttribute("y1", y);
-    stem.setAttribute("x2", stemUp ? x + noteWidth / 2 - 1 : x - noteWidth / 2 + 1);
-    stem.setAttribute("y2", stemUp ? y - stemLength : y + stemLength);
-    stem.setAttribute("stroke", "#111");
-    stem.setAttribute("stroke-width", "1.6");
-    svg.appendChild(stem);
-
-    const noteLabel = document.createElementNS(svgNS, "text");
-    noteLabel.setAttribute("x", x);
-    noteLabel.setAttribute("y", bottomLineY + 28);
-    noteLabel.setAttribute("text-anchor", "middle");
-    noteLabel.setAttribute("fill", "#111");
-    noteLabel.setAttribute("font-size", "12");
-    noteLabel.textContent = spelled.note;
-    svg.appendChild(noteLabel);
-
-    if ((index + 1) % measureSize === 0 && index < selected.length - 1) {
-      const barX = x + noteSpacing / 2;
-      const bar = document.createElementNS(svgNS, "line");
-      bar.setAttribute("x1", barX);
-      bar.setAttribute("y1", topLineY - 6);
-      bar.setAttribute("x2", barX);
-      bar.setAttribute("y2", bottomLineY + 6);
-      bar.setAttribute("stroke", "#111");
-      bar.setAttribute("stroke-width", "1.6");
-      bar.setAttribute("opacity", "0.8");
-      svg.appendChild(bar);
-    }
+  // Guitar notation conventionally reads an octave above concert pitch so the
+  // notes sit on the staff rather than piling up on ledger lines below it.
+  const melody = createMelody({
+    clef: "treble",
+    timeSig: { num: 4, den: 4 },
+    events: selected.map((note) => ({
+      den: 4,
+      dots: 0,
+      rest: false,
+      notes: [{ midi: note.midi + 12 }],
+    })),
   });
 
-  const finalBarX = xStart + selected.length * noteSpacing + 8;
-  const finalBar = document.createElementNS(svgNS, "line");
-  finalBar.setAttribute("x1", finalBarX);
-  finalBar.setAttribute("y1", topLineY - 6);
-  finalBar.setAttribute("x2", finalBarX);
-  finalBar.setAttribute("y2", bottomLineY + 6);
-  finalBar.setAttribute("stroke", "#111");
-  finalBar.setAttribute("stroke-width", "3");
-  svg.appendChild(finalBar);
+  const svg = renderMelodySVG(melody, { showTab: false, scale: 1 });
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Selected custom notes on treble clef staff");
 
   guitarStaffEl.innerHTML = "";
   guitarStaffEl.appendChild(svg);

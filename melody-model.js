@@ -81,13 +81,44 @@ export function normalizeMelody(raw) {
         dots: [0, 1, 2].includes(e.dots) ? e.dots : 0,
         rest,
         notes,
+        // A tie to the NEXT event — see pruneInvalidTies for why it is not
+        // trusted at face value even here.
+        ...(!rest && e.tie ? { tie: true } : {}),
       };
     })
     // An event with no sound and no rest marker is neither a note nor a rest —
     // drop it rather than render something meaningless.
     .filter((e) => e.rest || e.notes.length);
 
+  pruneInvalidTies(events);
   return createMelody({ ...raw, events });
+}
+
+// A tie only means anything while it still points at a note of the SAME
+// PITCH immediately after it. Comparing sorted midi sets rather than notes[0]
+// so a tied chord (several notes sharing one tie) is judged on all of them,
+// not just the first.
+export function notesMatchPitch(a, b) {
+  if (!a || !b || a.rest || b.rest) return false;
+  const an = a.notes || [];
+  const bn = b.notes || [];
+  if (!an.length || an.length !== bn.length) return false;
+  const as = an.map((n) => n.midi).slice().sort((x, y) => x - y);
+  const bs = bn.map((n) => n.midi).slice().sort((x, y) => x - y);
+  return as.every((v, i) => v === bs[i]);
+}
+
+// Clears a `tie` flag the moment it stops describing something real: a
+// transpose on either side, a deletion that slides a different event into
+// the next slot, or a switch to a rest all leave a stale flag that would
+// otherwise draw a curve to the wrong note (or none). Called after every
+// edit in the editor's own commit(), and again here so a melody loaded from
+// storage or an old song file can't carry a tie that predates a bug fix.
+export function pruneInvalidTies(events) {
+  (events || []).forEach((e, i) => {
+    if (e.tie && !notesMatchPitch(e, events[i + 1])) delete e.tie;
+  });
+  return events;
 }
 
 export function totalTicks(melody) {
@@ -459,14 +490,30 @@ export function assignTab(melody) {
 export function melodyPlaybackSchedule(melody) {
   const tempo = Number(melody.tempo) > 0 ? Number(melody.tempo) : 96;
   const msPerTick = 60000 / tempo / (TICKS_PER_WHOLE / 4);
+  const events = melody.events || [];
   const schedule = [];
   let atMs = 0;
-  (melody.events || []).forEach((event) => {
+  let i = 0;
+  while (i < events.length) {
+    const event = events[i];
     const durationMs = durationTicks(event.den, event.dots || 0) * msPerTick;
-    if (!event.rest && event.notes && event.notes.length) {
-      schedule.push({ atMs, midis: event.notes.map((n) => n.midi), durationMs });
+    if (event.rest || !event.notes || !event.notes.length) {
+      atMs += durationMs;
+      i += 1;
+      continue;
     }
-    atMs += durationMs;
-  });
+    // A tie extends the sounded duration instead of re-triggering the note —
+    // playing each tied fragment separately would put an audible click at
+    // every join, which is exactly what a tie means NOT to do.
+    let totalMs = durationMs;
+    let j = i;
+    while (events[j].tie && notesMatchPitch(events[j], events[j + 1])) {
+      j += 1;
+      totalMs += durationTicks(events[j].den, events[j].dots || 0) * msPerTick;
+    }
+    schedule.push({ atMs, midis: event.notes.map((n) => n.midi), durationMs: totalMs });
+    atMs += totalMs;
+    i = j + 1;
+  }
   return schedule;
 }

@@ -29,6 +29,8 @@ import {
   stepsPerBar,
   beatStepCount,
   drumVoiceForMidi,
+  notesMatchPitch,
+  pruneInvalidTies,
 } from "../../melody-model.js";
 
 export const name = "Melody model";
@@ -242,6 +244,109 @@ export default async function run({ t }) {
     // The middle event is a rest -- itself a quarter note -- so the note-to-note
     // gap spans two quarter notes' worth of time, not one.
     t.near("note-to-rest-to-note gap is two quarter notes at 120bpm", sched[1].atMs - sched[0].atMs, 1000, 0.01, "ms");
+  }
+
+  // ---- Ties: a manual tie between two SEPARATE events ----
+  //
+  // Different from the automatic tiedFrom/tiedTo layoutBars stamps when one
+  // event's duration is split across a barline (covered above) -- this is the
+  // user's own "sustain into the next note", stored as `tie` directly on the
+  // event, and it only ever means anything while the note right after it is
+  // still the same pitch.
+  {
+    t.ok(
+      "notesMatchPitch: same single pitch matches",
+      notesMatchPitch({ notes: [{ midi: 60 }] }, { notes: [{ midi: 60 }] })
+    );
+    t.ok(
+      "notesMatchPitch: different pitch does not match",
+      !notesMatchPitch({ notes: [{ midi: 60 }] }, { notes: [{ midi: 61 }] })
+    );
+    t.ok(
+      "notesMatchPitch: a chord matches regardless of note order",
+      notesMatchPitch(
+        { notes: [{ midi: 60 }, { midi: 64 }] },
+        { notes: [{ midi: 64 }, { midi: 60 }] }
+      )
+    );
+    t.ok(
+      "notesMatchPitch: a rest never matches",
+      !notesMatchPitch({ rest: true, notes: [] }, { notes: [{ midi: 60 }] })
+    );
+    t.ok(
+      "notesMatchPitch: nothing after the last event does not match",
+      !notesMatchPitch({ notes: [{ midi: 60 }] }, undefined)
+    );
+  }
+
+  {
+    // pruneInvalidTies is what keeps a tie from surviving the edit that broke
+    // it -- a transpose on either side, a deletion that slides a different
+    // event into the next slot, or a switch to a rest. It has to catch all
+    // three, not just the case it was written for.
+    const events = [
+      { den: 4, rest: false, notes: [{ midi: 60 }], tie: true }, // valid: next matches
+      { den: 4, rest: false, notes: [{ midi: 60 }] },
+      { den: 4, rest: false, notes: [{ midi: 62 }], tie: true }, // stale: pitch differs
+      { den: 4, rest: false, notes: [{ midi: 64 }] },
+      { den: 4, rest: false, notes: [{ midi: 65 }], tie: true }, // stale: last event, no next
+    ];
+    pruneInvalidTies(events);
+    t.ok("pruneInvalidTies: a valid tie survives", events[0].tie === true);
+    t.ok("pruneInvalidTies: a tie to a different pitch is cleared", !events[2].tie);
+    t.ok("pruneInvalidTies: a tie on the last event is cleared", !events[4].tie);
+  }
+
+  {
+    // normalizeMelody must apply the same pruning -- a hand-edited song file
+    // (or a melody saved by a version with a since-fixed bug) can carry a
+    // stale tie, and it should not survive being loaded back in.
+    const m = normalizeMelody({
+      events: [
+        { den: 4, notes: [{ midi: 60 }], tie: true },
+        { den: 4, notes: [{ midi: 67 }] }, // different pitch
+      ],
+    });
+    t.ok(
+      "normalizeMelody prunes a tie that no longer matches on load",
+      !m.events[0].tie,
+      JSON.stringify(m.events)
+    );
+  }
+
+  {
+    // Playback: a tie must SUSTAIN rather than re-trigger. Two tied quarters
+    // at the same pitch should schedule as ONE note lasting two quarters, not
+    // two notes back to back -- the latter is an audible click at the join,
+    // exactly what a tie means not to do.
+    const tied = createMelody({
+      tempo: 120,
+      events: [
+        { den: 4, notes: [{ midi: 60 }], tie: true },
+        { den: 4, notes: [{ midi: 60 }] },
+        { den: 4, notes: [{ midi: 64 }] },
+      ],
+    });
+    const sched = melodyPlaybackSchedule(tied);
+    t.ok(
+      "a tied pair schedules as one sustained note, not two",
+      sched.length === 2,
+      `${sched.length} scheduled notes`
+    );
+    t.near(
+      "the sustained note's duration covers both tied quarters",
+      sched[0].durationMs,
+      1000,
+      0.01,
+      "ms"
+    );
+    t.near(
+      "the following note starts after the FULL tied duration",
+      sched[1].atMs,
+      1000,
+      0.01,
+      "ms"
+    );
   }
 
   // ---- Drums: the grid is a view, the events are the storage ----

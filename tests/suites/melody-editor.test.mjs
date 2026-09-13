@@ -121,6 +121,8 @@ export default async function run({ browser, origin, t }) {
     // Click exactly on the staff's bottom line, which in treble clef is E4
     // (midi 64) — a specific, checkable pitch rather than "some note appeared".
     const clicked = await page.evaluate(() => {
+      // A staff click only writes a note in note-input mode.
+      document.querySelector('.melody-editor-controls button[title^="Note input"]').click();
       const svg = document.querySelector(".melody-editor-staff svg");
       const bottomY = Number(svg.getAttribute("data-stave-bottom-y"));
       const pt = svg.createSVGPoint();
@@ -159,6 +161,8 @@ export default async function run({ browser, origin, t }) {
   {
     const page = await openApp(browser, origin, { state: pianoState() });
     const zoomed = await page.evaluate(() => {
+      // A staff click only writes a note in note-input mode.
+      document.querySelector('.melody-editor-controls button[title^="Note input"]').click();
       const before = document.querySelector(".melody-editor-staff svg");
       // The PAINTED width, not the width attribute. VexFlow's resize() leaves an
       // inline style.width behind, which outranks the attribute — so an earlier
@@ -241,6 +245,161 @@ export default async function run({ browser, origin, t }) {
     await new Promise((r) => setTimeout(r, 120));
     m = await read(page);
     t.ok("Delete removes the selected note", m.events.length === 1, `${m.events.length}`);
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- typing a melody in: letters, durations, rests ---
+  //
+  // Step entry by letter is the fast path, so the two things worth pinning are
+  // that it works from NOTHING (the handler used to bail on an empty melody,
+  // which would have made the feature unusable exactly when you need it) and
+  // that the octave is chosen relative to what came before, rather than snapping
+  // to one fixed octave.
+  {
+    const page = await openApp(browser, origin, {
+      state: pianoState(melody({ events: [] })),
+    });
+    await page.evaluate(() => document.querySelector(".melody-editor-staff").focus());
+    // Letters only write notes in note-input mode — otherwise they would be
+    // indistinguishable from browsing a melody with the keyboard.
+    await page.keyboard.press("N");
+    await new Promise((r) => setTimeout(r, 80));
+    for (const k of ["C", "D", "E", "F", "G", "A", "B", "C"]) {
+      await page.keyboard.press(k);
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    let m = await read(page);
+    t.ok(
+      "letters enter notes on an empty melody",
+      m.events.length === 8,
+      `${m.events.length} events`
+    );
+    t.ok(
+      "a typed scale ascends instead of snapping to one octave",
+      m.events.map((e) => e.notes[0].midi).join(",") === "60,62,64,65,67,69,71,72",
+      m.events.map((e) => e.notes[0].midi).join(",")
+    );
+
+    // From C5, a G is nearer below (G4, 5 semitones) than above (G5, 7).
+    await page.keyboard.press("G");
+    await new Promise((r) => setTimeout(r, 100));
+    m = await read(page);
+    t.ok(
+      "a letter picks the octave nearest the previous note",
+      m.events[8].notes[0].midi === 67,
+      `midi ${m.events[8].notes[0].midi}`
+    );
+
+    // Number keys pick the note value positionally: 1..5 = whole..sixteenth.
+    await page.keyboard.press("5");
+    await new Promise((r) => setTimeout(r, 80));
+    await page.keyboard.press("Period");
+    await new Promise((r) => setTimeout(r, 80));
+    await page.keyboard.press("A");
+    await new Promise((r) => setTimeout(r, 100));
+    m = await read(page);
+    const typed = m.events[m.events.length - 1];
+    t.ok(
+      "a number key sets the note value and a full stop dots it",
+      typed.den === 16 && typed.dots === 1,
+      JSON.stringify(typed)
+    );
+
+    await page.keyboard.press("R");
+    await new Promise((r) => setTimeout(r, 100));
+    m = await read(page);
+    t.ok(
+      "R inserts a rest at the current value",
+      m.events[m.events.length - 1].rest === true,
+      JSON.stringify(m.events[m.events.length - 1])
+    );
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- the duration palette is drawn in real notation ---
+  {
+    const page = await openApp(browser, origin, { state: pianoState() });
+    const palette = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll(".melody-glyph-btn")];
+      return {
+        count: btns.length,
+        // The glyphs come from Bravura, which VexFlow registers via the FontFace
+        // API — there is no @font-face for it and nothing is fetched, so if that
+        // ever stops being true this is what notices.
+        fontRegistered: document.fonts.check("16px Bravura"),
+        fonts: [
+          ...new Set(
+            btns.map((b) =>
+              getComputedStyle(b.querySelector("span")).fontFamily.split(",")[0].replace(/"/g, "")
+            )
+          ),
+        ],
+        // A private-use codepoint is not text: every one of these must carry a
+        // real label, or the palette is unusable with a screen reader.
+        labelled: btns.every((b) => (b.getAttribute("aria-label") || "").length > 3),
+        // Fixed box, so the row does not jump as glyphs of different widths
+        // swap in when the active value changes.
+        widths: [...new Set(btns.map((b) => Math.round(b.getBoundingClientRect().width)))],
+      };
+    });
+    t.ok("the palette is drawn as note glyphs", palette.count >= 7, `${palette.count} glyph buttons`);
+    t.ok("Bravura is available without shipping a font", palette.fontRegistered);
+    t.ok(
+      "the glyphs are set in Bravura",
+      palette.fonts.length === 1 && palette.fonts[0] === "Bravura",
+      JSON.stringify(palette.fonts)
+    );
+    t.ok("every glyph button is labelled for screen readers", palette.labelled);
+    t.ok(
+      "glyph buttons are a uniform width",
+      palette.widths.length === 1,
+      JSON.stringify(palette.widths)
+    );
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- the selected value is visible in BOTH themes ---
+  //
+  // This has now gone wrong twice in opposite directions: first the active
+  // button was tinted --button-bg on a --button-bg fill (blue on blue, dark
+  // theme), then it was inverted to --button-text — which is #ffffff in *both*
+  // themes, so on the light theme it became a white pill on a white page and
+  // the glyph appeared to float with no button under it. Neither was caught by
+  // anything but a screenshot, so the invariant gets stated here: whatever the
+  // theme, the active control must differ from the page behind it.
+  for (const theme of ["dark", "light"]) {
+    const page = await openApp(browser, origin, {
+      state: { ...pianoState(), ...(theme === "light" ? { "cv-theme": "light" } : {}) },
+    });
+    const seen = await page.evaluate(() => {
+      const active = document.querySelector(".melody-editor-controls button.is-active");
+      if (!active) return null;
+      const cs = getComputedStyle(active);
+      const page_ = getComputedStyle(document.body).backgroundColor;
+      return {
+        bg: cs.backgroundColor,
+        fg: cs.color,
+        borderColor: cs.borderTopColor,
+        borderWidth: parseFloat(cs.borderTopWidth) || 0,
+        pageBg: page_,
+      };
+    });
+    t.ok(`${theme}: a duration is marked active`, !!seen);
+    if (seen) {
+      t.ok(
+        `${theme}: the active button's label contrasts with its own fill`,
+        seen.fg !== seen.bg,
+        `${seen.fg} on ${seen.bg}`
+      );
+      t.ok(
+        `${theme}: the active button has an edge against the page`,
+        seen.bg !== seen.pageBg || (seen.borderWidth > 0 && seen.borderColor !== seen.pageBg),
+        `fill ${seen.bg} on page ${seen.pageBg}, border ${seen.borderWidth}px ${seen.borderColor}`
+      );
+    }
     t.noErrors(page);
     await page.close();
   }

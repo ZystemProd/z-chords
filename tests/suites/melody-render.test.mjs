@@ -291,6 +291,24 @@ export default async function run({ browser, origin, t }) {
     );
   }
 
+  // A manual tie (event.tie between two whole, separate events) draws the
+  // same curve as the automatic barline split above, but through a different
+  // code path in melody-render.js's tie loop -- worth its own case rather
+  // than assuming one implies the other.
+  {
+    const r = expectCase("manual-tie");
+    t.ok(
+      "manual-tie: two curves are drawn (E4-E4-E4, tied twice)",
+      r.ties === 2,
+      `${r.ties}`
+    );
+    t.ok(
+      "manual-tie: every event still renders as its own note",
+      r.events === 4 && r.notes === 4,
+      `${r.events} events, ${r.notes} notes`
+    );
+  }
+
   {
     const r = expectCase("guitar-tab");
     t.ok(

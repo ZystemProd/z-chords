@@ -49,6 +49,7 @@ import {
   assignTab,
   drumVoiceForMidi,
   isDrumMelody,
+  notesMatchPitch,
 } from "./melody-model.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -70,7 +71,7 @@ const MIN_BAR_WIDTH = 150;
 const PAD_LEFT = 10;
 const PAD_RIGHT = 16;
 const MIN_TOP_PAD = 34; // ledger lines and the treble clef's own upward reach
-const MIN_BOTTOM_PAD = 30;
+const MIN_BOTTOM_PAD = 55; // room for note name labels below noteheads
 const EXTENT_BUFFER = 10;
 const GRAND_GAP = 90; // treble bottom line to bass top line
 const TAB_GAP = 52; // staff bottom line to tab top line
@@ -402,13 +403,26 @@ function renderScore(melody, { showTab, scale = 1 }) {
     x += w;
   });
 
-  // Ties, including across a barline. layoutBars already split a long note
-  // into legal fragments and flagged them, so this only has to join what it
-  // marked rather than work out where a tie belongs.
+  // Ties. Two different things draw the same curve here: layoutBars already
+  // split a long note into legal fragments and flagged them (tiedTo), which
+  // this only has to join; a MANUAL tie — the user's own "sustain into the
+  // next note" — instead lives on the event itself (event.tie) because it
+  // connects two separate events rather than two pieces of one. It is only
+  // ever honoured between adjacent events of matching pitch, so a stale flag
+  // (left behind by an edit pruneInvalidTies has not yet seen) never draws a
+  // curve to the wrong note.
   for (let i = 0; i < drawn.length - 1; i++) {
-    if (!drawn[i].item.tiedTo) continue;
     const a = drawn[i];
     const b = drawn[i + 1];
+    const splitTie = a.item.tiedTo;
+    const manualTie =
+      !a.rest &&
+      !b.rest &&
+      a.item.event.tie &&
+      b.item.eventIndex === a.item.eventIndex + 1 &&
+      !b.item.tiedFrom &&
+      notesMatchPitch(a.item.event, b.item.event);
+    if (!splitTie && !manualTie) continue;
     if (!a.note || !b.note || a.staveIndex !== b.staveIndex) continue;
     try {
       const tie = new VF.StaveTie({ firstNote: a.note, lastNote: b.note });
@@ -476,6 +490,19 @@ function renderScore(melody, { showTab, scale = 1 }) {
     };
     measurables.forEach(absorb);
     drawn.forEach((d) => absorb(d.note));
+    // Include note name labels in the bounding box.
+    svg.querySelectorAll(".ms-note-name").forEach((textEl) => {
+      try {
+        const b = textEl.getBBox();
+        if (Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.width) && Number.isFinite(b.height)) {
+          minX = Math.min(minX, b.x);
+          minY = Math.min(minY, b.y);
+          maxX = Math.max(maxX, b.x + b.width);
+          maxY = Math.max(maxY, b.y + b.height);
+          measured = true;
+        }
+      } catch (_) {}
+    });
     if (measured) {
       viewMinX = Math.floor(minX) - 2;
       viewMinY = Math.floor(minY) - 2;
@@ -663,5 +690,31 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
     // A rest is a StaveNote to VexFlow and carries the same vf-notehead class
     // as a pitched note, so there is otherwise no way to tell them apart.
     node.classList.add(rest ? "ms-rest" : "ms-note");
+
+    // Add note name labels under non-rest notes.
+    if (!rest && item.event.notes && item.event.notes.length) {
+      const noteheads = node.querySelectorAll(".vf-notehead");
+      item.event.notes.forEach((eventNote, idx) => {
+        if (idx < noteheads.length) {
+          const notehead = noteheads[idx];
+          let noteheadBox;
+          try {
+            noteheadBox = notehead.getBBox();
+          } catch (_) {
+            return;
+          }
+          const spelled = spellNote(eventNote.midi, melody.keyRoot);
+          const label = el("text", {
+            class: "ms-note-name",
+            x: noteheadBox.x + noteheadBox.width / 2,
+            y: noteheadBox.y + noteheadBox.height + 10,
+            "text-anchor": "middle",
+            "font-size": "9",
+          });
+          label.textContent = spelled.name;
+          node.parentElement.appendChild(label);
+        }
+      });
+    }
   });
 }
