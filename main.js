@@ -13,9 +13,7 @@ const shapeStepper = document.getElementById("shapeStepper");
 const guitarStaffEl = document.getElementById("guitarStaff");
 const guitarViewButtons = document.querySelectorAll("[data-guitar-view]");
 const guitarLabelRow = document.getElementById("guitarLabelRow");
-const guitarEditHint = document.getElementById("guitarEditHint");
 const labelModeButtons = document.querySelectorAll("[data-guitar-label-mode]");
-const resetNotesBtn = document.getElementById("resetGuitarNotes");
 
 let shapeIndex = 0;
 let shapeStarts = [1, 4, 7, 10, 13];
@@ -80,15 +78,6 @@ function updateGuitarViewUI() {
   if (modeSel) modeSel.style.display = isCustom ? "none" : "";
   if (shapeStepper) shapeStepper.style.display = isCustom ? "none" : "inline-flex";
   if (guitarLabelRow) guitarLabelRow.style.display = isCustom ? "none" : "";
-  if (guitarEditHint) {
-    guitarEditHint.textContent = isCustom
-      ? "Click any fretboard note to add or remove that exact note."
-      : "Scale mode keeps the preset scale layout.";
-  }
-  if (resetNotesBtn) {
-    resetNotesBtn.style.display = isCustom ? "inline-flex" : "none";
-    resetNotesBtn.textContent = "Clear";
-  }
 }
 
 function setViewMode(viewMode) {
@@ -202,6 +191,42 @@ function drawScale() {
   }
 
   guitarEl.innerHTML = "";
+
+  // Custom mode gets its own small bar above the neck. It is built here rather
+  // than declared in index.html because drawScale() clears #guitar on every
+  // redraw — anything static inside it would be wiped on the first draw. It
+  // also means the bar can report the state it acts on: the count says why
+  // Clear is disabled, instead of leaving a dead button to be puzzled over.
+  if (isCustom) {
+    const count = (guitarScaleSettings.customNoteKeys || []).length;
+    const bar = document.createElement("div");
+    bar.className = "gs-editbar";
+
+    const status = document.createElement("span");
+    status.className = "gs-editbar-count";
+    status.textContent =
+      count === 0
+        ? "Click a position on the neck to add a note"
+        : `${count} note${count === 1 ? "" : "s"} selected`;
+    bar.appendChild(status);
+
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.id = "resetGuitarNotes";
+    clearBtn.className = "btn-danger";
+    clearBtn.textContent = "Clear";
+    clearBtn.title = "Remove every selected note";
+    clearBtn.disabled = count === 0;
+    clearBtn.addEventListener("click", () => {
+      guitarScaleSettings.customNoteKeys = [];
+      saveGuitarScaleSettings();
+      drawScale();
+    });
+    bar.appendChild(clearBtn);
+
+    guitarEl.appendChild(bar);
+  }
+
   const svg = renderScaleSVG(root, intervals, 1, 17, {
     windowStart,
     windowWidth,
@@ -272,14 +297,6 @@ guitarViewButtons.forEach((btn) => {
     setViewMode(btn.getAttribute("data-guitar-view"));
   });
 });
-
-if (resetNotesBtn) {
-  resetNotesBtn.addEventListener("click", () => {
-    guitarScaleSettings.customNoteKeys = [];
-    saveGuitarScaleSettings();
-    drawScale();
-  });
-}
 
 loadGuitarScaleSettings();
 updateViewModeButtons();

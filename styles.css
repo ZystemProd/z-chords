@@ -36,6 +36,33 @@
   --left-hand-2: #3d4861;
   --accent-color: var(--button-bg);
   --white-key-width: 36px;
+
+  /* --- Control metrics -------------------------------------------------
+     One height for everything that sits in a toolbar row, and one smaller
+     height for controls nested inside a group. Before this there were five
+     heights in one row (38px icon buttons, a 45px PDF button, 38px steppers,
+     ~35px text buttons, ~33px toggles), which is most of what made the
+     toolbar look unfinished.
+
+     The two radii are concentric, not arbitrary: a group pads its children by
+     3px, so the outer corner must be the inner corner plus that padding or the
+     curves do not sit parallel. */
+  --control-h: 38px;
+  --control-h-sm: 30px;
+  --r-control: 10px;
+  --r-group: 13px;
+
+  /* Hairline borders and raised surfaces. These used to be written inline as
+     rgba(255,255,255,0.08), which silently assumes a dark page — on the light
+     theme a white line on paper is no line at all, and several containers had
+     no visible edge. */
+  --hairline: rgba(255, 255, 255, 0.09);
+  --surface-1: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  /* The toolbar is a raised shelf, so it is set explicitly per theme rather
+     than mixed off --bg: any mix light enough to read in one theme collapses
+     into the page in the other, and mixing peach toward black turns it grey. */
+  --toolbar-bg: #1d1915;
   /* UI accent glow color, derived from primary button color */
   --glow-color: color-mix(in oklab, var(--button-bg) 70%, transparent);
 }
@@ -61,6 +88,11 @@ body.light-mode {
   --modal-close: #6b6058;
   --piano-body-1: #6b5140;
   --piano-body-2: #46342a;
+  --hairline: rgba(0, 0, 0, 0.12);
+  /* A raised container on paper is lighter than the page, not darker. */
+  --surface-1: #fffbf4;
+  --surface-2: rgba(0, 0, 0, 0.06);
+  --toolbar-bg: #f1e5d6;
   --glow-color: color-mix(in oklab, var(--button-bg) 60%, transparent);
 }
 
@@ -101,22 +133,30 @@ h1 {
 .controls {
   display: flex;
   flex-direction: column;
-  gap: 25px;
-  padding: 10px;
+  gap: 12px;
+  padding: 0;
 }
 
-/* Toolbar enhancements */
+/* The toolbar is its own shelf: a panel with its own edge, set apart from the
+   content it acts on rather than running into it. The margin below is the gap
+   that makes it read as a separate section; the shadow is what keeps that
+   reading once content scrolls underneath, when the gap itself is gone. */
 .toolbar.sticky {
   position: sticky;
   top: 0;
   z-index: 100;
-  /* Mixed toward the warm case colour rather than toward black: mixing a peach
-     ground with black desaturates it to taupe, which reads as a different
-     (colder) family than the page it sits on. */
-  background: color-mix(in oklab, var(--bg) 92%, var(--piano-body-2));
+  background: var(--toolbar-bg);
   backdrop-filter: saturate(1.2) blur(8px);
-  border-bottom: 1px solid var(--input-border);
-  padding: 25px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-group);
+  /* Six pixels wider than the content on each side, with the padding grown by
+     the same six so what is inside stays aligned with the cards below. The
+     active section's outline sits a couple of pixels outside its own box, and
+     without the overhang it showed as a sliver either side of the toolbar once
+     the page was scrolled under it. */
+  margin: 0 -6px 28px;
+  padding: 14px 22px;
+  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.45);
 }
 
 .controls-row {
@@ -163,39 +203,83 @@ h1 {
   flex: 1;
 }
 
-/* Segmented tab controls */
-.segmented {
+/* --- Toolbar containers ------------------------------------------------
+   One shell, used by every cluster in the toolbar: the instrument tabs, the
+   sub-tabs, the transpose/capo steppers and the file/app icon groups. They
+   were four separately invented boxes with different radii, paddings and
+   borders; sharing the shell is what makes the row read as one system.
+
+   3px of padding inside --r-group against --r-control children keeps the
+   corners concentric. */
+.segmented,
+.toolbar-cluster {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px;
-  border-radius: 12px;
-  background: color-mix(in oklab, var(--bg) 94%, black);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  overflow: auto; /* allow horizontal scroll on mobile */
+  gap: 2px;
+  padding: 3px;
+  height: var(--control-h);
+  box-sizing: border-box;
+  border-radius: var(--r-group);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
   position: relative;
 }
+
+.segmented {
+  gap: 6px;
+  overflow: auto; /* allow horizontal scroll on mobile */
+}
+
+/* Buttons inside a cluster shed their own edge — the container provides it,
+   and a border on both reads as a box in a box. */
+.toolbar-cluster > button {
+  height: calc(var(--control-h) - 8px);
+  border-color: transparent;
+  background: transparent;
+}
+
+.toolbar-cluster > button:hover {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+/* Hairline between the two halves of a cluster (file actions | app actions). */
+.cluster-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 4px;
+  background: var(--hairline);
+}
+
 .segmented .tab {
   background: transparent;
   color: var(--kbd-label);
   border: 1px solid transparent;
-  padding: 6px 12px;
-  border-radius: 10px;
+  height: calc(var(--control-h) - 8px);
+  padding: 0 12px;
+  border-radius: var(--r-control);
+  font-weight: 500;
   cursor: pointer;
   position: relative;
   z-index: 1; /* above highlight */
 }
-.segmented .tab[aria-selected="true"] {
+.segmented .tab:hover {
+  background: transparent;
+  color: var(--text);
+}
+.segmented .tab[aria-selected="true"],
+.segmented .tab[aria-selected="true"]:hover {
   color: var(--button-text);
+  font-weight: 600;
 }
 .segmented .segmented-highlight {
   position: absolute;
-  top: 4px;
-  left: 4px;
-  height: calc(100% - 8px);
+  top: 3px;
+  left: 3px;
+  height: calc(100% - 6px);
   width: 0;
   background: var(--button-bg);
-  border-radius: 10px;
+  border-radius: var(--r-control);
   transition: left 200ms ease, width 200ms ease;
   z-index: 0;
 }
@@ -212,8 +296,8 @@ h1 {
 .toolbar-divider {
   display: inline-block;
   width: 1px;
-  height: 28px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 22px;
+  background: var(--hairline);
   margin: 0 10px;
   align-self: center;
 }
@@ -517,29 +601,112 @@ input[type="text"] {
   }
 }
 
-button,
-select {
-  background: var(--button-bg);
-  color: var(--button-text);
-  border: none;
-  padding: 8px 12px;
-  border-radius: 8px;
+/* --- Buttons -----------------------------------------------------------
+   Three tiers, and the default is the quiet one.
+
+   This used to be one rule painting every `button` in the accent colour, which
+   meant Save, Load, Help, Theme, Clear and Update all shouted at the same
+   volume as the action that actually commits something — a wall of identical
+   pills with no way to read which one matters. Tier is now opt-in:
+
+     .btn-primary  filled accent   the one action that commits (Update, Export)
+     (default)     outlined        everything else
+     .btn-danger   outlined red    destroys work (Clear, Reset)
+
+   Consequence worth knowing: a `<button>` with no class is now outlined, not
+   filled. Generated controls (the melody duration palette, the drum grid
+   transport, layout block chrome, the card steppers) carry no class and so
+   become quiet — which is what they should always have been, since none of
+   them is the primary action of the view it sits in. */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-h);
+  padding: 0 14px;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-control);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 0.05s ease, filter 0.15s ease, background 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    transform 0.05s ease;
 }
 
 button:hover {
-  filter: brightness(1.1);
+  background: var(--surface-2);
+  border-color: color-mix(in oklab, var(--input-border) 45%, var(--note-text));
 }
 
 button:active {
   transform: translateY(1px);
 }
 
+/* A select is an input, not an action. It used to share the button rule and so
+   rendered as a filled accent pill, which read as "press me to do something". */
+select {
+  height: var(--control-h);
+  padding: 0 10px;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: var(--r-control);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+select:hover {
+  border-color: color-mix(in oklab, var(--input-border) 45%, var(--note-text));
+}
+
+.btn-primary {
+  background: var(--button-bg);
+  color: var(--button-text);
+  border-color: var(--button-bg);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: color-mix(in oklab, var(--button-bg) 88%, white);
+  border-color: color-mix(in oklab, var(--button-bg) 88%, white);
+}
+
+/* Outlined until hover rather than filled red: a destructive action should be
+   findable and legible, but it is not the thing the eye should land on first. */
+.btn-danger {
+  color: var(--pressed-red-2);
+  border-color: color-mix(in oklab, var(--pressed-red-2) 40%, transparent);
+}
+
+.btn-danger:hover {
+  background: var(--pressed-red-2);
+  border-color: var(--pressed-red-2);
+  color: var(--button-text);
+}
+
+button[disabled],
+button[disabled]:hover {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+  border-color: var(--input-border);
+  transform: none;
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--button-bg) 70%, white);
+  outline: 2px solid var(--button-bg);
   outline-offset: 2px;
 }
 
@@ -633,21 +800,23 @@ select:focus-visible {
   align-items: center;
   justify-content: center;
   margin: 4px 0 32px 0; /* extra spacing from the last section */
-  border-radius: 12px;
-  background: color-mix(in oklab, var(--bg) 96%, black); /* de-emphasized */
-  border: 1px dashed rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.35);
+  border-radius: var(--r-group);
+  background: var(--surface-1); /* de-emphasized */
+  /* Was a white-alpha dash and a 35%-white glyph: on the light theme that is
+     white on paper, so the whole call-to-action was all but invisible. */
+  border: 1px dashed var(--hairline);
+  color: var(--note-text);
   cursor: pointer;
-  transition: transform 0.05s ease, filter 0.15s ease, background 0.15s ease,
+  transition: transform 0.05s ease, background 0.15s ease,
     border-color 0.15s ease, color 0.15s ease;
 }
 .add-section-cta:hover {
-  background: color-mix(in oklab, var(--bg) 92%, black);
-  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--surface-2);
+  border-color: color-mix(in oklab, var(--input-border) 45%, var(--note-text));
   color: var(--text);
 }
 .add-section-cta:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--button-bg) 70%, white);
+  outline: 2px solid var(--button-bg);
   outline-offset: 3px;
 }
 .add-section-plus {
@@ -660,8 +829,8 @@ select:focus-visible {
 .empty-state {
   text-align: center;
   color: var(--note-text);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--r-group);
   padding: 26px 18px;
 }
 .empty-state .empty-title {
@@ -673,20 +842,18 @@ select:focus-visible {
   font-size: 13px;
 }
 
-/* Theme/icon button */
+/* Square icon button — same height as every other control, so a row of icons
+   and a row of labelled buttons line up. */
 .theme-btn,
 .icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  padding: 12px;
-  border-radius: 8px;
-  border: none;
-  background: var(--button-bg);
-  color: var(--button-text);
-  cursor: pointer;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.toolbar-cluster > .icon-btn {
+  width: calc(var(--control-h) - 8px);
 }
 
 .theme-btn svg,
@@ -695,7 +862,7 @@ select:focus-visible {
   height: 18px;
   display: block;
   pointer-events: none; /* ignore pointer inside the svg */
-  fill: currentColor; /* inherit color from .theme-btn */
+  fill: currentColor;
 }
 
 /* Material Symbols base */
@@ -707,120 +874,109 @@ select:focus-visible {
   vertical-align: middle;
 }
 
-/* Override icon button sizing for hand toggle so two icons fit */
+/* The hand toggle shows one or two hand glyphs, so it is the one icon button
+   that must grow. It is a state toggle, not an action: filled when two-hands
+   mode is on, outlined when it is off, so the button itself reports the mode. */
 #handModeToggle {
   width: auto;
-  min-width: 38px;
-  height: 38px;
-  padding: 6px 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  min-width: var(--control-h);
+  padding: 0 10px;
   gap: 4px;
+}
+
+#handModeToggle[aria-pressed="true"] {
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  color: var(--button-text);
 }
 
 #handModeToggle .hand-mirror {
   transform: scaleX(-1);
 }
 
-/* Theme icon button */
-#downloadPdf {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 45px;
-  height: 45px;
-  padding: 12px;
-  border-radius: 8px;
-  border: none;
-  background: var(--button-bg);
-  color: var(--button-text);
-  cursor: pointer;
-}
-
-#downloadPdf img {
-  width: 18px;
-  height: 18px;
-  display: block;
-  pointer-events: none; /* ignore pointer inside the svg */
-  fill: currentColor; /* inherit color from .theme-btn */
-}
-
-/* Transpose button group */
+/* Stepper group (transpose, capo, shape). Shares the toolbar cluster shell —
+   it used to paint itself a near-white pill in BOTH themes, which made it the
+   one bright object in the dark toolbar. */
 .transpose-group {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  background: color-mix(in oklab, var(--white) 90%, var(--bg) 10%);
-  color: color-mix(in oklab, var(--black) 85%, var(--text) 15%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  height: 38px; /* match button height */
-  padding: 4px 8px; /* centers 28px steppers in 38px group */
+  gap: 2px;
+  background: var(--surface-1);
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-group);
+  height: var(--control-h);
+  box-sizing: border-box;
+  padding: 3px 6px;
 }
 
-/* Stepper buttons inside transpose group */
+/* Stepper buttons inside a group */
 .transpose-group .stepper-btn {
   background: transparent;
   color: inherit;
-  border: none;
+  border: 1px solid transparent;
   padding: 0;
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  font-size: 18px;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  flex: 0 0 auto;
+  border-radius: var(--r-control);
+  font-size: 17px;
   line-height: 1;
 }
 .transpose-group .stepper-btn:hover {
-  background: color-mix(in oklab, var(--black) 6%, transparent);
+  background: var(--surface-2);
+  border-color: transparent;
 }
 .transpose-group .stepper-btn:active {
   transform: translateY(0); /* cancel global button press effect */
 }
 
 .transpose-group .stepper-value {
-  min-width: 18px;
+  min-width: 30px;
+  padding: 0 2px;
   text-align: center;
   font-weight: 600;
-  font-size: 16px;
-}
-
-.guitar-scale-settings {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in oklab, var(--white) 88%, var(--bg) 12%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  flex: 1 1 100%;
-}
-
-.guitar-scale-settings-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.guitar-label-toggle {
-  margin-left: 2px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums; /* the group must not resize as it counts */
 }
 
 .guitar-view-toggle {
   margin-right: 2px;
 }
 
-#guitarControls .guitar-edit-hint {
+/* The caption inside or beside a control group ("Shape", "Capo", "Labels").
+   It had no rule at all and inherited body text, so it read heavier than the
+   value it introduces. */
+.group-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   color: var(--note-text);
-  font-size: 13px;
+  white-space: nowrap;
 }
 
-#resetGuitarNotes {
-  height: 34px;
+/* A control that needs its name beside it — which the Numbers/Notes toggle now
+   does, since it sits in the same row as the Scales/Custom toggle and the two
+   are otherwise the same object. */
+.labelled-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The custom fretboard's own bar, drawn above the neck it acts on rather than
+   in the page toolbar: Clear belongs to the board, not to the app. */
+.gs-editbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.gs-editbar-count {
+  color: var(--note-text);
+  font-size: 13px;
 }
 
 .guitar-staff {
@@ -1117,22 +1273,41 @@ select:focus-visible {
   overflow-x: auto; /* allow wide 2-hands keyboard to scroll */
 }
 
-/* Hand toggle in custom chord modal */
+/* Two-state toggles (modal hand picker, guitar Scales/Custom, Numbers/Notes).
+   These are segmented controls and now look like one: a shared shell with the
+   selected half filled, rather than two loose outlined buttons where the
+   pressed one was marked only by a 6%-white tint that the light theme ate. */
 .hand-toggle {
   display: inline-flex;
-  gap: 8px;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  height: var(--control-h);
+  box-sizing: border-box;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-group);
 }
 .hand-toggle button {
   background: transparent;
   color: var(--note-text);
-  border: 1px solid var(--input-border);
-  padding: 6px 10px;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  height: calc(var(--control-h) - 8px);
+  padding: 0 12px;
+  border-radius: var(--r-control);
   cursor: pointer;
 }
-.hand-toggle button[aria-pressed="true"] {
-  background: rgba(255, 255, 255, 0.06);
+.hand-toggle button:hover {
+  background: transparent;
+  border-color: transparent;
   color: var(--text);
+}
+.hand-toggle button[aria-pressed="true"],
+.hand-toggle button[aria-pressed="true"]:hover {
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  color: var(--button-text);
+  font-weight: 600;
 }
 
 .close {
@@ -1906,6 +2081,24 @@ body.light-mode .play-chord-section:hover {
 .metronome-tap-btn {
   width: 100%;
 }
+
+/* Start is the panel's primary action; while it is running the same button
+   stops it, so it takes the stop colour rather than continuing to invite a
+   press it will not honour. */
+#metronomeToggle {
+  min-width: 84px;
+}
+
+#metronomeToggle[aria-pressed="true"] {
+  background: var(--pressed-red-2);
+  border-color: var(--pressed-red-2);
+  color: var(--button-text);
+}
+
+#metronomeToggle[aria-pressed="true"]:hover {
+  background: color-mix(in oklab, var(--pressed-red-2) 88%, white);
+  border-color: color-mix(in oklab, var(--pressed-red-2) 88%, white);
+}
 .metronome-tap-value {
   font-size: 0.85rem;
   font-weight: 500;
@@ -2195,6 +2388,42 @@ body.light-mode .metronome-led {
 .gs-label-inactive {
   fill: var(--note-text);
   opacity: 0.8;
+}
+
+/* --- Editable fretboard: the empty positions --------------------------
+   Barely there at rest — a whole neck of dashed circles at full strength is
+   noise that competes with the notes actually chosen — and a real preview of
+   the note under the pointer on hover. That hover state is the only thing
+   telling you the board can be clicked at all, which is why it fills and
+   names the note rather than merely brightening. */
+.gs-dot-ghost {
+  opacity: 0.16;
+  transition: opacity 0.12s ease, fill 0.12s ease, stroke 0.12s ease;
+}
+
+.gs-dot-ghost:hover {
+  opacity: 1;
+  fill: color-mix(in oklab, var(--button-bg) 30%, transparent);
+  stroke: var(--button-bg);
+}
+
+.gs-label-ghost {
+  fill: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+/* Adjacent siblings: renderScaleSVG appends each ghost label directly after
+   its own circle so this can reach it without JS. */
+.gs-dot-ghost:hover + .gs-label-ghost {
+  opacity: 1;
+}
+
+/* An unchosen position is an affordance, not content — it must not print. */
+.pdf-capture .gs-dot-ghost,
+.pdf-capture .gs-label-ghost {
+  display: none !important;
 }
 
 /* Print: white page, black ink. The root keeps a fill distinct from the other
@@ -2917,22 +3146,86 @@ body.light-mode .metronome-led {
   opacity: 0.7;
 }
 
-.melody-editor-controls {
+/* --- Editor toolbars (melody, beat) ------------------------------------
+   The same idea as the app toolbar at the top of the page: one surface, with
+   the controls gathered into groups by what they do and a hairline between
+   groups. They were a flat run of buttons in DOM order, where the clef select,
+   the note values, the transport and the zoom all sat at equal distance and
+   nothing said which belonged with which.
+
+   Groups are drawn from CSS — `.tb-group + .tb-group` grows its own divider —
+   so the builders only have to say what belongs together, and a group that
+   ends up empty (the tie button is absent on a beat) leaves no stray line. */
+.melody-editor-controls,
+.drum-grid-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 4px;
+  padding: 5px 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-group);
+  margin-bottom: 12px;
 }
 
-.melody-editor-controls .melody-duration-palette {
+.tb-group {
   display: inline-flex;
+  align-items: center;
   gap: 2px;
 }
 
-.melody-editor-controls button {
-  min-width: 22px;
-  padding: 6px 8px;
+.tb-group:empty {
+  display: none;
+}
+
+.tb-group + .tb-group::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 7px 0 3px;
+  background: var(--hairline);
+}
+
+/* A unit next to a bare number field. Without it the beat toolbar shows "96"
+   and leaves you to infer that it is a tempo. */
+.tb-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--note-text);
+  padding-right: 2px;
+}
+
+/* No shell of its own: the row around it is already a surface, and a bordered
+   box inside a bordered box reads as clutter rather than as grouping. */
+.melody-editor-controls .melody-duration-palette {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* This row is dense, so it runs at the small control height throughout —
+   selects included, or the row has two heights in it again. */
+.melody-editor-controls button,
+.drum-grid-controls button {
+  height: var(--control-h-sm);
+  min-width: var(--control-h-sm);
+  padding: 0 10px;
+}
+
+.melody-editor-controls select,
+.drum-grid-controls select,
+.melody-editor-controls input,
+.drum-grid-controls input {
+  height: var(--control-h-sm);
+  padding: 0 8px;
+}
+
+.melody-editor-controls .melody-duration-palette button {
+  border-color: transparent;
 }
 
 /* Buttons whose face is a Bravura glyph.
@@ -2944,13 +3237,22 @@ body.light-mode .metronome-led {
 .drum-grid-controls .melody-glyph-btn {
   box-sizing: border-box;
   /* A fixed box keeps the row from jumping as glyphs of different widths and
-     heights swap in — a whole note is wide and squat, a 16th tall and narrow. */
+     heights swap in — a whole note is wide and squat, a 16th tall and narrow.
+
+     `width`, not `min-width`: the flagged 8th and 16th glyphs are wider than
+     the others, so with a minimum they sat at their own content width and the
+     row was a fraction wider at those two positions. It only became visible
+     when buttons gained a 1px border — 16px of padding plus the border pushed
+     them past 30 — but the glyphs were always the wrong size to trust to a
+     minimum. Padding goes with it: it never did anything, since the minimum
+     was always the larger of the two. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
-  height: 30px;
-  padding: 6px 8px;
+  width: var(--control-h-sm);
+  min-width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
   line-height: 1;
 }
 
@@ -2993,31 +3295,40 @@ body.light-mode .metronome-led {
 }
 
 .melody-editor-controls button.is-active,
+.melody-editor-controls .melody-duration-palette button.is-active,
 .drum-grid-controls button.is-active {
-  /* App buttons already have a --button-bg fill, so the active one cannot be
-     marked by tinting it that same colour — it would disappear. Invert it.
+  /* Now that the default button is outlined, the accent fill IS the active
+     mark — the plainest reading, and the one the eye finds fastest.
 
-     The border is not decoration. `--button-text` is #ffffff in BOTH themes, so
-     the inverted fill alone is a white pill — which reads fine on the dark
-     theme and vanishes completely on the light one, leaving a glyph floating on
-     the page with no button under it. An explicit edge in the accent colour
-     gives the control a visible boundary against either background. */
-  background: var(--button-text);
-  color: var(--button-bg);
-  border: 2px solid var(--button-bg);
+     History worth keeping, because this has gone wrong twice in opposite
+     directions: when every button was filled with --button-bg, tinting the
+     active one the same colour made it vanish, so it was inverted to
+     --button-text — which is #ffffff in BOTH themes, so it became a white pill
+     on a white page in light mode with the glyph apparently floating. The
+     invariant that survives either scheme, and that the test states per theme,
+     is that the active control must differ from the page behind it. */
+  background: var(--button-bg);
+  color: var(--button-text);
+  border: 1px solid var(--button-bg);
   box-sizing: border-box;
   font-weight: 700;
 }
 
-/* ---- Beat grid (drums→beat) ---- */
-
-.drum-grid-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
+/* A glyph button must not change weight when it becomes active: bolder Bravura
+   is wider, which pushes the button past its fixed box and makes the whole
+   palette shift by a pixel as the active value moves. The fill already marks
+   it; the weight was adding nothing but the jump. */
+.melody-glyph-btn.is-active {
+  font-weight: inherit;
 }
+
+.melody-editor-controls button.is-active:hover,
+.drum-grid-controls button.is-active:hover {
+  background: color-mix(in oklab, var(--button-bg) 88%, white);
+  border-color: color-mix(in oklab, var(--button-bg) 88%, white);
+}
+
+/* ---- Beat grid (drums→beat) ---- */
 
 .drum-grid-controls .drum-bars {
   display: inline-flex;

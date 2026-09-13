@@ -544,9 +544,22 @@ export function renderScaleSVG(
     // Root colouring is a scale-mode idea: in custom mode every chosen note is
     // just a chosen note, so it stays neutral.
     const isRoot = active && !customMode && noteIdx === rootIdx;
+    // An unchosen position on an *editable* board is an affordance, not
+    // content: it says "a note could go here". Marking it apart from the plain
+    // inactive dot matters because the two mean opposite things — on a scale
+    // board an inactive dot is information (the note is deliberately not in
+    // the scale) and must stay legible, while here a full grid of them is just
+    // noise until you go looking for somewhere to click.
+    const ghost = editable && !active;
     circle.setAttribute(
       "class",
-      active ? (isRoot ? "gs-dot gs-dot-root" : "gs-dot") : "gs-dot gs-dot-inactive"
+      active
+        ? isRoot
+          ? "gs-dot gs-dot-root"
+          : "gs-dot"
+        : ghost
+        ? "gs-dot gs-dot-inactive gs-dot-ghost"
+        : "gs-dot gs-dot-inactive"
     );
     circle.setAttribute("stroke-width", active ? 2 : 1.5);
     circle.setAttribute("stroke-dasharray", active ? "" : "3 2");
@@ -561,7 +574,22 @@ export function renderScaleSVG(
     tooltip.textContent = noteNameWithOctave(midiNote);
     circle.appendChild(tooltip);
 
-    if (!customMode || active) {
+    // The ghost's label is written now and hidden by CSS, revealed when the
+    // pointer is on its circle. It has to exist in the DOM for that: the
+    // reveal is `.gs-dot-ghost:hover + .gs-label-ghost`, which is why the text
+    // is appended immediately after its own circle and nothing may come
+    // between them.
+    if (ghost) {
+      const label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", x);
+      label.setAttribute("y", y + 5);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("class", "gs-label gs-label-ghost");
+      label.setAttribute("font-size", "11");
+      label.setAttribute("pointer-events", "none");
+      label.textContent = noteNameWithOctave(midiNote);
+      svg.appendChild(label);
+    } else if (!customMode || active) {
       const label = document.createElementNS(svgNS, "text");
       label.setAttribute("x", x);
       label.setAttribute("y", y + 5);

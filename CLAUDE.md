@@ -222,7 +222,9 @@ Two visual cursors appear only in note-input mode, both drawn as plain SVG eleme
 
 **The duration palette is drawn in Bravura**, not as digits. VexFlow 5 registers the face through the FontFace API at load, so it is in `document.fonts` and any CSS on the page can ask for it — no `@font-face`, nothing hosted, nothing fetched. `bravuraReady()` checks before using it and falls back to digits, because VexFlow is a CDN script that can genuinely be absent and the alternative is a row of tofu boxes. Unicode's own musical symbols (U+1D15D…) would need no font but are not drawn by any normal system stack. Each glyph button keeps a real `aria-label`: a private-use codepoint is not text.
 
-**An active control must differ from the page behind it, in both themes.** This has gone wrong twice in opposite directions — first tinting the active button `--button-bg` on a `--button-bg` fill (blue on blue, dark theme), then inverting it to `--button-text`, which is `#ffffff` in *both* themes and so became a white pill on a white page in light mode, leaving the glyph apparently floating. Hence the explicit border in the accent colour, and a test that states the invariant per theme. Only screenshots ever caught either one.
+**An active control must differ from the page behind it, in both themes.** This has gone wrong twice in opposite directions — first tinting the active button `--button-bg` on a `--button-bg` fill (blue on blue, dark theme), then inverting it to `--button-text`, which is `#ffffff` in *both* themes and so became a white pill on a white page in light mode, leaving the glyph apparently floating. Only screenshots ever caught either one, which is why a test now states the invariant per theme rather than pinning any particular scheme.
+
+Both failures came from the same root cause: every `button` was filled with the accent, so the active one could not be marked by *being* filled. Now that the default button is outlined (see *Buttons* below), the accent fill is itself the active mark and the inversion is gone. The active glyph button must not change `font-weight`, though — bolder Bravura is wider, and the palette's fixed box is what stops the row shifting as the active value moves.
 
 Two things about how edits are applied:
 
@@ -263,6 +265,29 @@ Playback is a sketch: each voice is a short pitched blip (`DRUM_SOUND`), dark an
 ### Styling / theming
 
 Theme is CSS custom properties on `:root` (dark, the default) overridden under `body.light-mode`; toggling swaps the class and persists `cv-theme`. Dimensions that JS needs to know (notably `--white-key-width`) are read back out of computed styles rather than hardcoded — keep them in sync when changing key geometry.
+
+The palette is one warm family in both themes (paper and clay in light, warm charcoal and the same clay in dark), so the two sides read as one app. Two consequences that are easy to undo by accident:
+
+- **Never write a hairline as `rgba(255,255,255,α)`.** That silently assumes a dark page: on the light theme it is white on paper, which is no line at all. Use `--hairline`, `--surface-1` (a raised container) and `--surface-2` (its hover). Several containers had no visible edge in light mode for exactly this reason.
+- **Don't mix a tinted background toward `black` or `white`.** Mixing the peach page toward black desaturates it into grey-taupe, which reads as a colder family than the page it sits on. Mix toward another token in the family, or set the value explicitly per theme (`--toolbar-bg` is set explicitly precisely because any single mix collapsed into the page in one theme or the other).
+
+`.pdf-capture` keeps its own white-paper values, so none of this reaches the exported PDF.
+
+### Buttons
+
+Three tiers, and **the default is the quiet one**: a bare `<button>` is outlined, not filled. `.btn-primary` (filled accent) is for the one action in a view that commits — Update, Export sheet, Add Chord, Start. `.btn-danger` (outlined red, filling on hover) is for actions that destroy work. This replaced a single rule that painted every `button` *and every `select`* in the accent colour, which left no way to read which control mattered.
+
+Because most generated controls (the melody palette, the drum transport, layout block chrome, the card steppers) carry no class, they are quiet by default — which is correct, since none is the primary action of its view. A `<select>` is an input and is styled as one.
+
+Sizing is two tokens, `--control-h` (38px, toolbar rows) and `--control-h-sm` (30px, dense editor rows), with `--r-control` nested inside `--r-group` so a group's corners stay concentric with its children's. **Everything in one row uses one height, selects and inputs included** — five different heights in a single row was the main reason the UI read as unfinished.
+
+Containers share one shell (`.segmented`, `.toolbar-cluster`, `.transpose-group`, `.hand-toggle`). The melody and beat editor rows are toolbars built from `.tb-group`s, where `.tb-group + .tb-group` grows its own divider from CSS — so a group that ends up empty (the tie button is absent on a beat) leaves no stray line behind.
+
+### Editable fretboard
+
+On the guitar scale tab's **custom** view, every neck position is drawn, so an unchosen dot is an *affordance* ("a note could go here"), not information. It carries `gs-dot-ghost` and is nearly transparent until hovered, when it fills with the accent and reveals its note name. Do not merge this with plain `gs-dot-inactive`: on a *scale* board an inactive dot is information — the note is deliberately not in the scale — and must stay legible. The name reveal is `.gs-dot-ghost:hover + .gs-label-ghost`, so `renderScaleSVG` must keep appending each ghost label immediately after its own circle, with nothing between them. Ghosts are `display: none` under `.pdf-capture`; an affordance must not print.
+
+Clear lives in a bar `drawScale()` builds *inside* `#guitar`, above the neck, because it acts on the fretboard rather than on the app. It is built rather than declared in `index.html` because `drawScale()` clears `#guitar` on every redraw.
 
 ## localStorage keys
 

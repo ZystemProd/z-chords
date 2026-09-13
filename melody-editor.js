@@ -466,6 +466,16 @@ export function createMelodyEditor(host, melody, options = {}) {
     return b;
   }
 
+  // One toolbar group. The divider before it is drawn by CSS, so adding or
+  // removing a group never leaves a stray line behind — which matters because
+  // the tie group is absent on a beat.
+  function mkGroup(...children) {
+    const g = document.createElement("span");
+    g.className = "tb-group no-drag";
+    children.filter(Boolean).forEach((c) => g.appendChild(c));
+    return g;
+  }
+
   function drawControls() {
     if (!showControls) return;
     controls.innerHTML = "";
@@ -485,7 +495,6 @@ export function createMelodyEditor(host, melody, options = {}) {
       commit();
       drawStaff();
     });
-    controls.appendChild(clefSel);
 
     const timeSel = document.createElement("select");
     timeSel.className = "no-drag";
@@ -503,18 +512,25 @@ export function createMelodyEditor(host, melody, options = {}) {
       commit();
       drawStaff();
     });
-    controls.appendChild(timeSel);
+
+    // Group 1 — what the score is: clef and time signature.
+    controls.appendChild(mkGroup(clefSel, timeSel));
 
     // Note input is off by default: browsing and selecting a melody must not
     // risk writing to it. Toggling this is what lets letters, R and a blank
     // staff click add notes, the same gate MuseScore's own N key opens. Plain
     // Unicode rather than mkGlyphButton — a pencil is not a Bravura codepoint.
+    //
+    // Group 2 — the mode gate, alone, because it governs everything after it
+    // rather than being one more thing you can press.
     controls.appendChild(
-      mkButton(
-        GLYPH_NOTE_INPUT,
-        "Note input — type notes or click the staff to write them  (N)",
-        () => setNoteInput(!state.noteInput),
-        state.noteInput
+      mkGroup(
+        mkButton(
+          GLYPH_NOTE_INPUT,
+          "Note input — type notes or click the staff to write them  (N)",
+          () => setNoteInput(!state.noteInput),
+          state.noteInput
+        )
       )
     );
 
@@ -537,24 +553,21 @@ export function createMelodyEditor(host, melody, options = {}) {
         )
       );
     });
-    controls.appendChild(palette);
-
+    // Group 3 — the note value being written: the durations and the dot, which
+    // modifies whichever of them is selected.
     controls.appendChild(
-      mkGlyphButton(
-        state.dots === 2 ? `${GLYPH_DOT}${GLYPH_DOT}` : GLYPH_DOT,
-        state.dots === 2 ? ".." : ".",
-        `Dotted — adds half the duration again  (.)`,
-        () => {
-          state.dots = state.dots === 0 ? 1 : state.dots === 1 ? 2 : 0;
-          applyDuration();
-        },
-        state.dots > 0
-      )
-    );
-
-    controls.appendChild(
-      mkGlyphButton(GLYPH_REST, "rest", "Insert a rest at the caret  (R)", () =>
-        insertEvent({ den: state.den, dots: state.dots, rest: true, notes: [] })
+      mkGroup(
+        palette,
+        mkGlyphButton(
+          state.dots === 2 ? `${GLYPH_DOT}${GLYPH_DOT}` : GLYPH_DOT,
+          state.dots === 2 ? ".." : ".",
+          `Dotted — adds half the duration again  (.)`,
+          () => {
+            state.dots = state.dots === 0 ? 1 : state.dots === 1 ? 2 : 0;
+            applyDuration();
+          },
+          state.dots > 0
+        )
       )
     );
 
@@ -562,26 +575,41 @@ export function createMelodyEditor(host, melody, options = {}) {
     // never on a beat (a drum "note" is a voice, not a sustained pitch — see
     // melody-model.js). Disabled rather than hidden when the caret can't tie,
     // so the button stays a discoverable affordance instead of vanishing.
+    let tieBtn = null;
     if (current.clef !== "drums") {
       const caretEvent = state.caret != null ? current.events[state.caret] : null;
-      const tieBtn = mkButton(
+      tieBtn = mkButton(
         GLYPH_TIE,
         "Tie to the next note — requires the same pitch  (T)",
         toggleTie,
         !!(caretEvent && caretEvent.tie)
       );
       tieBtn.disabled = state.caret == null || !canTie(state.caret);
-      controls.appendChild(tieBtn);
     }
 
+    // Group 4 — acting on the sequence itself: add a rest, tie, delete.
     controls.appendChild(
-      mkButton("×", "Delete the selected note  (Delete)", deleteSelection)
+      mkGroup(
+        mkGlyphButton(GLYPH_REST, "rest", "Insert a rest at the caret  (R)", () =>
+          insertEvent({ den: state.den, dots: state.dots, rest: true, notes: [] })
+        ),
+        tieBtn,
+        mkButton("×", "Delete the selected note  (Delete)", deleteSelection)
+      )
     );
-    controls.appendChild(mkButton("▶", "Play this melody", () => playMelody(current)));
-    controls.appendChild(mkButton("■", "Stop playback", stopMelodyPlayback));
 
+    // Group 5 — transport.
+    controls.appendChild(
+      mkGroup(
+        mkButton("▶", "Play this melody", () => playMelody(current)),
+        mkButton("■", "Stop playback", stopMelodyPlayback)
+      )
+    );
+
+    // Group 6 — the view, pushed to the far end: zoom changes how the staff is
+    // displayed, not what is written.
     const zoom = document.createElement("span");
-    zoom.className = "melody-zoom no-drag";
+    zoom.className = "melody-zoom tb-group no-drag";
     const setScale = (next) => {
       const v = clampScale(next);
       if (v === state.scale) return;

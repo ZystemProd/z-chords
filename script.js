@@ -2684,15 +2684,26 @@ document.addEventListener("DOMContentLoaded", () => {
   // Apply initial mode
   document.body.classList.toggle("light-mode", themeMode === "light");
 
-  // Helper: set icon using SVG files
+  // Inline SVG rather than <img src="SVG/...">: the toolbar buttons are
+  // outlined, so their glyphs are painted in `currentColor` and follow the
+  // theme. An <img> cannot inherit that — it carries whatever fill was baked
+  // into the file, which on a transparent button means an icon that disappears
+  // in one of the two themes.
+  const THEME_ICONS = {
+    // Sun: shown while light mode is on.
+    light: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-13.5a1 1 0 0 1 1 1V6a1 1 0 1 1-2 0V4.5a1 1 0 0 1 1-1zm0 15a1 1 0 0 1 1 1V21a1 1 0 1 1-2 0v-1.5a1 1 0 0 1 1-1zM3.5 12a1 1 0 0 1 1-1H6a1 1 0 1 1 0 2H4.5a1 1 0 0 1-1-1zm14.5 0a1 1 0 0 1 1-1h1.5a1 1 0 1 1 0 2H19a1 1 0 0 1-1-1zM5.99 5.99a1 1 0 0 1 1.41 0l1.06 1.06A1 1 0 0 1 7.05 8.46L5.99 7.4a1 1 0 0 1 0-1.41zm9.54 9.54a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 0 1-1.41 1.41l-1.06-1.06a1 1 0 0 1 0-1.41zm2.47-9.54a1 1 0 0 1 0 1.41L16.94 8.46a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0zM8.46 15.53a1 1 0 0 1 0 1.41L7.4 18a1 1 0 0 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0z"/></svg>`,
+    // Moon: shown while dark mode is on.
+    dark: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 13.2A9 9 0 1 1 10.8 3a7 7 0 0 0 10.2 10.2z"/></svg>`,
+  };
+
   function setThemeIconSVG(mode) {
     if (!themeToggleBtn) return;
     if (mode === "light") {
-      themeToggleBtn.innerHTML = `<img src="SVG/light_mode.svg" alt="Light Mode" />`;
+      themeToggleBtn.innerHTML = THEME_ICONS.light;
       themeToggleBtn.setAttribute("title", "Switch to dark mode");
       themeToggleBtn.setAttribute("aria-pressed", "false");
     } else {
-      themeToggleBtn.innerHTML = `<img src="SVG/dark_mode.svg" alt="Dark Mode" />`;
+      themeToggleBtn.innerHTML = THEME_ICONS.dark;
       themeToggleBtn.setAttribute("title", "Switch to light mode");
       themeToggleBtn.setAttribute("aria-pressed", "true");
     }

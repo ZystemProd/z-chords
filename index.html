@@ -51,21 +51,33 @@
                     </div>
                     <datalist id="suggestions"></datalist>
                 </div>
+                <!-- Utility actions, grouped rather than loose: the three file
+                     actions read as one thing, help/theme as another. A divider
+                     costs nothing and saves the eye from parsing five identical
+                     squares. -->
                 <div class="right">
-                    <button id="saveSong" class="btn icon-btn" type="button" aria-label="Save song to a file" title="Save song to a file">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5zm2 2v5h8V5zm5 8a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg>
-                    </button>
-                    <button id="loadSong" class="btn icon-btn" type="button" aria-label="Load song from a file" title="Load song from a file">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h5l2 2h9v3H4zm0 6h17l-2 8H4z"/></svg>
-                    </button>
-                    <input id="loadSongInput" type="file" accept=".json,application/json" hidden />
-                    <button id="downloadPdf" class="btn icon-btn" aria-label="Preview and download PDF" title="Preview and download PDF">
-                        <img src="SVG/downloadpdf.svg" alt="Download PDF" />
-                    </button>
-                    <button id="openHelpModal" class="btn" aria-label="Open help" title="Open help">Help</button>
-                    <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" class="btn icon-btn"
-                        type="button"></button>
-
+                    <div class="toolbar-cluster" role="group" aria-label="Song file and app actions">
+                        <button id="saveSong" class="btn icon-btn" type="button" aria-label="Save song to a file" title="Save song to a file">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5zm2 2v5h8V5zm5 8a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg>
+                        </button>
+                        <button id="loadSong" class="btn icon-btn" type="button" aria-label="Load song from a file" title="Load song from a file">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h5l2 2h9v3H4zm0 6h17l-2 8H4z"/></svg>
+                        </button>
+                        <input id="loadSongInput" type="file" accept=".json,application/json" hidden />
+                        <!-- Inline SVG rather than <img>: an img cannot inherit
+                             currentColor, which is why this button previously
+                             needed its own size and fill rules and ended up 45px
+                             in a row of 38px ones. -->
+                        <button id="downloadPdf" class="btn icon-btn" type="button" aria-label="Preview and download PDF" title="Preview and download PDF">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6V3zM5 18h14v2H5z"/></svg>
+                        </button>
+                        <span class="cluster-divider" aria-hidden="true"></span>
+                        <button id="openHelpModal" class="btn icon-btn" type="button" aria-label="Open help" title="Open help">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 15.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zm.3-11.5c2 0 3.5 1.3 3.5 3.1 0 1.4-.8 2.1-1.7 2.8-.8.6-1.1 1-1.1 1.8v.4h-2v-.6c0-1.4.6-2.2 1.6-2.9.8-.6 1.2-.9 1.2-1.6 0-.8-.6-1.3-1.5-1.3s-1.6.6-1.7 1.6h-2C8.7 7.4 10.2 6 12.3 6z"/></svg>
+                        </button>
+                        <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" class="btn icon-btn"
+                            type="button"></button>
+                    </div>
                 </div>
             </div>
 
@@ -109,14 +121,14 @@
                             <span id="transposeValue" class="stepper-value" aria-live="polite" aria-atomic="true">0</span>
                             <button id="transposeUp" class="stepper-btn" type="button" aria-label="Transpose up one semitone" title="Transpose +1">+</button>
                         </div>
-                        <button id="clearAll" aria-label="Clear all chords" title="Clear all">Clear</button>
+                        <button id="clearAll" class="btn-danger" aria-label="Clear all chords" title="Clear all">Clear</button>
                     </div>
 
                     <!-- Layout sheet controls -->
                     <div id="layoutControls" class="control-group" style="display:none;">
                         <span id="layoutPageCount" class="group-label" aria-live="polite"></span>
-                        <button id="layoutExport" type="button" aria-label="Preview and export the sheet" title="Preview and export the sheet">Export sheet</button>
-                        <button id="layoutClear" type="button" aria-label="Clear the sheet" title="Clear the sheet">Clear</button>
+                        <button id="layoutExport" class="btn-primary" type="button" aria-label="Preview and export the sheet" title="Preview and export the sheet">Export sheet</button>
+                        <button id="layoutClear" class="btn-danger" type="button" aria-label="Clear the sheet" title="Clear the sheet">Clear</button>
                     </div>
 
                     <!-- Guitar → Chord capo (label only; diagrams stay at concert pitch) -->
@@ -173,7 +185,7 @@
                                 <option value="diminishedWholeHalf">Diminished (Whole-Half)</option>
                             </optgroup>
                         </select>
-                        <button id="updatePianoScale">Update</button>
+                        <button id="updatePianoScale" class="btn-primary" type="button">Update</button>
                     </div>
 
                     <div id="guitarControls" class="control-group" style="display:none; margin:0;">
@@ -232,22 +244,20 @@
                             <button id="shapeUp" class="stepper-btn" type="button" aria-label="Next shape" title="Next shape">+</button>
                         </div>
 
-                        <div class="guitar-scale-settings" aria-label="Guitar scale settings">
-                            <div class="guitar-scale-settings-row">
-                                <span class="group-label">Edit</span>
-                                <span id="guitarEditHint" class="guitar-edit-hint">Click notes on the fretboard to add or remove them.</span>
-                                <button id="resetGuitarNotes" type="button">Reset</button>
-                            </div>
-                            <div id="guitarLabelRow" class="guitar-scale-settings-row">
-                                <span class="group-label">Labels</span>
-                                <div class="hand-toggle guitar-label-toggle" role="group" aria-label="Scale label mode">
-                                    <button type="button" data-guitar-label-mode="interval" aria-pressed="true">Numbers</button>
-                                    <button type="button" data-guitar-label-mode="note" aria-pressed="false">Notes</button>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- Label mode sits inline with the other scale controls
+                             rather than in a panel of its own: it chooses what
+                             the dots say, which is the same kind of decision as
+                             key, mode and shape. Clear is not here — it acts on
+                             the fretboard, so it lives on the fretboard. -->
+                        <span id="guitarLabelRow" class="labelled-control">
+                            <span class="group-label">Labels</span>
+                            <span class="hand-toggle" role="group" aria-label="Scale label mode">
+                                <button type="button" data-guitar-label-mode="interval" aria-pressed="true">Numbers</button>
+                                <button type="button" data-guitar-label-mode="note" aria-pressed="false">Notes</button>
+                            </span>
+                        </span>
 
-                        <button id="updateGuitar">Update</button>
+                        <button id="updateGuitar" class="btn-primary" type="button">Update</button>
                     </div>
 
                     <!-- Drums → Beat has no control group: the grid editor in
@@ -342,7 +352,7 @@
 
         <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">
             <div id="metronomeBeatsDisplay" class="metronome-beats"></div>
-            <button id="metronomeToggle" type="button" aria-pressed="false">Start</button>
+            <button id="metronomeToggle" class="btn-primary" type="button" aria-pressed="false">Start</button>
         </div>
 
         <!-- Add Section CTA -->
@@ -381,7 +391,7 @@
                             <span id="guitarEditorPos" class="stepper-value" aria-live="polite" aria-atomic="true">1</span>
                             <button id="guitarEditorPosUp" class="stepper-btn" type="button" aria-label="Start one fret higher">+</button>
                         </div>
-                        <button id="guitarEditorClear" type="button">Clear</button>
+                        <button id="guitarEditorClear" class="btn-danger" type="button">Clear</button>
                     </div>
                 </div>
                 <div>
@@ -389,7 +399,7 @@
                     <input type="text" id="customChordName" placeholder="e.g., MyChord">
                 </div>
                 <div id="suggestedChords" style="margin:10px 0;"></div>
-                <button id="addCustomChord">Add Chord</button>
+                <button id="addCustomChord" class="btn-primary" type="button">Add Chord</button>
             </div>
         </div>
 
@@ -399,7 +409,7 @@
                 <span id="closeSectionModal" class="close">&times;</span>
                 <h3>Add Section</h3>
                 <input id="sectionNameInput" type="text" placeholder="e.g. Intro, Chorus" />
-                <button id="saveSectionBtn">Add</button>
+                <button id="saveSectionBtn" class="btn-primary" type="button">Add</button>
             </div>
         </div>
 
@@ -462,7 +472,7 @@
                 </div>
                 <div class="pdf-preview-actions">
                     <span id="pdfPageCount" class="pdf-preview-count" aria-live="polite"></span>
-                    <button id="pdfExportConfirm" type="button">Download PDF</button>
+                    <button id="pdfExportConfirm" class="btn-primary" type="button">Download PDF</button>
                 </div>
             </div>
             <div id="pdfPreviewPages" class="pdf-preview-pages"></div>

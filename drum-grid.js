@@ -111,10 +111,11 @@ export function createDrumGridEditor(host, melody, options = {}) {
     onChange(current);
   }
 
-  function mkButton(label, title, onClick, active) {
+  function mkButton(label, title, onClick, active, tier) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "no-drag" + (active ? " is-active" : "");
+    b.className =
+      "no-drag" + (active ? " is-active" : "") + (tier ? " " + tier : "");
     b.textContent = label;
     b.title = title;
     b.addEventListener("click", (e) => {
@@ -146,6 +147,15 @@ export function createDrumGridEditor(host, melody, options = {}) {
     draw();
   }
 
+  // One toolbar group; the divider before it comes from CSS. Same contract as
+  // the melody editor's, so the two rows read identically.
+  function mkGroup(...children) {
+    const g = document.createElement("span");
+    g.className = "tb-group no-drag";
+    children.filter(Boolean).forEach((c) => g.appendChild(c));
+    return g;
+  }
+
   function drawControls() {
     controls.innerHTML = "";
 
@@ -168,7 +178,6 @@ export function createDrumGridEditor(host, melody, options = {}) {
       commit();
       draw();
     });
-    controls.appendChild(timeSel);
 
     const bars = Math.max(1, Math.round(steps / stepsPerBar(current.timeSig)));
     const barBox = document.createElement("span");
@@ -179,7 +188,9 @@ export function createDrumGridEditor(host, melody, options = {}) {
     barLabel.textContent = `${bars} bar${bars === 1 ? "" : "s"}`;
     barBox.appendChild(barLabel);
     barBox.appendChild(mkButton("+", "One bar more", () => setBars(bars + 1)));
-    controls.appendChild(barBox);
+
+    // Group 1 — the shape of the pattern: time signature and how many bars.
+    controls.appendChild(mkGroup(timeSel, barBox));
 
     const tempo = document.createElement("input");
     tempo.type = "number";
@@ -194,14 +205,31 @@ export function createDrumGridEditor(host, melody, options = {}) {
       tempo.value = String(current.tempo);
       commit();
     });
-    controls.appendChild(tempo);
 
-    controls.appendChild(mkButton("▶", "Play this beat", () => playBeat(current)));
-    controls.appendChild(mkButton("■", "Stop playback", stopBeatPlayback));
-    controls.appendChild(mkButton("Clear", "Remove every hit", clear));
+    // Group 2 — tempo. The unit is spelled out: a bare "96" in a toolbar does
+    // not say what it counts.
+    const bpm = document.createElement("span");
+    bpm.className = "tb-label";
+    bpm.setAttribute("aria-hidden", "true");
+    bpm.textContent = "BPM";
+    controls.appendChild(mkGroup(tempo, bpm));
 
+    // Group 3 — transport.
+    controls.appendChild(
+      mkGroup(
+        mkButton("▶", "Play this beat", () => playBeat(current)),
+        mkButton("■", "Stop playback", stopBeatPlayback)
+      )
+    );
+
+    // Group 4 — destructive, on its own so it is never a neighbour of play.
+    controls.appendChild(
+      mkGroup(mkButton("Clear", "Remove every hit", clear, false, "btn-danger"))
+    );
+
+    // Group 5 — the view, pushed to the far end.
     const zoom = document.createElement("span");
-    zoom.className = "melody-zoom no-drag";
+    zoom.className = "melody-zoom tb-group no-drag";
     const setScale = (next) => {
       const v = clampScale(next);
       if (v === scale) return;
