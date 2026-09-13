@@ -2778,11 +2778,12 @@ body.light-mode .metronome-led {
 /* Note name labels under each notehead. */
 .ms-note-name {
   fill: var(--note-text);
-  font-size: 11px;
+  font-size: 10px;
   font-family: Inter, system-ui, monospace;
-  font-weight: 600;
+  font-weight: 400;
   pointer-events: none;
   dominant-baseline: hanging;
+  letter-spacing: 0.5px;
 }
 
 /* Print: white page, black ink -- same treatment as .gc-* and .gs-*. */

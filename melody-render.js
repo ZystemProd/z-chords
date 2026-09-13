@@ -707,9 +707,9 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
           const label = el("text", {
             class: "ms-note-name",
             x: noteheadBox.x + noteheadBox.width / 2,
-            y: noteheadBox.y + noteheadBox.height + 10,
+            y: noteheadBox.y + noteheadBox.height + 8,
             "text-anchor": "middle",
-            "font-size": "9",
+            "dominant-baseline": "hanging",
           });
           label.textContent = spelled.name;
           node.parentElement.appendChild(label);
