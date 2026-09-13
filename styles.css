@@ -1,43 +1,66 @@
+/* Palette: warm paper. Both themes share one warm-neutral hue family so the
+   light and dark sides read as the same app. Three values a step apart do the
+   depth work — page, card, key — so keys still read as keys on a tinted page;
+   tinting them all the same amount is what flattens a warm ground.
+   `.pdf-capture` overrides these with its own white-paper values, so the
+   exported PDF is unaffected by anything here. */
 :root {
   /* Dark mode (default) */
-  --bg: #0b0f15;
-  --card: #12141a;
-  --text: #e6eef8;
-  --note-text: #9fb0c2;
+  --bg: #15120f;
+  --card: #1e1a16;
+  --text: #ede4d8;
+  --note-text: #a99c8c;
   --white: #fff;
   --black: #0b0b0b;
-  --pressed-red-1: #ff6565;
-  --pressed-red-2: #d92b2b;
-  --root-green-1: #2ecc71;
-  --root-green-2: #27ae60;
-  --input-bg: #0f1621;
-  --input-border: #242832;
-  --button-bg: #1e6ef0;
+  --pressed-red-1: #e2917a;
+  --pressed-red-2: #c05f43;
+  --root-green-1: #7fae92;
+  --root-green-2: #55886d;
+  --input-bg: #1b1713;
+  --input-border: #332c25;
+  --button-bg: #b0603f;
   --button-text: #ffffff;
-  --card-gradient-1: #0f1621;
-  --card-gradient-2: #0b1116;
-  --kbd-label: #9fb0c2;
-  --modal-close: #aaa;
+  --card-gradient-1: #211c17;
+  --card-gradient-2: #171310;
+  --kbd-label: #a99c8c;
+  --modal-close: #a79a8b;
+  /* The piano's case, behind the keys. Warm walnut rather than the page colour
+     so the keys read as keys in either theme. */
+  --piano-body-1: #241c15;
+  --piano-body-2: #17110c;
+  /* Left hand in two-hands mode. A cool dusty blue is the one deliberately
+     non-warm colour: it has to be unmistakably "not the right hand", and a
+     second warm hue next to clay and sage would not be. Same in both themes —
+     it always sits on a near-white key. */
+  --left-hand-1: #5f6f8f;
+  --left-hand-2: #3d4861;
+  --accent-color: var(--button-bg);
   --white-key-width: 36px;
   /* UI accent glow color, derived from primary button color */
   --glow-color: color-mix(in oklab, var(--button-bg) 70%, transparent);
 }
 
 body.light-mode {
-  --bg: #ffffff;
-  --card: #f7f9fb;
-  --text: #222222;
-  --note-text: #444444;
-  --white: #ffffff;
-  --black: #0b0b0b;
-  --input-bg: #ffffff;
-  --input-border: #cccccc;
-  --button-bg: #1e6ef0;
+  --bg: #f7efe4;
+  --card: #fffbf4;
+  --text: #332e28;
+  --note-text: #6b6058;
+  --white: #fffdf8;
+  --black: #2a2521;
+  --pressed-red-1: #e08a6e;
+  --pressed-red-2: #c4664a;
+  --root-green-1: #7fae92;
+  --root-green-2: #5a8f72;
+  --input-bg: #fffcf7;
+  --input-border: #e3d6c5;
+  --button-bg: #b0603f;
   --button-text: #ffffff;
-  --card-gradient-1: #f7f9fb;
-  --card-gradient-2: #e9ecf1;
-  --kbd-label: #555555;
-  --modal-close: #444;
+  --card-gradient-1: #fffbf4;
+  --card-gradient-2: #f2e6d6;
+  --kbd-label: #8a7d70;
+  --modal-close: #6b6058;
+  --piano-body-1: #6b5140;
+  --piano-body-2: #46342a;
   --glow-color: color-mix(in oklab, var(--button-bg) 60%, transparent);
 }
 
@@ -70,7 +93,7 @@ h1 {
 }
 
 .subtitle {
-  color: #9fb0c2;
+  color: var(--note-text);
   font-size: 13px;
   margin-top: 6px;
 }
@@ -87,9 +110,12 @@ h1 {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: color-mix(in oklab, var(--bg) 92%, black);
+  /* Mixed toward the warm case colour rather than toward black: mixing a peach
+     ground with black desaturates it to taupe, which reads as a different
+     (colder) family than the page it sits on. */
+  background: color-mix(in oklab, var(--bg) 92%, var(--piano-body-2));
   backdrop-filter: saturate(1.2) blur(8px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--input-border);
   padding: 25px;
 }
 
@@ -591,7 +617,7 @@ select:focus-visible {
 #boards .section.active {
   outline: 2px solid color-mix(in oklab, var(--button-bg) 35%, white);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(30, 110, 240, 0.12);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--button-bg) 14%, transparent);
   margin: 20px 0 20px 0;
 }
 #boards .section .section-header {
@@ -819,10 +845,10 @@ select:focus-visible {
 
 .guitar-staff-empty {
   padding: 16px 20px;
-  color: #444;
+  color: var(--note-text);
   font-size: 13px;
-  background: #fffdf7;
-  border: 1px dashed #bfbfbf;
+  background: var(--card);
+  border: 1px dashed var(--input-border);
   border-radius: 12px;
 }
 
@@ -876,8 +902,8 @@ select:focus-visible {
   height: 24px;
   padding: 0;
   border: none;
-  background: red;
-  color: white;
+  background: var(--pressed-red-2);
+  color: var(--button-text);
   font-weight: bold;
   cursor: pointer;
   border-radius: 50%;
@@ -969,7 +995,7 @@ select:focus-visible {
   width: 100%;
   height: 210px;
   cursor: grab;
-  background: linear-gradient(180deg, #071022, #091220);
+  background: linear-gradient(180deg, var(--piano-body-1), var(--piano-body-2));
   border-radius: 8px;
   padding: 18px;
 }
@@ -990,7 +1016,7 @@ select:focus-visible {
   position: relative;
   width: var(--white-key-width);
   background: var(--white);
-  border: 1px solid #000000;
+  border: 1px solid var(--black);
   border-radius: 0 0 8px 8px;
   box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.06);
   display: flex;
@@ -1000,7 +1026,7 @@ select:focus-visible {
 }
 
 .white-key:last-child {
-  border-right: 1px solid #cfcfcf;
+  border-right: 1px solid var(--black);
 }
 
 .white-key.pressed {
@@ -1020,7 +1046,7 @@ select:focus-visible {
 
 .white-key .label {
   font-size: 12px;
-  color: #22313a;
+  color: #2a2521;
   font-weight: bold;
 }
 
@@ -1032,12 +1058,16 @@ select:focus-visible {
   background: var(--black);
   border-radius: 0 0 6px 6px;
   box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3);
-  border: 2px solid #000;
+  border: 2px solid var(--black);
   z-index: 5;
 }
 
 .black-key.pressed {
-  background: linear-gradient(180deg, #d94b4b, #b21616);
+  background: linear-gradient(
+    180deg,
+    var(--pressed-red-2),
+    color-mix(in oklab, var(--pressed-red-2) 75%, black)
+  );
 }
 
 .black-key.root {
@@ -1113,7 +1143,7 @@ select:focus-visible {
   cursor: pointer;
 }
 .close:hover {
-  color: black;
+  color: var(--text);
 }
 
 #customPiano {
@@ -1138,7 +1168,7 @@ select:focus-visible {
   text-align: center;
   font-weight: bold;
   cursor: pointer;
-  color: red;
+  color: var(--pressed-red-1);
   user-select: none;
   z-index: 2;
   border-radius: 50%;
@@ -1148,12 +1178,12 @@ select:focus-visible {
 }
 
 .root-label.active {
-  color: yellow;
+  color: #e8b45c;
 }
 
 .root-label:hover {
-  border-color: white;
-  background-color: rgba(255, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.7);
+  background-color: color-mix(in oklab, var(--pressed-red-1) 25%, transparent);
 }
 
 .white-key .root-label {
@@ -1173,8 +1203,8 @@ select:focus-visible {
   margin: 4px 4px 4px 0;
   padding: 4px 8px;
   border-radius: 12px;
-  background-color: #3e5e92;
-  color: white;
+  background-color: color-mix(in oklab, var(--button-bg) 80%, black);
+  color: var(--button-text);
   cursor: pointer;
   font-size: 13px;
   user-select: none;
@@ -1188,7 +1218,7 @@ select:focus-visible {
 }
 
 .clickable-suggestion:hover {
-  background-color: #155ac8;
+  background-color: var(--button-bg);
 }
 
 /* Preview mode for boards */
@@ -1248,7 +1278,7 @@ select:focus-visible {
 }
 
 body.light-mode .card.preview .piano {
-  background: linear-gradient(180deg, black, white);
+  background: linear-gradient(180deg, var(--piano-body-1), var(--piano-body-2));
 }
 
 /* A percentage translate resolves against the element's own width, so this
@@ -1495,7 +1525,7 @@ body.light-mode .card.preview .piano {
 }
 
 .white-key.left-hand {
-  background: linear-gradient(180deg, #2d4f84, #1d3255);
+  background: linear-gradient(180deg, var(--left-hand-1), var(--left-hand-2));
   color: #fff;
   font-weight: bold;
 }
@@ -1505,8 +1535,12 @@ body.light-mode .card.preview .piano {
 }
 
 .black-key.left-hand {
-  background: linear-gradient(180deg, #1d3255, #0f1e36);
-  border-color: #0f1e36;
+  background: linear-gradient(
+    180deg,
+    var(--left-hand-2),
+    color-mix(in oklab, var(--left-hand-2) 70%, black)
+  );
+  border-color: color-mix(in oklab, var(--left-hand-2) 70%, black);
 }
 
 .interval.left-hand-label {
@@ -1525,7 +1559,7 @@ body.light-mode .card.preview .piano {
   position: absolute;
   top: 5px;
   right: 5px;
-  background: #ff4d4f;
+  background: var(--pressed-red-2);
   border: none;
   color: white;
   font-size: 14px;
@@ -1570,7 +1604,7 @@ body.light-mode .card.preview .piano {
 
 body.light-mode .edit-chord-section:hover {
   background: rgba(0, 0, 0, 0.06);
-  border-color: #999999;
+  border-color: color-mix(in oklab, var(--input-border) 60%, var(--note-text));
 }
 
 /* Play button on chord card. Unlike edit/remove this stays visible rather than
@@ -1603,7 +1637,7 @@ body.light-mode .edit-chord-section:hover {
 
 body.light-mode .play-chord-section:hover {
   background: rgba(0, 0, 0, 0.06);
-  border-color: #999999;
+  border-color: color-mix(in oklab, var(--input-border) 60%, var(--note-text));
 }
 
 .play-chord-section:active {
@@ -1739,8 +1773,8 @@ body.light-mode .play-chord-section:hover {
   top: 10px; /* equal offset to the right for symmetry */
   right: 10px;
   display: none;
-  background: red;
-  color: white;
+  background: var(--pressed-red-2);
+  color: var(--button-text);
   border: none;
   border-radius: 4px;
   padding: 0 6px;
@@ -1785,8 +1819,8 @@ body.light-mode .play-chord-section:hover {
 }
 
 .editable-section-name:focus {
-  border-color: #999;
-  background-color: #504f4f;
+  border-color: var(--input-border);
+  background-color: color-mix(in oklab, var(--card) 80%, var(--text));
   border-radius: 4px;
   padding-left: 10px;
   padding-right: 10px;
@@ -1812,8 +1846,8 @@ body.light-mode .play-chord-section:hover {
 }
 
 .fretboard {
-  background-color: #fff; /* or #f9f9f9 for soft white */
-  border: 1px solid #ccc; /* optional border */
+  background-color: var(--white);
+  border: 1px solid var(--input-border);
   border-radius: 6px; /* optional rounded corners */
 }
 
@@ -1855,7 +1889,7 @@ body.light-mode .play-chord-section:hover {
 }
 .metronome-field input[type="range"] {
   min-width: 200px;
-  accent-color: var(--accent-color, #0cc0df);
+  accent-color: var(--accent-color);
 }
 .metronome-bpm {
   min-width: 220px;
@@ -1951,15 +1985,11 @@ body.light-mode .metronome-time-sig .time-sig {
   cursor: pointer;
 }
 .time-sig-select option {
-  background-color: #181a20;
-  color: #f8f9ff;
-}
-body.light-mode .time-sig-select option {
-  background-color: #ffffff;
-  color: #111111;
+  background-color: var(--card);
+  color: var(--text);
 }
 .time-sig-number.is-hovered {
-  color: var(--accent-color, #0cc0df);
+  color: var(--accent-color);
   transform: translateY(1px);
 }
 .metronome-panel {
@@ -2001,19 +2031,21 @@ body.light-mode .metronome-led {
   color: rgba(0, 0, 0, 0.7);
 }
 .metronome-led.accent-beat {
-  color: #ff7070;
-  box-shadow: inset 0 0 0 1px rgba(255, 80, 80, 0.8);
+  color: var(--pressed-red-1);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--pressed-red-1) 80%, transparent);
 }
 .metronome-led.active {
   transform: scale(1.1);
-  background: var(--accent-color, #0cc0df);
-  color: #021015;
-  box-shadow: 0 0 12px rgba(12, 192, 223, 0.6);
+  background: var(--root-green-2);
+  color: var(--button-text);
+  box-shadow: 0 0 12px color-mix(in oklab, var(--root-green-2) 60%, transparent);
 }
 .metronome-led.accent-beat.active {
-  background: #ff4d4f;
-  color: #fff;
-  box-shadow: 0 0 12px rgba(255, 77, 79, 0.7);
+  background: var(--pressed-red-2);
+  color: var(--button-text);
+  box-shadow: 0 0 12px
+    color-mix(in oklab, var(--pressed-red-2) 70%, transparent);
 }
 
 /* --- Guitar chord diagrams (rendered by guitar-chords.js) ---------------- */
