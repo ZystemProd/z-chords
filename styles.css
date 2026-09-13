@@ -2775,15 +2775,16 @@ body.light-mode .metronome-led {
   font-family: inherit;
 }
 
-/* Note name labels under each notehead. */
+/* Note name labels under each notehead, drawn as VexFlow Annotation
+   modifiers (see melody-render.js) so VexFlow positions them itself rather
+   than us measuring a Bravura <text>'s font-metrics line box. Font family and
+   size are set in JS via setFont(), which writes them as presentation
+   attributes on the painted text node and so outrank anything set here —
+   only the colour (inherited, no attribute of its own) is actually this
+   rule's job. */
 .ms-note-name {
   fill: var(--note-text);
-  font-size: 10px;
-  font-family: Inter, system-ui, monospace;
-  font-weight: 400;
   pointer-events: none;
-  dominant-baseline: hanging;
-  letter-spacing: 0.5px;
 }
 
 /* Print: white page, black ink -- same treatment as .gc-* and .gs-*. */

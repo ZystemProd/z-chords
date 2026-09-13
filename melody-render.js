@@ -71,7 +71,7 @@ const MIN_BAR_WIDTH = 150;
 const PAD_LEFT = 10;
 const PAD_RIGHT = 16;
 const MIN_TOP_PAD = 34; // ledger lines and the treble clef's own upward reach
-const MIN_BOTTOM_PAD = 55; // room for note name labels below noteheads
+const MIN_BOTTOM_PAD = 30;
 const EXTENT_BUFFER = 10;
 const GRAND_GAP = 90; // treble bottom line to bass top line
 const TAB_GAP = 52; // staff bottom line to tab top line
@@ -490,19 +490,6 @@ function renderScore(melody, { showTab, scale = 1 }) {
     };
     measurables.forEach(absorb);
     drawn.forEach((d) => absorb(d.note));
-    // Include note name labels in the bounding box.
-    svg.querySelectorAll(".ms-note-name").forEach((textEl) => {
-      try {
-        const b = textEl.getBBox();
-        if (Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.width) && Number.isFinite(b.height)) {
-          minX = Math.min(minX, b.x);
-          minY = Math.min(minY, b.y);
-          maxX = Math.max(maxX, b.x + b.width);
-          maxY = Math.max(maxY, b.y + b.height);
-          measured = true;
-        }
-      } catch (_) {}
-    });
     if (measured) {
       viewMinX = Math.floor(minX) - 2;
       viewMinY = Math.floor(minY) - 2;
@@ -549,6 +536,7 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
   const perStave = staves.map(() => []);
   const realNotes = staves.map(() => []);
   const tabNotes = [];
+  const noteNameAnnotations = [];
 
   bar.items.forEach((item) => {
     const event = item.event;
@@ -603,6 +591,26 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
           const acc = spellNote(n.midi, melody.keyRoot).accidental;
           // A tied continuation does not restate its accidental.
           if (acc && !item.tiedFrom) note.addModifier(new VF.Accidental(acc), ni);
+        });
+        // Note name labels, drawn as VexFlow Annotation modifiers rather than
+        // hand-placed SVG text: an Annotation is measured and positioned by
+        // VexFlow itself (getYForBottomText), which is what stops it from
+        // falling into the getBBox()-on-a-Bravura-<text> trap documented
+        // above — that returns the FONT'S LINE BOX (~160px for a 30pt glyph),
+        // not the notehead's ink, so hand-computed placement landed the label
+        // most of a line-box below the actual note. It also folds into
+        // note.getBoundingBox() automatically, so the viewBox sizing pass
+        // below needs no separate accounting for it.
+        event.notes.forEach((n, ni) => {
+          const ann = new VF.Annotation(spellNote(n.midi, melody.keyRoot).name)
+            .setVerticalJustification(VF.Annotation.VerticalJustify.BOTTOM)
+            // setFont writes its own explicit font-size/-family attributes onto
+            // the painted <text>, which as presentation attributes outrank the
+            // .ms-note-name CSS rule's inherited values — so size and family
+            // are set here, in one place, rather than split across JS and CSS.
+            .setFont("Inter, system-ui, sans-serif", "10px", "normal");
+          note.addModifier(ann, ni);
+          noteNameAnnotations.push(ann);
         });
       }
       perStave[i].push(note);
@@ -680,6 +688,11 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
     inGroup(ctx, "ms-beam", () => b.setContext(ctx).draw());
   });
 
+  // Annotations paint their own SVG text as part of note.draw() above, so
+  // their element only exists now — tag it for CSS the same way markAs
+  // handles any other VexFlow drawable with a getSVGElement().
+  noteNameAnnotations.forEach((ann) => markAs(ann, "ms-note-name"));
+
   // Stamp our event index onto each painted note group. This is the contract
   // melody-editor.js hit-tests against, and the reason the editor survived
   // this renderer being replaced wholesale.
@@ -690,31 +703,5 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
     // A rest is a StaveNote to VexFlow and carries the same vf-notehead class
     // as a pitched note, so there is otherwise no way to tell them apart.
     node.classList.add(rest ? "ms-rest" : "ms-note");
-
-    // Add note name labels under non-rest notes.
-    if (!rest && item.event.notes && item.event.notes.length) {
-      const noteheads = node.querySelectorAll(".vf-notehead");
-      item.event.notes.forEach((eventNote, idx) => {
-        if (idx < noteheads.length) {
-          const notehead = noteheads[idx];
-          let noteheadBox;
-          try {
-            noteheadBox = notehead.getBBox();
-          } catch (_) {
-            return;
-          }
-          const spelled = spellNote(eventNote.midi, melody.keyRoot);
-          const label = el("text", {
-            class: "ms-note-name",
-            x: noteheadBox.x + noteheadBox.width / 2,
-            y: noteheadBox.y + noteheadBox.height + 8,
-            "text-anchor": "middle",
-            "dominant-baseline": "hanging",
-          });
-          label.textContent = spelled.name;
-          node.parentElement.appendChild(label);
-        }
-      });
-    }
   });
 }
