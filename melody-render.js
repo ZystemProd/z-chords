@@ -50,6 +50,7 @@ import {
   drumVoiceForMidi,
   isDrumMelody,
   notesMatchPitch,
+  KEY_ROOTS,
 } from "./melody-model.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -66,6 +67,13 @@ const STEP = LINE_GAP / 2;
 const TOP_STEP_OFFSET = 8; // 5 lines = 4 gaps = 8 diatonic steps, bottom to top
 
 const CLEF_BAR_EXTRA = 66; // clef + time signature, first bar only
+// Each accidental in a key signature is about this wide once drawn. This only
+// sizes the CANVAS up front — the notes themselves are justified to whatever
+// room the stave reports is left (`getNoteStartX`/`getNoteEndX`), which already
+// accounts for the signature exactly. Undersizing here does not misplace a
+// note; it just crams the first bar, which is what happened when the signature
+// was added without widening this.
+const KEY_ACCIDENTAL_WIDTH = 11;
 const ITEM_WIDTH = 42; // room per note before VexFlow's formatter fine-tunes
 const MIN_BAR_WIDTH = 150;
 const PAD_LEFT = 10;
@@ -229,9 +237,28 @@ function staveKeysFor(melody) {
   return ["treble"]; // guitar reads treble, with a tab stave under it
 }
 
-function barWidth(bar, isFirst) {
+// The key a score is written in, or null for one that has no such thing. A
+// drum staff is the null case and not an oversight: its "pitches" are GM
+// percussion numbers, so a signature there would be claiming that a kick drum
+// is flattened. Playback, spelling and the grid all read voices rather than
+// pitch classes, so there is nothing for a key to mean.
+function keySpecFor(melody) {
+  if (isDrumMelody(melody)) return null;
+  return KEY_ROOTS.includes(melody.keyRoot) ? melody.keyRoot : "C";
+}
+
+// How many sharps or flats that signature paints. Derived from the position in
+// KEY_ROOTS rather than tabled: the list is the circle of fifths with C in the
+// middle, so distance from C IS the accidental count in both directions.
+function keyAccidentalCount(keySpec) {
+  const i = KEY_ROOTS.indexOf(keySpec);
+  return i < 0 ? 0 : Math.abs(i - KEY_ROOTS.indexOf("C"));
+}
+
+function barWidth(bar, isFirst, keySpec) {
   const base = Math.max(MIN_BAR_WIDTH, ITEM_WIDTH * Math.max(1, bar.items.length));
-  return base + (isFirst ? CLEF_BAR_EXTRA : 0);
+  if (!isFirst) return base;
+  return base + CLEF_BAR_EXTRA + keyAccidentalCount(keySpec) * KEY_ACCIDENTAL_WIDTH;
 }
 
 // ---- Rendering ----
@@ -311,7 +338,8 @@ function renderScore(melody, { showTab, scale = 1 }) {
     ? tabTop + TAB_HEIGHT + EXTENT_BUFFER
     : lastStaffBottomY + bottomPad;
 
-  const widths = bars.map((bar, i) => barWidth(bar, i === 0));
+  const keySpec = keySpecFor(melody);
+  const widths = bars.map((bar, i) => barWidth(bar, i === 0, keySpec));
   const width = PAD_LEFT + widths.reduce((a, b) => a + b, 0) + PAD_RIGHT;
 
   // VexFlow renders into a container element. It is attached offscreen rather
@@ -343,6 +371,11 @@ function renderScore(melody, { showTab, scale = 1 }) {
       const stave = new VF.Stave(x, staveTops[i], w);
       if (isFirst) {
         stave.addClef(key);
+        // Clef, then key, then time — the engraving order, and the order
+        // VexFlow lays them out in, so adding the signature here rather than
+        // after the time signature is what keeps them in the right sequence.
+        // Skipped entirely on a drum staff (keySpecFor returns null).
+        if (keySpec) stave.addKeySignature(keySpec);
         stave.addTimeSignature(`${melody.timeSig.num}/${melody.timeSig.den}`);
       }
       if (isLast) stave.setEndBarType(VF.Barline.type.END);
@@ -396,6 +429,7 @@ function renderScore(melody, { showTab, scale = 1 }) {
       staveKeys,
       tabStave,
       melody,
+      keySpec,
       width: noteArea - 12,
       drawn,
     });
@@ -541,7 +575,10 @@ function renderScore(melody, { showTab, scale = 1 }) {
 
 // One bar: build a voice per stave, format them together so the staves stay
 // vertically aligned, then draw.
-function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, drawn }) {
+function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, keySpec, width, drawn }) {
+  // `drawn` accumulates across every bar; remember where this one starts so the
+  // accidental pass below can act on this bar's notes alone.
+  const drawnStart = drawn.length;
   const perStave = staves.map(() => []);
   const realNotes = staves.map(() => []);
   const tabNotes = [];
@@ -596,11 +633,11 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
       if (drums) note.setStemDirection(VF.Stem.UP);
       for (let d = 0; d < (item.dots || 0); d++) note.addModifier(new VF.Dot(), 0);
       if (!drums) {
-        event.notes.forEach((n, ni) => {
-          const acc = spellNote(n.midi, melody.keyRoot).accidental;
-          // A tied continuation does not restate its accidental.
-          if (acc && !item.tiedFrom) note.addModifier(new VF.Accidental(acc), ni);
-        });
+        // No accidentals are attached here. Which notes need one is a function
+        // of the key signature and of what has already been altered earlier in
+        // the same bar, so it cannot be decided one note at a time — see the
+        // applyAccidentals pass after the voices are built.
+        //
         // Note name labels, drawn as VexFlow Annotation modifiers rather than
         // hand-placed SVG text: an Annotation is measured and positioned by
         // VexFlow itself (getYForBottomText), which is what stops it from
@@ -666,6 +703,38 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
     tabVoice.__stave = tabStave;
   }
 
+  // ---- Accidentals ----
+  //
+  // Which notes take one is a per-BAR question, not a per-note one: a note the
+  // signature already alters takes none, a note altered earlier in this bar
+  // does not restate it, and a note returning to the signature's version needs
+  // a natural to cancel. That is a rulebook, and VexFlow owns it — the same
+  // "ask the library" lesson as getBoundingBox(). It reads the accidental off
+  // each key string, so our spellNote still decides the SPELLING (C# vs Db) and
+  // this decides only whether it is PRINTED.
+  //
+  // Called per bar, which is what gives the within-bar state the right scope:
+  // applyAccidentals tracks what it has seen across everything it is handed, so
+  // passing the whole score at once would suppress an accidental in bar 8
+  // because bar 2 already had it. It must also run BEFORE formatting, since the
+  // modifiers it adds take horizontal room.
+  if (keySpec) {
+    VF.Accidental.applyAccidentals(voices, keySpec);
+    // The one rule VexFlow cannot know: a tied continuation does not restate
+    // its accidental, because it is not a new note — it is the tail of one that
+    // `layoutBars` split across a barline. Stripping after the fact (rather
+    // than teaching the library) keeps the whole rulebook in one place, and
+    // splicing the live modifier array is exactly how VexFlow itself removes a
+    // stale accidental inside applyAccidentals.
+    drawn.slice(drawnStart).forEach(({ item, note, rest }) => {
+      if (rest || !item.tiedFrom) return;
+      const mods = note.getModifiers();
+      for (let i = mods.length - 1; i >= 0; i--) {
+        if (mods[i] instanceof VF.Accidental) mods.splice(i, 1);
+      }
+    });
+  }
+
   const all = tabVoice ? voices.concat([tabVoice]) : voices;
   const formatter = new VF.Formatter().joinVoices(voices);
   // formatToStave justifies to the stave's OWN note area. Passing a width to
@@ -705,6 +774,11 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
   // Stamp our event index onto each painted note group. This is the contract
   // melody-editor.js hit-tests against, and the reason the editor survived
   // this renderer being replaced wholesale.
+  //
+  // `drawn` accumulates across bars and this loop walks it from the start on
+  // every bar, so the filler numbering below is stable: fillers only ever exist
+  // in the last bar, and they are counted in paint order each time.
+  let fillerSeq = 0;
   drawn.forEach(({ item, note, rest }) => {
     const node = elementOf(note);
     if (!node) return;
@@ -716,8 +790,18 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
     // what the editor hit-tests against, so leaving it off is exactly what
     // makes a click on the blank end of a bar write a note there instead of
     // selecting a rest that does not exist in `melody.events`.
+    //
+    // It does carry its own position and duration, though. Each filler is a
+    // place the editor can write at, and writing at the *k*th one means making
+    // the k rests before it real first — so the editor needs to know which
+    // rests those were. Published here rather than re-derived in the editor for
+    // the same reason slots are read off the paint: these are the durations
+    // that were actually drawn.
     if (item.filler) {
       node.classList.add("ms-rest-filler");
+      node.setAttribute("data-filler-index", String(fillerSeq++));
+      node.setAttribute("data-filler-den", String(item.den));
+      node.setAttribute("data-filler-dots", String(item.dots || 0));
       return;
     }
     node.setAttribute("data-event-index", String(item.eventIndex));

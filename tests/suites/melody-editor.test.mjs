@@ -47,6 +47,52 @@ async function read(page, inst = "piano") {
   }, inst);
 }
 
+// Switch note input on and click the staff's bottom line, far to the right of
+// any existing notes so it lands on empty staff. In treble clef that line is E,
+// so the pitch written is a specific, checkable one rather than "some note
+// appeared" — and which E it is depends on the key, which is the point of the
+// second caller.
+//
+// The PAINTED bottom line, not `data-stave-bottom-y`. Clicking at the published
+// attribute and asserting the pitch it was derived from proves only that the
+// code agrees with itself: VexFlow's `getBottomLineY()` is really
+// `getYForLine(numLines)`, one line gap BELOW the bottom line, and that check
+// passed all the way through that bug while every click on the staff wrote a
+// note two diatonic steps too high. Anchor on the ink: the five stave lines are
+// the wide, zero-height paths.
+async function clickBottomLine(page) {
+  const info = await page.evaluate(() => {
+    document.querySelector('.melody-editor-controls button[title^="Note input"]').click();
+    const svg = document.querySelector(".melody-editor-staff svg");
+    const staveLines = [...svg.querySelectorAll("path")]
+      .map((el) => el.getBBox())
+      .filter((b) => b.height < 2 && b.width > 100)
+      .map((b) => b.y)
+      .sort((a, b) => a - b);
+    const bottomY = staveLines[staveLines.length - 1];
+    const pt = svg.createSVGPoint();
+    // From the viewBox, not the width attribute: the editor zooms by scaling
+    // width/height while the viewBox stays in VexFlow's user space, which is
+    // the space this point is built in.
+    const [, , vbW] = svg.getAttribute("viewBox").split(/\s+/).map(Number);
+    pt.x = vbW - 30;
+    pt.y = bottomY;
+    const screen = pt.matrixTransform(svg.getScreenCTM());
+    svg.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: screen.x, clientY: screen.y })
+    );
+    return {
+      x: screen.x,
+      y: screen.y,
+      paintedBottomY: bottomY,
+      publishedBottomY: Number(svg.getAttribute("data-stave-bottom-y")),
+      stepPx: Number(svg.getAttribute("data-step-px")),
+    };
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  return info;
+}
+
 async function selectFirstNote(page) {
   await page.evaluate(() => {
     const n = document.querySelector('[data-event-index="0"]');
@@ -118,46 +164,7 @@ export default async function run({ browser, origin, t }) {
   // --- clicking empty staff adds a note at the clicked pitch ---
   {
     const page = await openApp(browser, origin, { state: pianoState() });
-    // Click exactly on the staff's bottom line, which in treble clef is E4
-    // (midi 64) — a specific, checkable pitch rather than "some note appeared".
-    const clicked = await page.evaluate(() => {
-      // A staff click only writes a note in note-input mode.
-      document.querySelector('.melody-editor-controls button[title^="Note input"]').click();
-      const svg = document.querySelector(".melody-editor-staff svg");
-      // The PAINTED bottom line, not `data-stave-bottom-y`. Clicking at the
-      // published attribute and asserting the pitch it was derived from proves
-      // only that the code agrees with itself: VexFlow's `getBottomLineY()` is
-      // really `getYForLine(numLines)`, one line gap BELOW the bottom line, and
-      // this check passed all the way through that bug while every click on the
-      // staff wrote a note two diatonic steps too high. Anchor on the ink: the
-      // five stave lines are the wide, zero-height paths.
-      const staveLines = [...svg.querySelectorAll("path")]
-        .map((el) => el.getBBox())
-        .filter((b) => b.height < 2 && b.width > 100)
-        .map((b) => b.y)
-        .sort((a, b) => a - b);
-      const bottomY = staveLines[staveLines.length - 1];
-      const pt = svg.createSVGPoint();
-      // Far to the right of the existing notes, so it lands on empty staff.
-      // From the viewBox, not the width attribute: the editor zooms by scaling
-      // width/height while the viewBox stays in VexFlow's user space, which is
-      // the space this point is built in.
-      const [, , vbW] = svg.getAttribute("viewBox").split(/\s+/).map(Number);
-      pt.x = vbW - 30;
-      pt.y = bottomY;
-      const screen = pt.matrixTransform(svg.getScreenCTM());
-      svg.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, clientX: screen.x, clientY: screen.y })
-      );
-      return {
-        x: screen.x,
-        y: screen.y,
-        paintedBottomY: bottomY,
-        publishedBottomY: Number(svg.getAttribute("data-stave-bottom-y")),
-        stepPx: Number(svg.getAttribute("data-step-px")),
-      };
-    });
-    await new Promise((r) => setTimeout(r, 150));
+    const clicked = await clickBottomLine(page);
     const after = await read(page);
     const added = after.events[after.events.length - 1];
     t.ok(
@@ -171,6 +178,43 @@ export default async function run({ browser, origin, t }) {
       "the added note is the pitch that was clicked (bottom line = E4)",
       added && !added.rest && added.notes[0].midi === 64,
       `got midi ${added && added.notes && added.notes[0] && added.notes[0].midi} at ${JSON.stringify(clicked)}`
+    );
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- a click writes the KEY's version of the line, not the natural ---
+  //
+  // The identical click as above, in Eb major (B, E and A flatted). The staff
+  // position is the same line, so the note lands in the same place — but E on
+  // that line means Eb here, and writing E natural would force the user to
+  // correct every diatonic note by hand. Pairing it with the C-major case above
+  // is what makes this a test of the KEY rather than of the click.
+  {
+    const page = await openApp(browser, origin, {
+      state: pianoState(melody({ keyRoot: "Eb", events: [] })),
+    });
+    await clickBottomLine(page);
+    const after = await read(page);
+    const added = after.events[after.events.length - 1];
+    t.ok(
+      "clicking the E line in Eb major writes Eb, not E natural",
+      added && !added.rest && added.notes[0].midi === 63,
+      `got midi ${added && added.notes && added.notes[0] && added.notes[0].midi}, expected 63`
+    );
+    // And the signature is why nothing is painted in front of it: the note is
+    // diatonic, so it must NOT also carry its own flat.
+    const accidentals = await page.evaluate(() => {
+      const svg = document.querySelector(".melody-editor-staff svg");
+      const ACC = new Set(["", "", ""]);
+      return [...svg.querySelectorAll("text")].filter(
+        (n) => ACC.has((n.textContent || "").trim()) && !n.closest(".vf-keysignature")
+      ).length;
+    });
+    t.ok(
+      "the note the key already flattens carries no accidental of its own",
+      accidentals === 0,
+      `${accidentals} note accidentals drawn`
     );
     t.noErrors(page);
     await page.close();
@@ -306,6 +350,8 @@ export default async function run({ browser, origin, t }) {
     );
 
     // From C5, a G is nearer below (G4, 5 semitones) than above (G5, 7).
+    // (The typed-scale assertion above is in C major, where no letter is
+    // altered — the D-major counterpart is the block after this one.)
     await page.keyboard.press("G");
     await new Promise((r) => setTimeout(r, 100));
     m = await read(page);
@@ -337,6 +383,34 @@ export default async function run({ browser, origin, t }) {
       "R inserts a rest at the current value",
       m.events[m.events.length - 1].rest === true,
       JSON.stringify(m.events[m.events.length - 1])
+    );
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- typed letters are written in the key, not as naturals ---
+  //
+  // The same eight keystrokes as the C-major scale above, in D major. Every
+  // letter is the same; two of the pitches are not, because the signature
+  // sharpens F and C. Typing a scale in a key and getting a chromatic mess
+  // back is the thing this prevents.
+  {
+    const page = await openApp(browser, origin, {
+      state: pianoState(melody({ keyRoot: "D", events: [] })),
+    });
+    await page.evaluate(() => document.querySelector(".melody-editor-staff").focus());
+    await page.keyboard.press("N");
+    await new Promise((r) => setTimeout(r, 80));
+    for (const k of ["D", "E", "F", "G", "A", "B", "C", "D"]) {
+      await page.keyboard.press(k);
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    const m = await read(page);
+    const got = m.events.map((e) => e.notes[0].midi).join(",");
+    t.ok(
+      "a typed scale in D major comes out diatonic (F# and C#, not F and C)",
+      got === "62,64,66,67,69,71,73,74",
+      `got ${got}`
     );
     t.noErrors(page);
     await page.close();

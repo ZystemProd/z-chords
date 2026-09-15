@@ -11,6 +11,19 @@ import { OPEN_MIDI } from "./guitar-chords.js";
 export const CLEFS = ["treble", "bass", "grand", "guitar", "drums"];
 export const DURATION_DENOMS = [1, 2, 4, 8, 16];
 
+// The fifteen major keys, ordered by signature from seven flats to seven
+// sharps, so the picker reads as the circle of fifths rather than as an
+// alphabetical jumble. These are also exactly the strings VexFlow's
+// `Stave.addKeySignature` accepts — an unrecognised one THROWS there, which is
+// why `createMelody` validates against this list rather than taking any string
+// it is handed. A melody loaded from a hand-edited song file is untrusted
+// input, and `normalizeMelody`'s contract is that it never throws.
+export const KEY_ROOTS = [
+  "Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F",
+  "C",
+  "G", "D", "A", "E", "B", "F#", "C#",
+];
+
 // A whole note is 64 ticks. Every supported duration — down to a
 // double-dotted 16th — divides evenly into an integer at this resolution,
 // which is what keeps bar arithmetic exact integer math with no drift.
@@ -51,7 +64,7 @@ export function createMelody(opts = {}) {
     name: typeof opts.name === "string" ? opts.name : "Melody",
     clef,
     timeSig,
-    keyRoot: typeof opts.keyRoot === "string" ? opts.keyRoot : "C",
+    keyRoot: KEY_ROOTS.includes(opts.keyRoot) ? opts.keyRoot : "C",
     tempo: Number.isFinite(Number(opts.tempo)) ? Number(opts.tempo) : 96,
     events: Array.isArray(opts.events) ? opts.events : [],
   };
@@ -480,13 +493,25 @@ export function spellNote(midi, keyRoot = "C") {
   const letter = name[0];
   const accidental = name.length > 1 ? name[1] : "";
   const octave = Math.floor(midi / 12) - 1;
-  return { letter, accidental, octave, name: `${letter}${octave}`, staffStep: octave * 7 + LETTER_STEP[letter] };
+  // `name` carries the accidental. It feeds the note-name label under each
+  // notehead, and dropping it there labelled an F#4 "F4" — harmless while
+  // letters only ever entered naturals, actively misleading now that writing a
+  // note in a key routinely produces one (`applyKeyAlteration`), since the
+  // signature means no accidental is painted next to the notehead either.
+  // ASCII # / b, matching SHARP_NAMES/FLAT_NAMES and the chord vocabulary.
+  return {
+    letter,
+    accidental,
+    octave,
+    name: `${letter}${accidental}${octave}`,
+    staffStep: octave * 7 + LETTER_STEP[letter],
+  };
 }
 
 // The inverse of spellNote's staffStep: which pitch sits on a given line or
 // space. The editor needs this to turn a click on the staff into a note —
-// a staff position is diatonic, so this always lands on the natural of that
-// letter, and altering it to a sharp/flat is a separate step (arrow keys).
+// a staff position is diatonic, so this always lands on the NATURAL of that
+// letter. `applyKeyAlteration` below is what then bends it into the key.
 const LETTER_SEMITONE = [0, 2, 4, 5, 7, 9, 11]; // C D E F G A B
 
 export function midiFromStaffStep(staffStep) {
@@ -494,6 +519,54 @@ export function midiFromStaffStep(staffStep) {
   const octave = Math.floor(step / 7);
   const letterIndex = step - octave * 7;
   return Math.max(0, Math.min(127, (octave + 1) * 12 + LETTER_SEMITONE[letterIndex]));
+}
+
+// ---- Writing notes in the key ----
+//
+// The order the signature accidentals are added in, which is also which
+// letters a key alters: D major has two sharps, so it is the first two of the
+// sharp order (F and C) that are sharpened. Deriving the set this way rather
+// than tabling fifteen keys is the same trick KEY_ROOTS's ordering buys
+// elsewhere — there is one fact here, not fifteen.
+const SHARP_ORDER = ["F", "C", "G", "D", "A", "E", "B"];
+const FLAT_ORDER = ["B", "E", "A", "D", "G", "C", "F"];
+
+// How the key signature alters one letter: +1, -1 or 0 semitones.
+export function keyAlteration(letter, keyRoot) {
+  const i = KEY_ROOTS.indexOf(keyRoot);
+  if (i < 0) return 0;
+  const n = i - KEY_ROOTS.indexOf("C");
+  if (n > 0) return SHARP_ORDER.slice(0, n).includes(letter) ? 1 : 0;
+  if (n < 0) return FLAT_ORDER.slice(0, -n).includes(letter) ? -1 : 0;
+  return 0;
+}
+
+// Bend a natural into the key it is being written in. Typing F in D major, or
+// clicking the F line there, means F# — the signature says so, and a notation
+// program that wrote F natural would be making you correct every diatonic note
+// by hand. The accidental is then not PAINTED, because applyAccidentals in
+// melody-render.js knows the signature already covers it.
+//
+// Only naturals are bent. A pitch that is already altered was reached by the
+// arrow keys, which are the deliberate way out of the key, and re-bending it
+// would make chromatic notes unreachable.
+const NATURAL_LETTER = { 0: "C", 2: "D", 4: "E", 5: "F", 7: "G", 9: "A", 11: "B" };
+
+export function applyKeyAlteration(midi, keyRoot) {
+  const pc = ((Math.round(midi) % 12) + 12) % 12;
+  const letter = NATURAL_LETTER[pc];
+  if (!letter) return midi;
+  const alt = keyAlteration(letter, keyRoot);
+  if (!alt) return midi;
+  const out = Math.max(0, Math.min(127, Math.round(midi) + alt));
+  // The editor's core contract is that a note lands on the line you clicked.
+  // spellNote is a sharp/flat heuristic, not a key-aware speller: it writes
+  // pitch class 11 as B and 4 as E, so in Cb or Gb major the key's Cb and Fb
+  // would come back spelled a letter lower and paint one staff step BELOW the
+  // line that was clicked. Rather than move the note somewhere the user did not
+  // point, leave those two naturals alone — the same documented limit, kept
+  // from leaking into where the notehead sits.
+  return spellNote(out, keyRoot).letter === letter ? out : Math.round(midi);
 }
 
 // ---- Guitar tab ----

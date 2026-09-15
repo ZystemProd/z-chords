@@ -219,6 +219,50 @@
     ],
   }), {});
 
+  // 14. Key signatures. The point of each case is what is NOT painted: a note
+  // the signature already alters must not also carry its own accidental, which
+  // is the whole difference between a key signature and a decorative glyph at
+  // the head of the staff.
+  //
+  // D major = F# and C#. Both notes below are diatonic, so neither takes an
+  // accidental; the G# is chromatic and must take one. The last bar repeats the
+  // G# to pin the within-bar rule (state it once, not twice).
+  addCase("key-d-major", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "D",
+    events: [
+      { den: 4, notes: [{ midi: 66 }] }, // F#4 — in the signature
+      { den: 4, notes: [{ midi: 73 }] }, // C#5 — in the signature
+      { den: 4, notes: [{ midi: 68 }] }, // G#4 — chromatic, needs one
+      { den: 4, notes: [{ midi: 68 }] }, // G#4 again, same bar — no restatement
+    ],
+  }), {});
+
+  // Eb major = Bb, Eb, Ab. Flats rather than sharps, because the sharp and flat
+  // glyphs are different codepoints and a check that only ever sees sharps
+  // could pass while flats were broken.
+  addCase("key-eb-major", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "Eb",
+    events: [
+      { den: 4, notes: [{ midi: 63 }] }, // Eb4
+      { den: 4, notes: [{ midi: 68 }] }, // Ab4
+      { den: 4, notes: [{ midi: 70 }] }, // Bb4
+      { den: 4, notes: [{ midi: 72 }] }, // C5 — natural in this key, no glyph
+    ],
+  }), {});
+
+  // The same four pitches in C major, where every one of them IS an alteration.
+  // This is the control: whatever the check counts, it must differ between this
+  // case and key-eb-major, or the check is not measuring the signature at all.
+  addCase("key-c-control", createMelody({
+    clef: "treble", timeSig: { num: 4, den: 4 }, keyRoot: "C",
+    events: [
+      { den: 4, notes: [{ midi: 63 }] },
+      { den: 4, notes: [{ midi: 68 }] },
+      { den: 4, notes: [{ midi: 70 }] },
+      { den: 4, notes: [{ midi: 72 }] },
+    ],
+  }), {});
+
   window.__melodyPreviewReady = true;
 </script>
 </body>

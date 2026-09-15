@@ -273,6 +273,126 @@ export default async function run({ browser, origin, t }) {
     await page.close();
   }
 
+  // --- every filler rest is its own slot ---
+  //
+  // The empty tail of a bar is not one place, it is one place per rest painted
+  // in it. Taken as a single wide band its centre was usually the GAP between
+  // two rests, so the ghost previewed a position no click could write to — the
+  // bug that reads on screen as "the snap isn't working".
+  //
+  // One quarter note in 4/4 leaves a quarter rest then a half rest (fillerRests'
+  // copyist alignment), so there are two distinct rests to snap between.
+  {
+    const page = await openApp(browser, origin, {
+      state: pianoState(
+        melody({ events: [{ den: 4, dots: 0, rest: false, notes: [{ midi: 60 }] }] })
+      ),
+    });
+    await focusStaff(page);
+    await pressAndWait(page, "N");
+
+    const fillers = await page.evaluate(() =>
+      [...document.querySelectorAll(".ms-rest-filler")].map((n) => {
+        const b = n.getBBox();
+        const r = n.getBoundingClientRect();
+        return {
+          i: Number(n.getAttribute("data-filler-index")),
+          den: Number(n.getAttribute("data-filler-den")),
+          cx: r.left + r.width / 2,
+          cy: r.top + r.height / 2,
+          w: b.width,
+        };
+      })
+    );
+    t.ok(
+      "one quarter note in 4/4 leaves a quarter rest and a half rest",
+      fillers.length === 2 && fillers[0].den === 4 && fillers[1].den === 2,
+      JSON.stringify(fillers.map((f) => f.den))
+    );
+
+    // The ghost must sit at a DIFFERENT x over each rest. One band would give
+    // the same x for both, since both pointer positions resolve to one slot.
+    const xs = [];
+    for (const f of fillers) {
+      await page.mouse.move(f.cx, f.cy, { steps: 2 });
+      await new Promise((r) => setTimeout(r, 140));
+      const g = await ghost(page);
+      xs.push(g && g.cx);
+    }
+    t.ok(
+      "the ghost snaps to each filler rest rather than to one band",
+      xs.every((x) => x != null) && new Set(xs).size === xs.length,
+      JSON.stringify(xs)
+    );
+
+    // And it lands ON the rest it is previewing, not somewhere between them.
+    const onTarget = await page.evaluate(() => {
+      const g = document.querySelector(".ms-input-notehead");
+      const rests = [...document.querySelectorAll(".ms-rest-filler")];
+      if (!g) return null;
+      const gx = Number(g.getAttribute("cx"));
+      return rests.some((n) => {
+        const b = n.getBBox();
+        return gx >= b.x - 6 && gx <= b.x + b.width + 6;
+      });
+    });
+    t.ok("the ghost sits on a rest, not in the gap between two", onTarget === true);
+    t.noErrors(page);
+    await page.close();
+  }
+
+  // --- clicking a filler rest writes THERE, filling in the ones before it ---
+  //
+  // A filler is not an event, so putting a note on the third beat of a bar
+  // means the first two beats stop being empty: the rests before the click have
+  // to become real. Without that the note just slides back to wherever the
+  // melody already ended, which is the old append-only behaviour.
+  {
+    const page = await openApp(browser, origin, {
+      state: pianoState(
+        melody({ events: [{ den: 4, dots: 0, rest: false, notes: [{ midi: 60 }] }] })
+      ),
+    });
+    await focusStaff(page);
+    await pressAndWait(page, "N");
+
+    // The SECOND filler — the half rest on beat 3.
+    const target = await page.evaluate(() => {
+      const n = [...document.querySelectorAll(".ms-rest-filler")].find(
+        (el) => Number(el.getAttribute("data-filler-index")) === 1
+      );
+      const r = n.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.evaluate(({ x, y }) => {
+      document
+        .querySelector(".melody-editor-staff svg")
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: x, clientY: y }));
+    }, target);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const m = await read(page);
+    const shape = m.events.map((e) => `${e.rest ? "r" : "n"}${e.den}`).join(" ");
+    t.ok(
+      "the rest before the clicked one becomes a real event",
+      shape === "n4 r4 n4",
+      `got "${shape}"`
+    );
+    // Which is what puts the new note on beat 3: one quarter of music, one
+    // quarter of rest, then the note. Counting ticks rather than trusting the
+    // shape string, so this says something about WHERE the note is.
+    const ticksBefore = m.events
+      .slice(0, m.events.length - 1)
+      .reduce((sum, e) => sum + (64 / e.den) * (2 - 2 ** -(e.dots || 0)), 0);
+    t.ok(
+      "the new note starts on beat 3, where it was clicked",
+      ticksBefore === 32,
+      `${ticksBefore} ticks before it, expected 32`
+    );
+    t.noErrors(page);
+    await page.close();
+  }
+
   // --- clicking a note in note-input mode REPLACES it ---
   //
   // The MuseScore model, and the point of the whole slot mechanism: input does
@@ -442,15 +562,20 @@ export default async function run({ browser, origin, t }) {
     await new Promise((r) => setTimeout(r, 200));
     const after = await read(page);
     t.ok("the unwritten tail of the bar is drawn as rests", seen >= 1, `${seen} fillers`);
+    // A filler carries no data-event-index, so the click must fall THROUGH it
+    // and write, never select it. The written note is the last event: writing
+    // at the k-th filler also makes the rests before it real, so the count is
+    // not fixed — see "clicking a filler rest writes THERE" above for that.
+    const written = after.events[after.events.length - 1];
     t.ok(
       "clicking a filler rest writes a note rather than selecting it",
-      after.events.length === 2,
-      `${after.events.length} events`
+      !!written && written.rest !== true,
+      `last event: ${JSON.stringify(written)}`
     );
     t.ok(
       "the note lands at the pitch the filler was covering (middle line = B4)",
-      after.events.length === 2 && after.events[1].notes[0].midi === 71,
-      `got ${after.events.length === 2 ? after.events[1].notes[0].midi : "nothing"}`
+      !!written && !written.rest && written.notes[0].midi === 71,
+      `got ${written && !written.rest ? written.notes[0].midi : "nothing"}`
     );
     t.noErrors(page);
     await page.close();

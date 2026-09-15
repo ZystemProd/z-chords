@@ -19,6 +19,9 @@ import {
   normalizeMelody,
   createMelody,
   spellNote,
+  KEY_ROOTS,
+  keyAlteration,
+  applyKeyAlteration,
   autoTabPosition,
   assignTab,
   melodyPlaybackSchedule,
@@ -318,6 +321,93 @@ export default async function run({ t }) {
   t.ok(
     "an octave is 7 diatonic steps",
     spellNote(72, "C").staffStep - spellNote(60, "C").staffStep === 7
+  );
+
+  // The note-name label under a notehead is this string. It must carry the
+  // accidental: in a key, the signature means nothing is painted beside the
+  // notehead, so the label is the only thing on screen saying which F it is.
+  t.ok("a name carries its accidental", spellNote(66, "D").name === "F#4");
+  t.ok("a flat key names the same pitch its own way", spellNote(63, "Eb").name === "Eb4");
+  t.ok("a natural gets no accidental in its name", spellNote(60, "C").name === "C4");
+
+  // --- key signature ---
+  //
+  // keyRoot now reaches VexFlow's addKeySignature, which THROWS on a spelling
+  // it does not know. normalizeMelody's contract is that it never throws on a
+  // hand-edited song file, so an unknown key has to degrade here rather than
+  // take the whole layout block down at render time.
+  t.ok(
+    "a valid key survives normalization",
+    normalizeMelody({ keyRoot: "Eb", events: [] }).keyRoot === "Eb"
+  );
+  t.ok(
+    "an unrecognised key falls back to C rather than reaching the renderer",
+    normalizeMelody({ keyRoot: "H#", events: [] }).keyRoot === "C"
+  );
+  t.ok(
+    "a non-string key falls back to C",
+    normalizeMelody({ keyRoot: 7, events: [] }).keyRoot === "C"
+  );
+  // Every key the picker offers must be one VexFlow accepts, and the list is
+  // the circle of fifths with C in the middle — which is what lets both the
+  // renderer and the editor derive the accidental COUNT from the index rather
+  // than carrying a second table that could drift out of step with this one.
+  t.ok("fifteen major keys are offered", KEY_ROOTS.length === 15);
+  t.ok("C sits in the middle of the circle", KEY_ROOTS.indexOf("C") === 7);
+  t.ok(
+    "the extremes are the seven-accidental keys",
+    KEY_ROOTS[0] === "Cb" && KEY_ROOTS[14] === "C#"
+  );
+
+  // --- writing notes in the key ---
+  //
+  // Which letters a signature alters, in signature order. D major is the first
+  // two sharps, Eb major the first three flats.
+  t.ok("D major sharpens F", keyAlteration("F", "D") === 1);
+  t.ok("D major sharpens C", keyAlteration("C", "D") === 1);
+  t.ok("D major leaves G alone", keyAlteration("G", "D") === 0);
+  t.ok("Eb major flattens B, E and A",
+    keyAlteration("B", "Eb") === -1 &&
+    keyAlteration("E", "Eb") === -1 &&
+    keyAlteration("A", "Eb") === -1
+  );
+  t.ok("Eb major leaves D alone", keyAlteration("D", "Eb") === 0);
+  t.ok("C major alters nothing", keyAlteration("F", "C") === 0);
+
+  // The point of the whole thing: entering a note in a key writes the key's
+  // version of it, so a diatonic melody needs no accidental corrections.
+  t.ok("F entered in D major is F#", applyKeyAlteration(65, "D") === 66);
+  t.ok("E entered in Eb major is Eb", applyKeyAlteration(64, "Eb") === 63);
+  t.ok("F entered in C major stays F", applyKeyAlteration(65, "C") === 65);
+  // An already-altered pitch was reached with the arrow keys, which are the
+  // deliberate way OUT of the key. Bending it again would put the chromatic
+  // notes out of reach entirely.
+  t.ok("an altered pitch is left alone", applyKeyAlteration(66, "D") === 66);
+
+  // The guard. spellNote has no Cb or Fb, so in the seven-accidental keys the
+  // altered note would come back spelled a letter away and paint one staff
+  // step off the line that was clicked. Moving the note somewhere the user did
+  // not point is worse than leaving it natural, so those cases don't bend.
+  t.ok(
+    "C in Cb major stays C rather than painting a step low",
+    applyKeyAlteration(60, "Cb") === 60
+  );
+  t.ok(
+    "F in Cb major stays F for the same reason",
+    applyKeyAlteration(65, "Cb") === 65
+  );
+  t.ok(
+    "B in C# major stays B — the same limit on the sharp side",
+    applyKeyAlteration(71, "C#") === 71
+  );
+  // Everything the guard does NOT catch must still bend, or the guard is just
+  // switching the feature off.
+  t.ok(
+    "the other six letters in Cb major still bend",
+    ["B", "E", "A", "D", "G"].every((L) => {
+      const natural = { C: 60, D: 62, E: 64, F: 65, G: 67, A: 69, B: 71 }[L];
+      return applyKeyAlteration(natural, "Cb") === natural - 1;
+    })
   );
 
   // --- tab ---

@@ -20,9 +20,11 @@ import {
   assignTab,
   melodyPlaybackSchedule,
   midiFromStaffStep,
+  applyKeyAlteration,
   DURATION_DENOMS,
   notesMatchPitch,
   pruneInvalidTies,
+  KEY_ROOTS,
 } from "./melody-model.js";
 import { playNotes, stopAll } from "./audio.js";
 
@@ -348,17 +350,33 @@ export function createMelodyEditor(host, melody, options = {}) {
     });
     slots.sort((a, b) => a.x - b.x);
 
-    // The append region: the filler rests, taken as one band rather than one
-    // slot each — they all mean the same thing, "past the end of the melody".
-    // Placing a note at a specific beat inside that emptiness would mean
-    // writing the rests before it as real events, which is a different feature.
+    // The empty tail of the last bar: ONE SLOT PER FILLER REST, not one band
+    // across all of them. Each painted rest is a beat you can write on, and the
+    // rests before it become real events when you do — so the ghost snaps from
+    // rest to rest exactly as it snaps from note to note, and the preview can
+    // never sit in the gap between two rests where a click would have gone
+    // somewhere else. Taken as a single band, its centre was routinely such a
+    // gap, which is what made the snap look broken.
+    //
+    // A bar nothing has been written into is one whole rest, so it offers one
+    // position. That is not a special case to work around: the tail subdivides
+    // itself as you write into it, and the only places a rest is painted are
+    // the only places a rest can start.
     const fillers = [...svg.querySelectorAll(".ms-rest-filler")]
-      .map((n) => n.getBBox())
-      .filter((b) => b.width > 0);
+      .map((n) => ({ node: n, box: n.getBBox() }))
+      .filter(({ box }) => box.width > 0);
     if (fillers.length) {
-      const left = Math.min(...fillers.map((b) => b.x)) - 3;
-      const right = Math.max(...fillers.map((b) => b.x + b.width)) + 3;
-      slots.push({ index: null, x: left, w: right - left });
+      fillers.forEach(({ node, box }) => {
+        slots.push({
+          index: null,
+          // Which filler this is, so writing here knows how many rests to make
+          // real before the note. Absent on the plain append slots below.
+          fillerIndex: Number(node.getAttribute("data-filler-index")),
+          x: box.x - 3,
+          w: box.width + 6,
+        });
+      });
+      slots.sort((a, b) => a.x - b.x);
     } else if (slots.length) {
       const last = slots[slots.length - 1];
       slots.push({ index: null, x: last.x + last.w + 2, w: stepPx * 3.5 });
@@ -505,6 +523,39 @@ export function createMelodyEditor(host, melody, options = {}) {
     drawStaff();
   }
 
+  // Writing into the empty tail of the last bar, at the rest that was clicked
+  // rather than always at the end of it.
+  //
+  // A filler rest is not an event — it is the shape `layoutBars` gives to the
+  // part of the bar nothing has been written into yet. So placing a note on the
+  // third beat of an empty bar means the first two beats stop being empty: the
+  // rests before the clicked one have to become real rest events, or the note
+  // would simply slide back to where the melody already ended.
+  //
+  // Their durations come from the paint (`data-filler-den`/`-dots`), not from
+  // re-deriving the bar here, so what becomes real is exactly what was on
+  // screen — including `fillerRests`' copyist alignment, which is the whole
+  // reason those durations are what they are. The score therefore does not
+  // re-flow under the click: the rests you were looking at stay put and the
+  // note lands on the one you aimed at.
+  function insertAtFiller(svg, slot, event) {
+    const upTo = slot && slot.fillerIndex != null ? slot.fillerIndex : 0;
+    const lead = [...svg.querySelectorAll(".ms-rest-filler")]
+      .map((n) => ({
+        i: Number(n.getAttribute("data-filler-index")),
+        den: Number(n.getAttribute("data-filler-den")),
+        dots: Number(n.getAttribute("data-filler-dots")) || 0,
+      }))
+      .filter((f) => f.i < upTo && DURATION_DENOMS.includes(f.den))
+      .sort((a, b) => a.i - b.i)
+      .map((f) => ({ den: f.den, dots: f.dots, rest: true, notes: [] }));
+
+    current.events.push(...lead, event);
+    state.caret = current.events.length - 1;
+    commit();
+    drawStaff();
+  }
+
   // Writing over an event that is already there — what a click does in
   // note-input mode. A full replace, not a re-pitch: the palette's duration and
   // dots come with it, the way note input works in MuseScore, so correcting a
@@ -601,6 +652,31 @@ export function createMelodyEditor(host, melody, options = {}) {
       drawStaff();
     });
 
+    // Key signature. Absent on a drum staff, where a key would be claiming
+    // that a kick drum can be flattened — melody-panel.js routes beats to
+    // drum-grid.js so this is belt-and-braces, but clefOptions is injected and
+    // a caller could hand us one.
+    const keySel =
+      current.clef === "drums" ? null : document.createElement("select");
+    if (keySel) {
+      keySel.className = "no-drag";
+      keySel.setAttribute("aria-label", "Key signature");
+      const cIndex = KEY_ROOTS.indexOf("C");
+      KEY_ROOTS.forEach((root, i) => {
+        // KEY_ROOTS is the circle of fifths with C in the middle, so distance
+        // from C is the number of accidentals and the side tells you which.
+        const n = Math.abs(i - cIndex);
+        const sign = i < cIndex ? "♭" : "♯";
+        keySel.appendChild(new Option(n ? `${root} (${n}${sign})` : root, root));
+      });
+      keySel.value = current.keyRoot;
+      keySel.addEventListener("change", () => {
+        current.keyRoot = keySel.value;
+        commit();
+        drawStaff();
+      });
+    }
+
     const timeSel = document.createElement("select");
     timeSel.className = "no-drag";
     timeSel.setAttribute("aria-label", "Time signature");
@@ -618,8 +694,10 @@ export function createMelodyEditor(host, melody, options = {}) {
       drawStaff();
     });
 
-    // Group 1 — what the score is: clef and time signature.
-    controls.appendChild(mkGroup(clefSel, timeSel));
+    // Group 1 — what the score is: clef, key and time signature, in the order
+    // they are painted on the stave. mkGroup drops a null child, so a beat's
+    // missing key select leaves no gap.
+    controls.appendChild(mkGroup(clefSel, keySel, timeSel));
 
     // Note input is off by default: browsing and selecting a melody must not
     // risk writing to it. Toggling this is what lets letters, R and a blank
@@ -762,19 +840,23 @@ export function createMelodyEditor(host, melody, options = {}) {
       den: state.den,
       dots: state.dots,
       rest: false,
-      notes: [{ midi: midiFromStaffStep(staffStep) }],
+      // A staff position is diatonic, so it names a letter; the key decides
+      // which version of that letter gets written. Clicking the F line in D
+      // major writes F#, and the signature is why no accidental is painted.
+      notes: [{ midi: applyKeyAlteration(midiFromStaffStep(staffStep), current.keyRoot) }],
     };
 
     // Which event this lands on. The element actually under the pointer wins
     // when there is one — it is the most precise answer available — and
     // otherwise the x resolves to a slot, so clicking the gap beside a note
     // still names that note rather than falling through to the end of the
-    // melody. A slot with no index is the empty tail of the last bar, which
-    // appends; note that is the END of the melody, not the caret's position,
-    // because the pointer is pointing at the end of the melody.
+    // melody. A slot with no index is the empty tail of the last bar — it
+    // writes at the rest that was clicked, filling in the ones before it, which
+    // is why it goes through insertAtFiller rather than a plain append to the
+    // end of the melody.
     const slot = hit ? { index: Number(hit.getAttribute("data-event-index")) } : slotAtX(svg, local.x);
     if (slot && slot.index != null) replaceEvent(slot.index, event);
-    else insertEvent(event, current.events.length);
+    else insertAtFiller(svg, slot, event);
   });
 
   // The pointer's live pitch preview — only meaningful in note-input mode, and
@@ -848,8 +930,13 @@ export function createMelodyEditor(host, melody, options = {}) {
     // and the state.noteInput comment above for why browsing must not.
     if (state.noteInput && LETTER_SEMITONE[key] != null) {
       e.preventDefault();
-      const midi = midiForLetterNear(key, referenceMidi());
-      if (midi == null) return;
+      // The nearest octave is found from the natural, then bent into the key:
+      // typing F in D major writes F#, the same note clicking the F line
+      // writes. Both input paths go through applyKeyAlteration so they cannot
+      // disagree about what a letter means.
+      const natural = midiForLetterNear(key, referenceMidi());
+      if (natural == null) return;
+      const midi = applyKeyAlteration(natural, current.keyRoot);
       insertEvent({ den: state.den, dots: state.dots, rest: false, notes: [{ midi }] });
       // Hearing the note as it is entered is what makes typing a melody
       // possible without constantly replaying from the top.

@@ -194,7 +194,26 @@ export default async function run({ browser, origin, t }) {
         crossHeads: [...svg.querySelectorAll("text")].filter((n) =>
           (n.textContent || "").includes("")
         ).length,
-        accidentals: svg.querySelectorAll(".vf-accidental").length,
+        // Accidentals, counted by SMuFL CODEPOINT rather than by a
+        // `.vf-accidental` class. There is no such class: VexFlow 5 paints an
+        // accidental as a <text> inside the note's own group, so the selector
+        // that used to stand here matched nothing and always returned 0 — the
+        // drums "no accidentals on a kit" check below was passing vacuously,
+        // and so would every key-signature check written the same way.
+        // U+E260 flat, U+E261 natural, U+E262 sharp.
+        ...(() => {
+          const ACC = new Set(["", "", ""]);
+          const accs = [...svg.querySelectorAll("text")].filter((n) =>
+            ACC.has((n.textContent || "").trim())
+          );
+          return {
+            // The sharps or flats at the head of the staff.
+            keySigAccidentals: accs.filter((n) => n.closest(".vf-keysignature")).length,
+            // The ones attached to individual notes — what a key signature is
+            // supposed to make unnecessary.
+            accidentals: accs.filter((n) => !n.closest(".vf-keysignature")).length,
+          };
+        })(),
         paintedCount: painted.length,
         notOverridden,
         hasGeometry:
@@ -391,10 +410,67 @@ export default async function run({ browser, origin, t }) {
       r.accidentals === 0,
       `${r.accidentals} accidentals drawn`
     );
+    // Nor a key signature. A drum "pitch" is a GM voice number, so a flat at
+    // the head of the staff would be claiming a kick drum can be flattened.
+    t.ok(
+      "drums-beat: no key signature on a kit",
+      r.keySigAccidentals === 0,
+      `${r.keySigAccidentals} signature accidentals on a drum staff`
+    );
   }
   {
     const r = expectCase("drums-empty");
     t.ok("drums-empty: an empty beat still draws a staff", !r.placeholder && r.stamped === 0);
+  }
+
+  // ---- Key signatures ----
+  //
+  // The claim is not "a signature is drawn" on its own — that would pass on a
+  // score that ALSO restated every accidental, which is the bug a signature
+  // exists to prevent. Each case therefore pins both halves: the glyphs at the
+  // head of the staff, and the note accidentals those glyphs make unnecessary.
+  {
+    const d = expectCase("key-d-major");
+    t.ok(
+      "key-d-major: two sharps at the head of the staff",
+      d.keySigAccidentals === 2,
+      `${d.keySigAccidentals} signature accidentals, expected 2`
+    );
+    // F#4 and C#5 are in the signature; the two G#4s are not. The second G#
+    // must not restate it — an accidental holds for the rest of its bar, and
+    // all four notes here are one 4/4 bar.
+    t.ok(
+      "key-d-major: only the chromatic note takes an accidental, and only once",
+      d.accidentals === 1,
+      `${d.accidentals} note accidentals, expected 1 (the first G#)`
+    );
+  }
+  {
+    const e = expectCase("key-eb-major");
+    t.ok(
+      "key-eb-major: three flats at the head of the staff",
+      e.keySigAccidentals === 3,
+      `${e.keySigAccidentals} signature accidentals, expected 3`
+    );
+    t.ok(
+      "key-eb-major: notes the signature already flattens carry no accidental",
+      e.accidentals === 0,
+      `${e.accidentals} note accidentals, expected 0`
+    );
+    // The control. Same four pitches, no signature: now every alteration has to
+    // be spelled out on the note. Without this the pair above could both be
+    // satisfied by a renderer that had simply stopped drawing accidentals.
+    const c = expectCase("key-c-control");
+    t.ok(
+      "key-c-control: C major writes no signature",
+      c.keySigAccidentals === 0,
+      `${c.keySigAccidentals} signature accidentals in C major`
+    );
+    t.ok(
+      "key-c-control: the same pitches need three accidentals without one",
+      c.accidentals === 3,
+      `${c.accidentals} note accidentals, expected 3 (Eb, Ab, Bb; C is natural)`
+    );
   }
 
   // The degraded path must still BE a path: this is the only case that reaches
