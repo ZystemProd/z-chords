@@ -3200,11 +3200,25 @@ function openPdfPreviewModal(opts) {
   if (ctl) ctl.open(opts);
 }
 
+// "subtitle - title.pdf" (i.e. "artist - song name"), matching songFileName's
+// fallback-and-sanitize approach so a download never fails for want of a name.
+function pdfFileName() {
+  const title = songTitleEl ? songTitleEl.value.trim() : "";
+  const subtitle = songSubtitleEl ? songSubtitleEl.value.trim() : "";
+  const name = [subtitle, title].filter(Boolean).join(" - ");
+  const safe = name
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return `${safe || "chords"}.pdf`;
+}
+
 // The auto-flow export: capture the board once, then slice it into pages.
 function openBoardPdfPreview() {
   openPdfPreviewModal({
     scaleKey: "cv-pdf-scale",
-    fileName: "chords.pdf",
+    fileName: pdfFileName(),
     prepare: async () => {
       const headings = pdfHeadings();
       const captures = await capturePdfSections();

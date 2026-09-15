@@ -209,6 +209,48 @@ export function decomposeTicks(ticks) {
 //   event, eventIndex, den, dots, startTicks, ticks, tiedFrom, tiedTo
 // }]. Rests carry the same shape for bookkeeping, but are never tied in
 // notation — melody-render.js simply does not draw a tie curve for them.
+//
+// The final bar is padded out to its capacity with FILLER rests — the ones a
+// score always shows for the part of a measure nothing has been written into
+// yet, so an empty 4/4 bar reads as a whole rest rather than as blank paper.
+// They carry `filler: true` and `eventIndex: null`, and are **not** events:
+// `melody.events` is untouched, nothing is persisted, and the editor refuses to
+// stamp `data-event-index` on them, so a filler can never be selected, tied,
+// deleted or played. Anything totalling ticks over `bar.items` must skip them
+// — they are the one thing in a bar that does not come from an event.
+const FILLER_EVENT = Object.freeze({ rest: true, notes: [] });
+
+// Which rests fill `capacity - from` ticks, written the way a copyist would.
+// Not decomposeTicks: that finds the SHORTEST list, which is the right answer
+// for splitting one note across a barline and the wrong one here. A rest must
+// also START on a boundary its own duration divides, or it obscures where the
+// beat is — after one quarter in 4/4 the remaining 48 ticks are a quarter rest
+// then a half rest, never the single dotted-half rest that "shortest" gives.
+//
+// An untouched bar is the exception: a full measure of silence is written as
+// one whole rest in every time signature, 3/4 and 6/8 included, which is why
+// the ticks below can exceed a single whole note's own duration.
+function fillerRests(from, capacity) {
+  const out = [];
+  if (from <= 0) return capacity > 0 ? [{ den: 1, dots: 0, ticks: capacity }] : out;
+  let pos = from;
+  while (pos < capacity) {
+    const fit = DURATION_VALUES.find(
+      (d) => d.ticks <= capacity - pos && pos % d.ticks === 0
+    );
+    // No aligned duration fits — only reachable from an off-grid remainder that
+    // no rest can express cleanly. Spend the rest of the bar in one go rather
+    // than spinning: the alternative is an infinite loop.
+    if (!fit) {
+      decomposeTicks(capacity - pos).forEach((d) => out.push(d));
+      break;
+    }
+    out.push(fit);
+    pos += fit.ticks;
+  }
+  return out;
+}
+
 export function layoutBars(melody) {
   // A degenerate time signature (num <= 0, or a den that divides out to <= 0
   // ticks) would give every bar zero room, and a while-loop walking ticks
@@ -258,6 +300,25 @@ export function layoutBars(melody) {
       isFirstPieceOfEvent = false;
     }
   });
+
+  // Only the last bar can be short: every earlier one was closed by the note
+  // that overflowed it. A bar that filled exactly needs nothing.
+  if (cursor < capacity) {
+    fillerRests(cursor, capacity).forEach((part) => {
+      bar.items.push({
+        event: FILLER_EVENT,
+        eventIndex: null,
+        den: part.den,
+        dots: part.dots,
+        startTicks: cursor,
+        ticks: part.ticks,
+        tiedFrom: false,
+        tiedTo: false,
+        filler: true,
+      });
+      cursor += part.ticks;
+    });
+  }
 
   return bars;
 }

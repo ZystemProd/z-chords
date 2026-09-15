@@ -176,7 +176,13 @@ export default async function run({ browser, origin, t }) {
         // Distinct event indices, i.e. how many of OUR events made it through.
         events: new Set(stamped.map((n) => n.getAttribute("data-event-index"))).size,
         notes: svg.querySelectorAll(".ms-note").length,
-        rests: svg.querySelectorAll(".ms-rest").length,
+        rests: svg.querySelectorAll(".ms-rest:not(.ms-rest-filler)").length,
+        fillers: svg.querySelectorAll(".ms-rest-filler").length,
+        // A filler pads the empty tail of the last bar and belongs to no event.
+        // It must carry no index: `data-event-index` is what the editor
+        // hit-tests, and an index here would let a click select a rest that is
+        // not in melody.events at all.
+        fillersIndexed: svg.querySelectorAll(".ms-rest-filler[data-event-index]").length,
         beams: svg.querySelectorAll(".ms-beam").length,
         ties: svg.querySelectorAll(".ms-tie").length,
         // 5.x draws every glyph as <text> at a SMuFL codepoint, so a bare
@@ -260,6 +266,11 @@ export default async function run({ browser, origin, t }) {
     const r = expectCase(label);
     t.ok(`${label}: publishes stave geometry for click→pitch`, !!r.hasGeometry);
     t.ok(`${label}: a staff step is half the line gap`, r.stepPx === 5, `${r.stepPx}`);
+    t.ok(
+      `${label}: filler rests are not addressable as events`,
+      r.fillersIndexed === 0,
+      `${r.fillersIndexed} filler rests carry a data-event-index`
+    );
   }
 
   // 9 events, one of which crosses a barline and is drawn as two tied pieces:
@@ -269,6 +280,14 @@ export default async function run({ browser, origin, t }) {
     const r = expectCase("treble-basic");
     t.ok("treble-basic: every event is addressable", r.events === 9, `${r.events} distinct indices`);
     t.ok("treble-basic: a rest is drawn as a rest", r.rests === 1, `${r.rests}`);
+    // The fixture's last bar is not full, so the empty remainder is drawn as
+    // rests — the thing a reader expects to see and blank paper is not. They
+    // are counted apart from the one rest the melody actually contains.
+    t.ok(
+      "treble-basic: the unwritten end of the last bar is drawn as rests",
+      r.fillers >= 1,
+      `${r.fillers} filler rests`
+    );
     t.ok(
       "treble-basic: consecutive 8ths are beamed",
       r.beams >= 1,

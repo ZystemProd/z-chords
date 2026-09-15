@@ -2986,6 +2986,20 @@ body.light-mode .metronome-led {
   fill: var(--bg);
 }
 
+/* The rests that pad the last bar out to its time signature. On paper they are
+   ordinary rests and print at full strength; in the editor they are dimmed,
+   because they are the one thing on the staff that cannot be clicked — they
+   belong to no event, and a click passes straight through them to write a note.
+   Drawn dim, "the rest of this bar is empty" reads as an invitation rather than
+   as content that refuses to select. */
+.ms-rest-filler {
+  opacity: 0.42;
+}
+
+.pdf-capture .ms-rest-filler {
+  opacity: 1;
+}
+
 /* The selected note. Uses the accent colour rather than a ring so it reads at
    notation scale, where a 6px notehead has no room for an outline. Set on the
    group VexFlow paints, so it reaches the notehead, stem and flag together. */
@@ -3022,6 +3036,15 @@ body.light-mode .metronome-led {
   fill: var(--button-bg);
   opacity: 0.14;
   pointer-events: none;
+}
+
+/* The note the pointer is about to write over. The band alone cannot say this:
+   it looks identical whether the slot under it is empty or holds a note, and
+   only one of those two clicks destroys something. Faded rather than tinted,
+   because "this is on its way out" is what is being shown, and because a tint
+   would collide with .ms-selected, which is already the accent colour. */
+.ms-replace-target {
+  opacity: 0.3;
 }
 
 /* The crosshair is the only affordance that a staff click currently writes a

@@ -147,10 +147,6 @@ function staffStepFromLocal(svg, local) {
   return Math.round(refBottom + (bottomY - local.y) / stepPx);
 }
 
-function staffStepFromEvent(svg, event) {
-  return staffStepFromLocal(svg, svgLocalPoint(svg, event));
-}
-
 // Which ledger-line offsets (relative to the stave's bottom line, in the same
 // units as staffStep) a note at `offset` needs. Offsets 0..TOP_STEP_OFFSET are
 // the five lines themselves; a note one step outside that range sits in open
@@ -198,6 +194,10 @@ export function createMelodyEditor(host, melody, options = {}) {
     // write notes while this is on — the same split notation software makes so
     // that browsing a melody cannot accidentally add to it.
     noteInput: false,
+    // The pointer's last position over the staff, in the SVG's own user space,
+    // or null when it is elsewhere. A coordinate rather than a resolved slot
+    // on purpose — see activeSlot().
+    hoverX: null,
   };
   const onScaleChange = options.onScaleChange || (() => {});
   // Checked once per editor rather than per button: the font either arrived
@@ -218,10 +218,11 @@ export function createMelodyEditor(host, melody, options = {}) {
   staffHost.setAttribute(
     "aria-label",
     "Melody staff. Type A to G to add notes, R for a rest, 1 to 5 for the note value, " +
-      "full stop to dot it. Click the staff to add a note at that pitch, click a note to " +
-      "select it, arrow keys to move and transpose. T ties the selected note to the next " +
-      "one, when they share a pitch. N toggles note input mode, which is what lets the " +
-      "keyboard and staff clicks write notes rather than just navigate."
+      "full stop to dot it. Arrow keys move and transpose. T ties the selected note to " +
+      "the next one, when they share a pitch. N toggles note input mode, which is what " +
+      "lets the keyboard and staff clicks write notes rather than just navigate. With it " +
+      "off, clicking a note selects it. With it on, clicking a note replaces it at the " +
+      "pitch clicked, and clicking the empty end of the last bar adds a note there."
   );
 
   if (showControls) root.appendChild(controls);
@@ -315,23 +316,83 @@ export function createMelodyEditor(host, melody, options = {}) {
     svg.appendChild(g);
   }
 
-  // The translucent band marking where the NEXT typed or clicked note will
-  // land — separate from the mouse ghost, because it answers "where does the
-  // keyboard write" rather than "what does the pointer point at", and the two
-  // agree only when the mouse happens to be sitting over the caret.
+  // ---- Input slots ----
   //
-  // `insertAt` is exactly the index `insertEvent` will splice into: the event
-  // there (if any) is what a new note would push right, so highlighting its
-  // own painted position is the right target; past the last event there is
-  // nothing to anchor to, so the band sits just after the previous note, or
-  // — on an empty melody — approximately where the first note will land, just
-  // past the clef and time signature.
-  // Where the NEXT note actually lands: the horizontal slot next to whatever
-  // is at the caret. This is what a click writes into regardless of the
-  // mouse's x position — insertion is caret-based, not click-x-based — so it
-  // is the single source of truth for both the insertion-cursor rectangle and
-  // the ghost notehead's x, which is what makes the ghost "snap" horizontally
-  // to the nearest already-written note instead of floating with the pointer.
+  // A slot is a place a note can be written. There are two kinds, and which one
+  // the pointer is over is the whole of "where does this click go":
+  //
+  //   - `index` is a number — an event already on the staff. Writing there
+  //     REPLACES it, pitch from the click and duration from the palette, which
+  //     is what note input does in MuseScore: the palette is always what you
+  //     are writing with, so re-entering a note can change its rhythm too.
+  //   - `index` is null — the empty tail of the last bar (the filler rests).
+  //     Writing there appends to the end of the melody.
+  //
+  // Slots are read back off the PAINTED score rather than computed from the
+  // model, because only the renderer knows where anything actually landed. Two
+  // consequences fall out of that and are both wanted: an event split across a
+  // barline paints twice and so gets two slots naming one event (clicking
+  // either fragment replaces the whole note), and a grand staff paints one
+  // event on one of its two staves, so the slot is wherever it really is.
+  function slotsFor(svg) {
+    const stepPx = Number(svg.getAttribute("data-step-px")) || 10;
+    const slots = [];
+    svg.querySelectorAll("[data-event-index]").forEach((node) => {
+      const bb = node.getBBox();
+      if (!(bb.width > 0)) return;
+      slots.push({
+        index: Number(node.getAttribute("data-event-index")),
+        x: bb.x - 3,
+        w: bb.width + 6,
+      });
+    });
+    slots.sort((a, b) => a.x - b.x);
+
+    // The append region: the filler rests, taken as one band rather than one
+    // slot each — they all mean the same thing, "past the end of the melody".
+    // Placing a note at a specific beat inside that emptiness would mean
+    // writing the rests before it as real events, which is a different feature.
+    const fillers = [...svg.querySelectorAll(".ms-rest-filler")]
+      .map((n) => n.getBBox())
+      .filter((b) => b.width > 0);
+    if (fillers.length) {
+      const left = Math.min(...fillers.map((b) => b.x)) - 3;
+      const right = Math.max(...fillers.map((b) => b.x + b.width)) + 3;
+      slots.push({ index: null, x: left, w: right - left });
+    } else if (slots.length) {
+      const last = slots[slots.length - 1];
+      slots.push({ index: null, x: last.x + last.w + 2, w: stepPx * 3.5 });
+    } else {
+      // Past the clef and time signature, on an otherwise empty stave.
+      slots.push({ index: null, x: 72, w: stepPx * 3.5 });
+    }
+    return slots;
+  }
+
+  // Which slot a pointer at user-space `x` is addressing: the one it is inside,
+  // else the nearest by centre. Containment first matters for the append band,
+  // which is wide — judging it by its centre alone would hand the left end of
+  // an empty bar to the last note instead.
+  function slotAtX(svg, x) {
+    const slots = slotsFor(svg);
+    if (!slots.length) return null;
+    const inside = slots.find((s) => x >= s.x && x <= s.x + s.w);
+    if (inside) return inside;
+    let best = slots[0];
+    let bestD = Infinity;
+    for (const s of slots) {
+      const d = Math.abs(x - (s.x + s.w / 2));
+      if (d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  // Where the KEYBOARD writes: the slot next to whatever is at the caret.
+  // Letters still insert after the caret rather than replacing — the pointer is
+  // what overwrites, because a click names a note and a keystroke does not.
   function insertionSlot(svg) {
     const stepPx = Number(svg.getAttribute("data-step-px")) || 10;
     const insertAt = state.caret == null ? current.events.length : state.caret + 1;
@@ -340,14 +401,29 @@ export function createMelodyEditor(host, melody, options = {}) {
 
     if (targetEl) {
       const bb = targetEl.getBBox();
-      return { x: bb.x - 4, w: bb.width + 8 };
+      return { index: null, x: bb.x - 4, w: bb.width + 8 };
     }
     if (prevEl) {
       const bb = prevEl.getBBox();
-      return { x: bb.x + bb.width + 2, w: stepPx * 3.5 };
+      return { index: null, x: bb.x + bb.width + 2, w: stepPx * 3.5 };
     }
-    // Past the clef and time signature, on an otherwise empty stave.
-    return { x: 72, w: stepPx * 3.5 };
+    return { index: null, x: 72, w: stepPx * 3.5 };
+  }
+
+  // The slot both cursors show. While the pointer is over the staff it wins —
+  // a click is about to happen there, and the band and the ghost must never
+  // point at different places. With the pointer away, it falls back to the
+  // caret, which is where the keyboard writes.
+  //
+  // `state.hoverX` is kept as a user-space COORDINATE, not as a resolved slot:
+  // every redraw builds a new SVG with new geometry, and a slot cached across
+  // one would be stale by exactly the amount the notes just moved.
+  function activeSlot(svg) {
+    if (state.noteInput && state.hoverX != null) {
+      const s = slotAtX(svg, state.hoverX);
+      if (s) return s;
+    }
+    return insertionSlot(svg);
   }
 
   function updateInsertCursor() {
@@ -355,6 +431,9 @@ export function createMelodyEditor(host, melody, options = {}) {
     if (!svg) return;
     const old = svg.querySelector(".ms-insert-cursor");
     if (old) old.remove();
+    svg
+      .querySelectorAll(".ms-replace-target")
+      .forEach((n) => n.classList.remove("ms-replace-target"));
     if (!state.noteInput) return;
 
     const bottomY = Number(svg.getAttribute("data-stave-bottom-y"));
@@ -363,18 +442,27 @@ export function createMelodyEditor(host, melody, options = {}) {
 
     const top = bottomY - (TOP_STEP_OFFSET + 2) * stepPx;
     const bottom = bottomY + 2 * stepPx;
-    const { x, w } = insertionSlot(svg);
+    const slot = activeSlot(svg);
 
     const rect = document.createElementNS(SVG_NS, "rect");
     rect.setAttribute("class", "ms-insert-cursor");
-    rect.setAttribute("x", String(x));
+    rect.setAttribute("x", String(slot.x));
     rect.setAttribute("y", String(top));
-    rect.setAttribute("width", String(Math.max(w, 4)));
+    rect.setAttribute("width", String(Math.max(slot.w, 4)));
     rect.setAttribute("height", String(bottom - top));
     rect.setAttribute("aria-hidden", "true");
     // Behind the notation (SVG paints in document order), so it reads as a
     // highlighted slot rather than a box drawn over the notes.
     svg.insertBefore(rect, svg.firstChild);
+
+    // The note about to be overwritten is marked, because the band alone does
+    // not distinguish "a note goes here" from "this note is replaced" — and
+    // replacing is the destructive one.
+    if (slot.index != null) {
+      svg
+        .querySelectorAll(`[data-event-index="${slot.index}"]`)
+        .forEach((n) => n.classList.add("ms-replace-target"));
+    }
   }
 
   function updateCaretVisuals() {
@@ -401,15 +489,32 @@ export function createMelodyEditor(host, melody, options = {}) {
     if (state.noteInput === v) return;
     state.noteInput = v;
     staffHost.classList.toggle("ms-note-input-active", v);
-    if (!v) clearGhost();
+    if (!v) {
+      state.hoverX = null;
+      clearGhost();
+    }
     drawControls();
     updateInsertCursor();
   }
 
-  function insertEvent(event) {
-    const at = state.caret == null ? current.events.length : state.caret + 1;
-    current.events.splice(at, 0, event);
-    state.caret = at;
+  function insertEvent(event, at = null) {
+    const index = at != null ? at : state.caret == null ? current.events.length : state.caret + 1;
+    current.events.splice(index, 0, event);
+    state.caret = index;
+    commit();
+    drawStaff();
+  }
+
+  // Writing over an event that is already there — what a click does in
+  // note-input mode. A full replace, not a re-pitch: the palette's duration and
+  // dots come with it, the way note input works in MuseScore, so correcting a
+  // note can fix its rhythm as well as its pitch. Nothing of the old event
+  // survives; a tie it carried, or one pointing at it, is dropped by the
+  // pruneInvalidTies pass every commit runs.
+  function replaceEvent(index, event) {
+    if (!current.events[index]) return;
+    current.events[index] = event;
+    state.caret = index;
     commit();
     drawStaff();
   }
@@ -638,51 +743,72 @@ export function createMelodyEditor(host, melody, options = {}) {
     if (!svg) return;
 
     const hit = e.target.closest && e.target.closest("[data-event-index]");
-    if (hit) {
-      state.caret = Number(hit.getAttribute("data-event-index"));
-      updateCaretVisuals();
+
+    // Outside note-input mode a click never writes: on a note it moves the
+    // caret, on open staff it does nothing but focus, the same as clicking
+    // blank space anywhere else in the app.
+    if (!state.noteInput) {
+      if (hit) {
+        state.caret = Number(hit.getAttribute("data-event-index"));
+        updateCaretVisuals();
+      }
       return;
     }
 
-    // A click on open staff only writes a note in note-input mode — otherwise
-    // it is just a way to focus the staff, the same as clicking blank space
-    // anywhere else in the app does nothing destructive.
-    if (!state.noteInput) return;
-
-    const staffStep = staffStepFromEvent(svg, e);
+    const local = svgLocalPoint(svg, e);
+    const staffStep = staffStepFromLocal(svg, local);
     if (staffStep == null) return;
-    insertEvent({
+    const event = {
       den: state.den,
       dots: state.dots,
       rest: false,
       notes: [{ midi: midiFromStaffStep(staffStep) }],
-    });
+    };
+
+    // Which event this lands on. The element actually under the pointer wins
+    // when there is one — it is the most precise answer available — and
+    // otherwise the x resolves to a slot, so clicking the gap beside a note
+    // still names that note rather than falling through to the end of the
+    // melody. A slot with no index is the empty tail of the last bar, which
+    // appends; note that is the END of the melody, not the caret's position,
+    // because the pointer is pointing at the end of the melody.
+    const slot = hit ? { index: Number(hit.getAttribute("data-event-index")) } : slotAtX(svg, local.x);
+    if (slot && slot.index != null) replaceEvent(slot.index, event);
+    else insertEvent(event, current.events.length);
   });
 
-  // The pointer's live pitch preview — only meaningful in note-input mode,
-  // and only while the pointer is actually over the staff. The pitch (y)
-  // tracks the mouse and snaps to the nearest staff line/space; the horizontal
-  // position does NOT follow the mouse at all — insertion is caret-based, not
-  // click-x-based (a click's x was never used to decide WHERE in the sequence
-  // a note goes, only its y decided the pitch), so the ghost's x snaps to the
-  // actual insertion slot next to the nearest already-written note. Anything
-  // else would show the preview in a place a click could never actually write.
+  // The pointer's live pitch preview — only meaningful in note-input mode, and
+  // only while the pointer is actually over the staff. Both axes SNAP, and
+  // neither follows the raw pixel: the pitch (y) locks to the nearest staff
+  // line or space, and the x locks to the slot under the pointer — an existing
+  // note, or the empty tail of the last bar. Snapping to slots rather than
+  // floating is what keeps the preview honest, since those are the only places
+  // a click can actually write; it tracks the pointer horizontally because a
+  // click's x now decides WHICH note it writes over.
   staffHost.addEventListener("mousemove", (e) => {
     const svg = staffHost.querySelector("svg");
     if (!state.noteInput || !svg) {
+      state.hoverX = null;
       clearGhost();
       return;
     }
     const local = svgLocalPoint(svg, e);
     const staffStep = staffStepFromLocal(svg, local);
     if (staffStep == null) {
+      state.hoverX = null;
       clearGhost();
       return;
     }
-    const { x, w } = insertionSlot(svg);
-    drawGhost(svg, x + w / 2, staffStep);
+    state.hoverX = local.x;
+    const slot = activeSlot(svg);
+    updateInsertCursor();
+    drawGhost(svg, slot.x + slot.w / 2, staffStep);
   });
-  staffHost.addEventListener("mouseleave", clearGhost);
+  staffHost.addEventListener("mouseleave", () => {
+    state.hoverX = null;
+    clearGhost();
+    updateInsertCursor();
+  });
 
   // The pitch a letter-entered note should be measured against: the note at the
   // caret if there is one, else the last note written, else the middle of the

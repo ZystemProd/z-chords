@@ -124,7 +124,19 @@ export default async function run({ browser, origin, t }) {
       // A staff click only writes a note in note-input mode.
       document.querySelector('.melody-editor-controls button[title^="Note input"]').click();
       const svg = document.querySelector(".melody-editor-staff svg");
-      const bottomY = Number(svg.getAttribute("data-stave-bottom-y"));
+      // The PAINTED bottom line, not `data-stave-bottom-y`. Clicking at the
+      // published attribute and asserting the pitch it was derived from proves
+      // only that the code agrees with itself: VexFlow's `getBottomLineY()` is
+      // really `getYForLine(numLines)`, one line gap BELOW the bottom line, and
+      // this check passed all the way through that bug while every click on the
+      // staff wrote a note two diatonic steps too high. Anchor on the ink: the
+      // five stave lines are the wide, zero-height paths.
+      const staveLines = [...svg.querySelectorAll("path")]
+        .map((el) => el.getBBox())
+        .filter((b) => b.height < 2 && b.width > 100)
+        .map((b) => b.y)
+        .sort((a, b) => a - b);
+      const bottomY = staveLines[staveLines.length - 1];
       const pt = svg.createSVGPoint();
       // Far to the right of the existing notes, so it lands on empty staff.
       // From the viewBox, not the width attribute: the editor zooms by scaling
@@ -137,11 +149,23 @@ export default async function run({ browser, origin, t }) {
       svg.dispatchEvent(
         new MouseEvent("click", { bubbles: true, clientX: screen.x, clientY: screen.y })
       );
-      return { x: screen.x, y: screen.y };
+      return {
+        x: screen.x,
+        y: screen.y,
+        paintedBottomY: bottomY,
+        publishedBottomY: Number(svg.getAttribute("data-stave-bottom-y")),
+        stepPx: Number(svg.getAttribute("data-step-px")),
+      };
     });
     await new Promise((r) => setTimeout(r, 150));
     const after = await read(page);
     const added = after.events[after.events.length - 1];
+    t.ok(
+      "the published stave bottom is the painted bottom line",
+      Math.abs(clicked.publishedBottomY - clicked.paintedBottomY) <= 1,
+      `published ${clicked.publishedBottomY}, painted ${clicked.paintedBottomY} ` +
+        `(${(clicked.paintedBottomY - clicked.publishedBottomY) / clicked.stepPx} diatonic steps off)`
+    );
     t.ok("clicking empty staff adds an event", after.events.length === 3, `${after.events.length}`);
     t.ok(
       "the added note is the pitch that was clicked (bottom line = E4)",

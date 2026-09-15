@@ -520,7 +520,16 @@ function renderScore(melody, { showTab, scale = 1 }) {
   // getScreenCTM inverse expects — so they stay correct even when the viewBox
   // above was shifted to take in ink above y=0.
   if (firstStave) {
-    svg.setAttribute("data-stave-bottom-y", String(firstStave.getBottomLineY()));
+    // NOT `getBottomLineY()`. Despite the name, VexFlow's is `getYForLine(numLines)`
+    // — line index 5 on a five-line stave, whose lines are 0..4 — so it reports the
+    // y one full line gap BELOW the bottom line. Publishing that shifted the whole
+    // click→pitch inverse down by one line, i.e. two diatonic steps: clicking the
+    // bottom line (E4) wrote a G4. The ghost notehead used the same number, so the
+    // preview agreed with the click and disagreed with the staff. Ask for the last
+    // real line by index instead.
+    const lineCount =
+      typeof firstStave.getNumLines === "function" ? firstStave.getNumLines() : 5;
+    svg.setAttribute("data-stave-bottom-y", String(firstStave.getYForLine(lineCount - 1)));
     svg.setAttribute("data-stave-ref-bottom", String(CLEF_REF[staveKeys[0]].bottom));
     svg.setAttribute("data-step-px", String(firstStave.getSpacingBetweenLines() / 2));
   }
@@ -699,9 +708,18 @@ function drawBar({ VF, ctx, bar, staves, staveKeys, tabStave, melody, width, dra
   drawn.forEach(({ item, note, rest }) => {
     const node = elementOf(note);
     if (!node) return;
-    node.setAttribute("data-event-index", String(item.eventIndex));
     // A rest is a StaveNote to VexFlow and carries the same vf-notehead class
     // as a pitched note, so there is otherwise no way to tell them apart.
     node.classList.add(rest ? "ms-rest" : "ms-note");
+    // A filler rest is the empty remainder of the last bar, not an event — it
+    // has no index to stamp, and deliberately gets none: `data-event-index` is
+    // what the editor hit-tests against, so leaving it off is exactly what
+    // makes a click on the blank end of a bar write a note there instead of
+    // selecting a rest that does not exist in `melody.events`.
+    if (item.filler) {
+      node.classList.add("ms-rest-filler");
+      return;
+    }
+    node.setAttribute("data-event-index", String(item.eventIndex));
   });
 }

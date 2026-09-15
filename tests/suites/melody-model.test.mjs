@@ -144,8 +144,11 @@ export default async function run({ t }) {
       ],
     });
     const bars = layoutBars(melody);
+    // Filler rests are excluded: they pad the last bar out to its time
+    // signature and belong to no event, so they are exactly the ticks
+    // totalTicks() does not count. Everything else must survive the split.
     const total = bars.reduce(
-      (s, b) => s + b.items.reduce((s2, i) => s2 + i.ticks, 0),
+      (s, b) => s + b.items.filter((i) => !i.filler).reduce((s2, i) => s2 + i.ticks, 0),
       0
     );
     t.ok(
@@ -153,6 +156,126 @@ export default async function run({ t }) {
       total === totalTicks(melody),
       `${total} vs ${totalTicks(melody)}`
     );
+  }
+
+  // --- filler rests: the empty remainder of the last bar ---
+  //
+  // A score shows the part of a measure nothing has been written into yet, so
+  // an untouched 4/4 bar reads as a whole rest rather than as blank paper. The
+  // two things that must hold, and that are easy to get wrong in opposite
+  // directions: the fill must complete the bar EXACTLY (short or over and the
+  // bar's own arithmetic is a lie), and it must not become content — nothing
+  // may end up in melody.events, and the items must be flagged so anything
+  // totalling real ticks can skip them.
+  {
+    const empty = createMelody({ timeSig: { num: 4, den: 4 }, events: [] });
+    const bars = layoutBars(empty);
+    t.ok("an empty melody still has one bar", bars.length === 1, `${bars.length}`);
+    t.ok(
+      "an untouched 4/4 bar is a single whole rest",
+      bars[0].items.length === 1 &&
+        bars[0].items[0].filler === true &&
+        bars[0].items[0].den === 1 &&
+        bars[0].items[0].dots === 0,
+      JSON.stringify(bars[0].items)
+    );
+    t.ok(
+      "the filler carries no event index",
+      bars[0].items[0].eventIndex === null,
+      `${bars[0].items[0].eventIndex}`
+    );
+    t.ok("layoutBars does not write events", empty.events.length === 0, `${empty.events.length}`);
+  }
+
+  // A whole rest is the full-measure convention in EVERY meter, not just 4/4 —
+  // which is why a filler's ticks can exceed a whole note's own duration.
+  {
+    const bars = layoutBars(createMelody({ timeSig: { num: 3, den: 4 }, events: [] }));
+    const fill = bars[0].items;
+    t.ok(
+      "an untouched 3/4 bar is one whole rest spanning the measure",
+      fill.length === 1 && fill[0].den === 1 && fill[0].ticks === bars[0].capacityTicks,
+      JSON.stringify(fill)
+    );
+  }
+
+  // One quarter written into 4/4. The remainder is 48 ticks, and the copyist's
+  // answer is a quarter rest then a half rest — NOT the single dotted-half rest
+  // that a shortest-decomposition would give, because a rest has to start on a
+  // boundary its own duration divides or it hides where the beat is.
+  {
+    const melody = createMelody({
+      timeSig: { num: 4, den: 4 },
+      events: [{ den: 4, dots: 0, notes: [{ midi: 60 }] }],
+    });
+    const bar = layoutBars(melody)[0];
+    const fill = bar.items.filter((i) => i.filler);
+    t.ok(
+      "the written quarter is not a filler",
+      bar.items.filter((i) => !i.filler).length === 1,
+      JSON.stringify(bar.items.map((i) => [i.den, i.dots, !!i.filler]))
+    );
+    t.ok(
+      "the rest of the bar is a quarter rest then a half rest",
+      fill.length === 2 &&
+        fill[0].den === 4 &&
+        fill[0].dots === 0 &&
+        fill[1].den === 2 &&
+        fill[1].dots === 0,
+      JSON.stringify(fill.map((i) => [i.den, i.dots]))
+    );
+    t.ok(
+      "the fill completes the bar exactly",
+      bar.items.reduce((s, i) => s + i.ticks, 0) === bar.capacityTicks,
+      `${bar.items.reduce((s, i) => s + i.ticks, 0)}/${bar.capacityTicks}`
+    );
+  }
+
+  // Every partial bar, across a sweep of meters and remainders: the fill must
+  // land on exactly the capacity, and only the LAST bar may carry one — an
+  // earlier bar was closed by the note that overflowed it and is already full.
+  {
+    const meters = [
+      { num: 4, den: 4 },
+      { num: 3, den: 4 },
+      { num: 6, den: 8 },
+      { num: 5, den: 4 },
+      { num: 2, den: 2 },
+    ];
+    let short = [];
+    let misplaced = 0;
+    let cases = 0;
+    for (const timeSig of meters) {
+      for (const den of [1, 2, 4, 8, 16]) {
+        for (const dots of [0, 1, 2]) {
+          for (const count of [1, 2, 3, 5]) {
+            cases += 1;
+            const melody = createMelody({
+              timeSig,
+              events: Array.from({ length: count }, () => ({
+                den,
+                dots,
+                notes: [{ midi: 60 }],
+              })),
+            });
+            const bars = layoutBars(melody);
+            bars.forEach((bar, i) => {
+              const used = bar.items.reduce((s, it) => s + it.ticks, 0);
+              if (bar.items.some((it) => it.filler) && i !== bars.length - 1) misplaced += 1;
+              if (used !== bar.capacityTicks && short.length < 5) {
+                short.push(
+                  `${timeSig.num}/${timeSig.den} ${count}x(den ${den}, ${dots} dots) ` +
+                    `bar ${i}: ${used}/${bar.capacityTicks}`
+                );
+              }
+            });
+          }
+        }
+      }
+    }
+    t.ok("filler sweep covered every meter", cases === meters.length * 5 * 3 * 4, `${cases}`);
+    t.ok("only the last bar is ever padded", misplaced === 0, `${misplaced} earlier bars padded`);
+    t.ok("every bar comes out exactly full", short.length === 0, short.join("; "));
   }
 
   // --- normalize is total ---
