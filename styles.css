@@ -2683,6 +2683,16 @@ body.light-mode .metronome-led {
   color: #999;
 }
 
+/* The song title/subtitle, printed on page one exactly where the export puts
+   them. Dark-on-light like .lb-body: this sits on the simulated paper, not
+   the app chrome, so it stays readable in dark mode too. */
+.layout-heading-line {
+  position: absolute;
+  color: #111;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .layout-flow {
   position: relative;
   z-index: 1;
@@ -2711,8 +2721,12 @@ body.light-mode .metronome-led {
 /* Editor chrome. Everything in here is stripped before export, and every
    control carries .no-drag so a press never starts a Sortable drag. */
 .lb-chrome {
+  /* Sits entirely above the block's own box (bottom: 100%, not a small
+     negative top) so it never overlaps the first line of content — the
+     block's own height/position is untouched, since this is absolute. */
   position: absolute;
-  top: -9px;
+  bottom: 100%;
+  margin-bottom: 2px;
   left: 0;
   right: 0;
   display: none;

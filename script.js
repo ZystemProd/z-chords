@@ -319,17 +319,13 @@ function activeSectionKey(inst) {
   return `cv-active-section-${inst}`;
 }
 
-// The song's title and subtitle belong to the board, not to the app: the piano
-// and guitar tabs hold separate songs, so they hold separate titles too. They
-// live in their own keys rather than inside the sections JSON, which is an
-// array of sections with nowhere to put them.
-function titleKey(inst) {
-  return `cv-title-${inst}`;
-}
-
-function subtitleKey(inst) {
-  return `cv-subtitle-${inst}`;
-}
+// The song's title and subtitle are global: one song, shown the same way
+// whichever tab you're looking at it from. They live in their own keys
+// rather than inside the sections JSON, which is an array of sections with
+// nowhere to put them, and unlike the sections themselves they are NOT
+// per-instrument — switching instrument must not swap them out.
+const TITLE_KEY = "cv-title";
+const SUBTITLE_KEY = "cv-subtitle";
 
 // Melodies are board content, like sections: written on the instrument's own
 // melody sub-tab, referenced by the layout sheet, and carried into song files
@@ -362,23 +358,21 @@ function writeMelodies(inst, list) {
 }
 
 function saveSongMeta() {
-  const inst = boardInstrument();
   try {
-    localStorage.setItem(titleKey(inst), songTitleEl ? songTitleEl.value : "");
+    localStorage.setItem(TITLE_KEY, songTitleEl ? songTitleEl.value : "");
     localStorage.setItem(
-      subtitleKey(inst),
+      SUBTITLE_KEY,
       songSubtitleEl ? songSubtitleEl.value : ""
     );
   } catch (_) {}
 }
 
 function loadSongMeta() {
-  const inst = boardInstrument();
   let title = "";
   let subtitle = "";
   try {
-    title = localStorage.getItem(titleKey(inst)) || "";
-    subtitle = localStorage.getItem(subtitleKey(inst)) || "";
+    title = localStorage.getItem(TITLE_KEY) || "";
+    subtitle = localStorage.getItem(SUBTITLE_KEY) || "";
   } catch (_) {}
   if (songTitleEl) songTitleEl.value = title;
   if (songSubtitleEl) songSubtitleEl.value = subtitle;
@@ -404,6 +398,38 @@ function migrateSharedSections() {
     });
     localStorage.removeItem("cv-sections");
     localStorage.removeItem("cv-active-section");
+  } catch (_) {}
+}
+
+// Title/subtitle were per-instrument before they went global — piano and
+// guitar each had their own. Seed the global key from whichever had
+// something (piano first), then drop the old ones so this runs once.
+function migratePerInstrumentTitle() {
+  try {
+    const hadLegacy =
+      localStorage.getItem("cv-title-piano") !== null ||
+      localStorage.getItem("cv-title-guitar") !== null ||
+      localStorage.getItem("cv-subtitle-piano") !== null ||
+      localStorage.getItem("cv-subtitle-guitar") !== null;
+    if (!hadLegacy) return;
+    if (localStorage.getItem(TITLE_KEY) === null) {
+      const title =
+        localStorage.getItem("cv-title-piano") ||
+        localStorage.getItem("cv-title-guitar") ||
+        "";
+      localStorage.setItem(TITLE_KEY, title);
+    }
+    if (localStorage.getItem(SUBTITLE_KEY) === null) {
+      const subtitle =
+        localStorage.getItem("cv-subtitle-piano") ||
+        localStorage.getItem("cv-subtitle-guitar") ||
+        "";
+      localStorage.setItem(SUBTITLE_KEY, subtitle);
+    }
+    localStorage.removeItem("cv-title-piano");
+    localStorage.removeItem("cv-title-guitar");
+    localStorage.removeItem("cv-subtitle-piano");
+    localStorage.removeItem("cv-subtitle-guitar");
   } catch (_) {}
 }
 
@@ -473,6 +499,7 @@ function saveSections() {
 
 function loadSections() {
   migrateSharedSections();
+  migratePerInstrumentTitle();
   loadSongMeta();
   const inst = boardInstrument();
   let saved = null;
@@ -506,32 +533,30 @@ function loadSections() {
 // Song files
 //
 // A song is both boards at once: the piano tab and the guitar tab hold separate
-// chords, titles and transpose offsets, and a file that carried only the tab you
-// happened to be looking at would quietly lose the other half. So the file is
-// the whole app state that belongs to the song — every board, plus the capo
-// label, which is a property of the arrangement rather than of the view.
+// chords and transpose offsets, and a file that carried only the tab you
+// happened to be looking at would quietly lose the other half. Title and
+// subtitle are not part of that split — they're one song name, so the file
+// carries them once, at the top level, alongside the capo label (also a
+// property of the arrangement rather than of the view).
 //
 // Everything lives in localStorage under per-instrument keys, so save flushes
 // the on-screen board first and then reads the same keys `loadSections` reads;
 // load writes those keys and re-enters `loadSections`. Nothing here knows the
 // shape of a section or a chord, which is what keeps it working when they change.
 const SONG_FILE_FORMAT = "z-chords-song";
-// v2 adds the layout sheet. Both directions stay compatible: a v1 file simply
-// has no `layout` key, and a v2 file opened by an older build drops the sheet
-// but keeps every chord — which is why the sheet is a sibling of `boards`
-// rather than something buried inside one of them.
-const SONG_FILE_VERSION = 2;
+// v2 added the layout sheet. v3 moved title/subtitle out of each board and
+// onto the file itself, since they stopped being per-instrument. Both
+// directions stay compatible: a v1/v2 file carries them per-board instead
+// (`applySongFile` falls back to the piano board, then guitar), and an older
+// build opening a v3 file simply finds no title on either board.
+const SONG_FILE_VERSION = 3;
 
 function readBoardState(inst) {
   let sections = "[]";
   let active = null;
-  let title = "";
-  let subtitle = "";
   try {
     sections = localStorage.getItem(sectionsKey(inst)) || "[]";
     active = localStorage.getItem(activeSectionKey(inst));
-    title = localStorage.getItem(titleKey(inst)) || "";
-    subtitle = localStorage.getItem(subtitleKey(inst)) || "";
   } catch (_) {}
   let parsed = [];
   try {
@@ -539,8 +564,6 @@ function readBoardState(inst) {
   } catch (_) {}
   const activeIdx = active === null ? null : Number(active);
   return {
-    title,
-    subtitle,
     sections: Array.isArray(parsed) ? parsed : [],
     melodies: readMelodies(inst),
     activeSection: Number.isFinite(activeIdx) ? activeIdx : null,
@@ -557,8 +580,6 @@ function writeBoardState(inst, board) {
     if (data.activeSection === null || !Number.isFinite(active))
       localStorage.removeItem(activeSectionKey(inst));
     else localStorage.setItem(activeSectionKey(inst), String(active));
-    localStorage.setItem(titleKey(inst), String(data.title || ""));
-    localStorage.setItem(subtitleKey(inst), String(data.subtitle || ""));
   } catch (_) {}
   // A v1 song file has no melodies at all. Writing `[]` for it would wipe the
   // melodies already on the board, so absence means "leave them alone" — the
@@ -575,15 +596,17 @@ function buildSongFile() {
   BOARD_INSTRUMENTS.forEach((inst) => {
     boards[inst] = readBoardState(inst);
   });
-  // The drums board holds beats and nothing else — no chords, no title, no
-  // transpose — so it is written as a melodies-only board rather than pushed
-  // through BOARD_INSTRUMENTS, which would also seed it with chord-board keys
-  // (and hand `migrateSharedSections` a third board to copy legacy chords into).
+  // The drums board holds beats and nothing else — no chords, no transpose —
+  // so it is written as a melodies-only board rather than pushed through
+  // BOARD_INSTRUMENTS, which would also seed it with chord-board keys (and
+  // hand `migrateSharedSections` a third board to copy legacy chords into).
   boards.drums = { melodies: readMelodies("drums") };
   const song = {
     format: SONG_FILE_FORMAT,
     version: SONG_FILE_VERSION,
     savedAt: new Date().toISOString(),
+    title: songTitleEl ? songTitleEl.value : "",
+    subtitle: songSubtitleEl ? songSubtitleEl.value : "",
     capo: capoFret,
     boards,
   };
@@ -595,10 +618,7 @@ function buildSongFile() {
 // A filename from the song's own title, falling back so a save never fails for
 // want of a name. Windows and POSIX both choke on the same handful of chars.
 function songFileName(song) {
-  const title =
-    (song.boards.piano && song.boards.piano.title) ||
-    (song.boards.guitar && song.boards.guitar.title) ||
-    "";
+  const title = song.title || "";
   const safe = title
     .trim()
     .replace(/[\\/:*?"<>|]+/g, "")
@@ -648,6 +668,21 @@ function applySongFile(song) {
   if (drums && Array.isArray(drums.melodies)) writeMelodies("drums", drums.melodies);
   const capo = Number(song.capo);
   if (Number.isFinite(capo)) setCapo(capo);
+
+  // v3 carries title/subtitle at the top level. A v1/v2 file still has them
+  // per-board instead — fall back to piano, then guitar, whichever has one.
+  const legacyBoard =
+    (song.boards.piano && song.boards.piano.title && song.boards.piano) ||
+    song.boards.guitar ||
+    song.boards.piano ||
+    {};
+  const title = song.title !== undefined ? song.title : legacyBoard.title;
+  const subtitle =
+    song.subtitle !== undefined ? song.subtitle : legacyBoard.subtitle;
+  try {
+    localStorage.setItem(TITLE_KEY, String(title || ""));
+    localStorage.setItem(SUBTITLE_KEY, String(subtitle || ""));
+  } catch (_) {}
 
   // Re-enter the normal load path so the on-screen board, its title, its
   // transpose readout and the section counter all come from the same place
@@ -2732,10 +2767,12 @@ const PDF_TITLE_PT = 20;
 const PDF_SUBTITLE_PT = 13;
 const PT_TO_MM = 25.4 / 72;
 
-// The lines printed above the first section: song title, subtitle, then the
-// capo label (guitar only). Each is `{ text, sizePt, bold, gapMm }` — gapMm is
-// how far the cursor advances, i.e. the line's height plus its trailing space.
-function pdfHeadings() {
+// The song title/subtitle as heading lines, shared by both PDF producers —
+// the auto-flow board export and the Layout sheet export — since the title
+// is global now rather than belonging to one board. Each is
+// `{ text, sizePt, bold, gapMm }` — gapMm is how far the cursor advances,
+// i.e. the line's height plus its trailing space.
+function songTitleHeadingLines() {
   const lines = [];
   const title = songTitleEl ? songTitleEl.value.trim() : "";
   const subtitle = songSubtitleEl ? songSubtitleEl.value.trim() : "";
@@ -2756,15 +2793,29 @@ function pdfHeadings() {
       gapMm: PDF_SUBTITLE_PT * PT_TO_MM + 2,
     });
   }
+  return lines;
+}
 
-  // The capo belongs to the guitar arrangement, so it is only printed when
-  // that is what is being exported.
+// The lines printed above the first section of the auto-flow board export:
+// song title, subtitle, then the capo label (guitar only, since a "Capo 3"
+// line means nothing on a piano sheet).
+function pdfHeadings() {
+  const lines = songTitleHeadingLines();
+
   const capo = currentInstrument === "guitar" ? capoLabel() : "";
   if (capo) {
     lines.push({ text: capo, sizePt: PDF_HEADING_PT, bold: false, gapMm: 8 });
   }
 
   // Breathing room between the last heading line and the first section.
+  if (lines.length) lines[lines.length - 1].gapMm += 3;
+  return lines;
+}
+
+// Same lines, for the Layout sheet — no capo there, since a composed sheet
+// isn't tied to one instrument's arrangement.
+function layoutHeadingLines() {
+  const lines = songTitleHeadingLines();
   if (lines.length) lines[lines.length - 1].gapMm += 3;
   return lines;
 }
@@ -3454,6 +3505,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Two-hands is a live toggle, not part of a chord, so the sheet has to ask
     // rather than cache it: it decides how wide a piano block starts.
     isTwoHandsMode: () => twoHandsMode,
+    // The song title/subtitle are global now, so the sheet shows and prints
+    // them the same way the auto-flow board export does — the sheet asks
+    // rather than caching them, so an edit made on a chord tab is reflected
+    // without the Layout tab needing to be told.
+    songHeadings: layoutHeadingLines,
   });
 
   initMelodyPanel({

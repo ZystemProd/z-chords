@@ -32,14 +32,30 @@ import { assignTab } from "./melody-model.js";
 
 const LAYOUT_KEY = "cv-layout";
 const LAYOUT_SCALE_KEY = "cv-layout-scale";
+const PT_TO_MM = 25.4 / 72;
 
 // Injected by script.js. Nothing here reaches into the board directly.
 let deps = {
-  readBoardState: () => ({ sections: [], title: "", subtitle: "" }),
+  readBoardState: () => ({ sections: [] }),
   buildCardElement: null,
   openPdfPreviewModal: () => {},
   isTwoHandsMode: () => false,
+  // The song title/subtitle are global, not board state, so they're asked
+  // for the same way on every render rather than cached here.
+  songHeadings: () => [],
 };
+
+// Total mm the heading lines occupy at the top of page one — asked fresh each
+// time so an edit to the title elsewhere is picked up without this tab being
+// told about it.
+function headingsHeightMm() {
+  return getHeadingLines().reduce((h, line) => h + line.gapMm, 0);
+}
+
+function getHeadingLines() {
+  const lines = deps.songHeadings();
+  return Array.isArray(lines) ? lines : [];
+}
 
 let doc = createLayout();
 let boards = { piano: null, guitar: null };
@@ -716,17 +732,22 @@ function repaginate() {
   fitKeyboards(flow);
 
   const boxes = measureBoxes(flow);
-  const pages = paginateRows(packRows(boxes, {}), {});
+  const headingLines = getHeadingLines();
+  const pages = paginateRows(packRows(boxes, {}), {
+    headingsHeightMm: headingsHeightMm(),
+  });
   const scale = pxPerMm();
 
-  // Push each page's first row down to where the page actually starts.
-  // The cursor starts at the flow's own top padding, which is the page margin —
-  // starting it at 0 would over-report every gap by 10mm.
+  // Push each page's first row down to where the page actually starts. The
+  // cursor starts at the flow's own top padding, which is the page margin —
+  // starting it at 0 would over-report every gap by 10mm. Page one needs the
+  // same push whenever a heading sits above it, not only on later pages: the
+  // flow's own padding only accounts for the page margin, not the heading.
   let domY = PAGE_MARGIN_MM * scale;
   pages.forEach((rows, pageIndex) => {
     rows.forEach((row, rowIndex) => {
       const targetPx = (pageIndex * PAGE_H_MM + row.yMm) * scale;
-      if (pageIndex > 0 && rowIndex === 0) {
+      if (rowIndex === 0) {
         const gap = Math.max(0, targetPx - domY);
         row.blocks.forEach((b) => {
           const el = flow.querySelector(`[data-block-id="${b.blockId}"]`);
@@ -739,11 +760,36 @@ function repaginate() {
   });
 
   drawPageGuides(pages.length);
+  // After the guides: drawPageGuides rebuilds the whole host, and the
+  // heading has to paint over the white page background, not under it.
+  drawSongHeading(headingLines);
   if (els.pageCount) {
     els.pageCount.textContent = `${pages.length} page${
       pages.length === 1 ? "" : "s"
     }`;
   }
+}
+
+// The title/subtitle, shown at the top of page one exactly where the export
+// prints them — not a block: it has no id, isn't draggable, and reflects the
+// global title live rather than a value copied in. Lives in the same host as
+// the page guides so it paints on the paper rather than under the flow.
+function drawSongHeading(lines) {
+  const host = els.guides;
+  if (!host) return;
+  const scale = pxPerMm();
+  let cursorMm = PAGE_MARGIN_MM;
+  (lines || []).forEach((line) => {
+    const el = document.createElement("div");
+    el.className = "layout-heading-line";
+    el.textContent = line.text;
+    el.style.top = `${cursorMm * scale}px`;
+    el.style.left = `${PAGE_MARGIN_MM * scale}px`;
+    el.style.fontSize = `${line.sizePt * PT_TO_MM * scale}px`;
+    el.style.fontWeight = line.bold ? "700" : "400";
+    host.appendChild(el);
+    cursorMm += line.gapMm;
+  });
 }
 
 function drawPageGuides(pageCount) {
@@ -1089,55 +1135,80 @@ async function prepareLayoutExport() {
   }
 }
 
-const PT_TO_MM = 25.4 / 72;
-
 // Convert paginated rects into the placement vocabulary the shared PDF modal
 // already speaks, so renderPdfPreview and savePdfFromLayout consume them
 // unchanged.
 function layoutExportPages(ctx, scale) {
   const byId = new Map(ctx.blocks.map((b) => [b.box.blockId, b]));
   const boxes = ctx.blocks.map((b) => b.box);
-  const pages = paginateRows(packRows(boxes, { scale }), { scale });
+  const headingLines = getHeadingLines();
+  const pages = paginateRows(packRows(boxes, { scale }), {
+    scale,
+    headingsHeightMm: headingsHeightMm(),
+  });
 
-  return pages
-    .map((rows) => {
-      const placements = [];
-      rows.forEach((row) => {
-        row.blocks.forEach((rect) => {
-          const entry = byId.get(rect.blockId);
-          if (!entry) return;
+  const pagePlacements = pages.map((rows) => {
+    const placements = [];
+    rows.forEach((row) => {
+      row.blocks.forEach((rect) => {
+        const entry = byId.get(rect.blockId);
+        if (!entry) return;
 
-          if (entry.text) {
-            if (!entry.text.content.trim()) return;
-            placements.push({
-              type: "text",
-              text: entry.text.content,
-              sizePt: entry.text.sizePt * scale,
-              bold: entry.text.bold,
-              x: rect.xMm,
-              baselineY: rect.yMm + entry.text.sizePt * scale * PT_TO_MM,
-            });
-            return;
-          }
-
-          if (!entry.capture) return;
+        if (entry.text) {
+          if (!entry.text.content.trim()) return;
           placements.push({
-            type: "image",
-            capture: entry.capture,
-            // A composed block is always placed whole — banding is the
-            // auto-flow export's job, not this one's.
-            sourceY: 0,
-            sourceHeight: entry.capture.canvas.height,
+            type: "text",
+            text: entry.text.content,
+            sizePt: entry.text.sizePt * scale,
+            bold: entry.text.bold,
             x: rect.xMm,
-            y: rect.yMm,
-            width: rect.wMm,
-            height: rect.hMm,
+            baselineY: rect.yMm + entry.text.sizePt * scale * PT_TO_MM,
           });
+          return;
+        }
+
+        if (!entry.capture) return;
+        placements.push({
+          type: "image",
+          capture: entry.capture,
+          // A composed block is always placed whole — banding is the
+          // auto-flow export's job, not this one's.
+          sourceY: 0,
+          sourceHeight: entry.capture.canvas.height,
+          x: rect.xMm,
+          y: rect.yMm,
+          width: rect.wMm,
+          height: rect.hMm,
         });
       });
-      return placements;
-    })
-    .filter((p) => p.length > 0);
+    });
+    return placements;
+  });
+
+  // Headings sit on page one only, ahead of whatever blocks landed there —
+  // unscaled font size, but centred with the same offset the scale slider
+  // gives the content, so it reads as one composition rather than two.
+  if (headingLines.length) {
+    if (!pagePlacements.length) pagePlacements.push([]);
+    const offsetXMm = (CONTENT_W_MM * (1 - scale)) / 2;
+    const x = PAGE_MARGIN_MM + offsetXMm;
+    let cursorY = PAGE_MARGIN_MM;
+    const headingPlacements = headingLines.map((line) => {
+      const placement = {
+        type: "text",
+        text: line.text,
+        sizePt: line.sizePt,
+        bold: !!line.bold,
+        x,
+        baselineY: cursorY + line.sizePt * PT_TO_MM,
+      };
+      cursorY += line.gapMm;
+      return placement;
+    });
+    pagePlacements[0] = headingPlacements.concat(pagePlacements[0]);
+  }
+
+  return pagePlacements.filter((p) => p.length > 0);
 }
 
 function exportSheet() {
