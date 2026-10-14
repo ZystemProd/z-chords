@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy:dev": "firebase deploy --only hosting:dev",
-    "deploy:prod": "firebase deploy --only hosting:prod"
+    "deploy:dev": "firebase deploy --only hosting:dev,firestore:rules",
+    "deploy:prod": "firebase deploy --only hosting:prod,firestore:rules"
   },
   "devDependencies": {}
 }

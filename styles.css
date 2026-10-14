@@ -1321,6 +1321,117 @@ select:focus-visible {
   color: var(--text);
 }
 
+/* --- Online song library (cloud.js) ------------------------------------- */
+.toolbar-cluster > #cloudSongs {
+  overflow: hidden;
+}
+.cloud-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: block;
+  pointer-events: none;
+}
+.cloud-content {
+  max-width: 560px;
+}
+.cloud-note {
+  margin: 0;
+  color: var(--note-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cloud-content > #cloudBody > .cloud-note {
+  margin-bottom: 14px;
+}
+.cloud-account {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.cloud-account-name {
+  font-weight: 600;
+}
+.cloud-account-email {
+  color: var(--note-text);
+  font-size: 13px;
+}
+.cloud-account button {
+  margin-left: auto;
+  height: var(--control-h-sm);
+}
+.cloud-current,
+.cloud-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cloud-current {
+  padding: 14px 0;
+}
+.cloud-current-text,
+.cloud-item-text {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.cloud-current-title,
+.cloud-item-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.cloud-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cloud-item .cloud-actions button {
+  height: var(--control-h-sm);
+}
+.cloud-status {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--root-green-2);
+}
+.cloud-status.error {
+  color: var(--pressed-red-2);
+}
+.cloud-list-heading {
+  margin: 6px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+.cloud-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cloud-item {
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  background: var(--surface-1);
+}
+.cloud-item.current {
+  border-color: color-mix(in oklab, var(--button-bg) 55%, transparent);
+}
+.cloud-badge {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 1px;
+  background: var(--button-bg);
+  color: var(--button-text);
+}
+
 #customPiano {
   margin: 20px 0;
   height: 210px;

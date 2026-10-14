@@ -28,6 +28,7 @@ import {
   showMelodyPanel,
   hideMelodyPanel,
 } from "./melody-panel.js";
+import { initCloud, detachCloudSong } from "./cloud.js";
 
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
@@ -695,6 +696,20 @@ function applySongFile(song) {
   applyLayoutFromSongFile(song.layout);
 }
 
+// Replace the song on screen, asking first when that would throw chords away.
+// Shared by file loads and cloud opens. Returns whether it was replaced; a bad
+// song throws, so each caller reports the failure in its own way.
+function replaceSong(song) {
+  if (songHasChords(buildSongFile())) {
+    const ok = confirm(
+      "Loading this song replaces the chords on both the piano and guitar tabs. Continue?"
+    );
+    if (!ok) return false;
+  }
+  applySongFile(song);
+  return true;
+}
+
 function loadSongFromFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -706,13 +721,9 @@ function loadSongFromFile(file) {
       return;
     }
     try {
-      if (songHasChords(buildSongFile())) {
-        const ok = confirm(
-          "Loading this song replaces the chords on both the piano and guitar tabs. Continue?"
-        );
-        if (!ok) return;
-      }
-      applySongFile(song);
+      // A file is not the cloud song that was on screen, so a later cloud Save
+      // must not overwrite that one with it.
+      if (replaceSong(song)) detachCloudSong();
     } catch (err) {
       alert(err && err.message ? err.message : "Could not load that song.");
     }
@@ -3510,6 +3521,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // rather than caching them, so an edit made on a chord tab is reflected
     // without the Layout tab needing to be told.
     songHeadings: layoutHeadingLines,
+  });
+
+  // Same hand-off shape: the cloud library sees songs only as the JSON the
+  // Save song button writes, so it never learns what a board looks like.
+  initCloud({
+    buildSongFile,
+    replaceSong,
+    songTitle: () => (songTitleEl ? songTitleEl.value.trim() : ""),
   });
 
   initMelodyPanel({

@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Each signed-in user has a private song library at users/{uid}/songs and can
+// reach nothing else. Anything not matched below is denied.
+//
+// The web API key in cloud.js is public by design; these rules are the actual
+// protection. Pinned by tests/cloud/rules.test.mjs.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // A song document: the song file as a JSON string, plus the title and
+    // subtitle copied out so the list can show them.
+    function validSong() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['title', 'subtitle', 'data', 'rev', 'createdAt', 'updatedAt'])
+        && d.title is string && d.title.size() <= 200
+        && d.subtitle is string && d.subtitle.size() <= 300
+        && d.data is string && d.data.size() <= 900000
+        && d.rev is int
+        && d.updatedAt == request.time;
+    }
+
+    match /users/{uid}/songs/{songId} {
+      allow read, delete: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && validSong()
+        && request.resource.data.rev == 1
+        && request.resource.data.createdAt == request.time;
+
+      // rev must advance by exactly one, so a save made from a stale copy is
+      // rejected here as well as by the client's own check.
+      allow update: if isOwner(uid)
+        && validSong()
+        && request.resource.data.rev == resource.data.rev + 1
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+  }
+}

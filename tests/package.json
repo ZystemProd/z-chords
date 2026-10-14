@@ -4,9 +4,12 @@
   "type": "module",
   "description": "Browser tests for Z-Chords. Kept out of the app so the app stays dependency-free.",
   "scripts": {
-    "test": "node run.mjs"
+    "test": "node run.mjs",
+    "test:cloud": "firebase emulators:exec --config ../firebase.json --only auth,firestore --project demo-z-chord \"node --test --test-concurrency=1 cloud/rules.test.mjs cloud/app.test.mjs\""
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.7.0",
     "puppeteer-core": "^23.0.0"
   }
 }

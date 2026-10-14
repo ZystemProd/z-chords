@@ -77,6 +77,10 @@
                         </button>
                         <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" class="btn icon-btn"
                             type="button"></button>
+                        <span class="cluster-divider" aria-hidden="true"></span>
+                        <!-- Account + online song library. cloud.js fills the
+                             icon (or the signed-in avatar) and the label. -->
+                        <button id="cloudSongs" class="btn icon-btn" type="button" aria-label="My songs" title="My songs"></button>
                     </div>
                 </div>
             </div>
@@ -454,6 +458,15 @@
                 <li>T: Toggle theme</li>
                 <li>Ctrl/Cmd+Shift+P: Export to PDF</li>
             </ul>
+        </div>
+    </div>
+
+    <!-- Online song library (cloud.js renders #cloudBody) -->
+    <div id="cloudModal" class="modal" aria-hidden="true">
+        <div class="modal-content cloud-content" role="dialog" aria-labelledby="cloudModalTitle">
+            <span id="closeCloudModal" class="close" role="button" aria-label="Close">&times;</span>
+            <h3 id="cloudModalTitle">My songs</h3>
+            <div id="cloudBody"></div>
         </div>
     </div>
 
