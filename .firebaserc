@@ -1,0 +1,13 @@
+{
+  "projects": {
+    "default": "z-chord"
+  },
+  "targets": {
+    "z-chord": {
+      "hosting": {
+        "dev": ["z-chord-dev"],
+        "prod": ["z-chord"]
+      }
+    }
+  }
+}

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": {},
+  "scripts": {
+    "deploy:dev": "firebase deploy --only hosting:dev",
+    "deploy:prod": "firebase deploy --only hosting:prod"
+  },
   "devDependencies": {}
 }

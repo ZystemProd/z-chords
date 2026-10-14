@@ -1,2 +1,4 @@
 node_modules/
 *.tsbuildinfo
+.firebase/
+firebase-debug.log

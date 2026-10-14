@@ -1,0 +1,60 @@
+{
+  "hosting": [
+    {
+      "target": "dev",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/.*/**",
+        "**/node_modules/**",
+        "tests/**",
+        "old/**",
+        "mockups/**",
+        "**/*.md",
+        "package.json",
+        "guitar_backup_before_edit.js",
+        "tmp_before.html",
+        "temp_guitar.svg"
+      ],
+      "headers": [
+        {
+          "source": "**/*.@(html|js|css)",
+          "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+        },
+        {
+          "source": "SVG/**",
+          "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
+        }
+      ]
+    },
+    {
+      "target": "prod",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/.*/**",
+        "**/node_modules/**",
+        "tests/**",
+        "old/**",
+        "mockups/**",
+        "**/*.md",
+        "package.json",
+        "guitar_backup_before_edit.js",
+        "tmp_before.html",
+        "temp_guitar.svg"
+      ],
+      "headers": [
+        {
+          "source": "**/*.@(html|js|css)",
+          "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+        },
+        {
+          "source": "SVG/**",
+          "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
+        }
+      ]
+    }
+  ]
+}
