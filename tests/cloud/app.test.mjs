@@ -63,6 +63,15 @@ async function openCloudApp(context, state = {}) {
 async function signIn(page, uid) {
   await page.evaluate((u) => window.__cloudTest.signIn(u, `${u}@example.com`), uid);
   await page.waitForSelector("#cloudSongs.signed-in");
+  // First sign-in asks for a username before anything else.
+  if (!(await page.$eval("#cloudModal", (m) => m.style.display === "block")))
+    await page.click("#cloudSongs");
+  await page.waitForSelector("#cloudUsername, #cloudSave:not([disabled])");
+  if (await page.$("#cloudUsername")) {
+    await page.type("#cloudUsername", `user_${uid}`);
+    await page.$eval("#cloudUsernameSave", (b) => b.click());
+    await page.waitForSelector("#cloudSave:not([disabled])");
+  }
 }
 
 async function openModal(page) {

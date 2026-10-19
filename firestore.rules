@@ -24,6 +24,21 @@ service cloud.firestore {
         && d.updatedAt == request.time;
     }
 
+    // The profile holds the chosen username and nothing else; no Google name,
+    // email or photo is ever stored.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['username', 'createdAt'])
+        && request.resource.data.username is string
+        && request.resource.data.username.matches('^[A-Za-z0-9_.-]{3,20}$')
+        && request.resource.data.createdAt == request.time;
+      allow update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['username', 'createdAt'])
+        && request.resource.data.username.matches('^[A-Za-z0-9_.-]{3,20}$')
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
     match /users/{uid}/songs/{songId} {
       allow read, delete: if isOwner(uid);
 

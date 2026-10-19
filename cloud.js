@@ -48,6 +48,8 @@ const MAX_DATA_CHARS = 900000;
 let deps = null;
 let fb = null; // { auth, db, ...SDK functions } once loaded
 let user = null;
+// undefined = not fetched yet, null = signed in but no username chosen yet.
+let profile = undefined;
 let phase = "loading"; // loading | ready | unavailable
 let songs = null; // null = not fetched yet
 let busy = false;
@@ -105,7 +107,7 @@ async function loadSdk() {
           auth.signInWithCredential(
             authInst,
             auth.GoogleAuthProvider.credential(
-              JSON.stringify({ sub, email, email_verified: true, name: email })
+              JSON.stringify({ sub, email, email_verified: true })
             )
           ),
       };
@@ -114,12 +116,11 @@ async function loadSdk() {
     auth.onAuthStateChanged(authInst, (u) => {
       user = u;
       songs = null;
+      profile = undefined;
       phase = "ready";
       updateButton();
-      if (isOpen()) {
-        render();
-        if (user) refreshList();
-      }
+      if (isOpen()) render();
+      if (user) loadProfile(u.uid);
     });
   } catch (err) {
     phase = "unavailable";
@@ -152,6 +153,49 @@ function writeLink(link) {
 
 function songsCollection() {
   return fb.collection(fb.db, "users", user.uid, "songs");
+}
+
+// The username is the only identity the app keeps. The Google display name,
+// email and photo are never read, shown or written anywhere.
+const USERNAME_RE = /^[A-Za-z0-9_.-]{3,20}$/;
+
+async function loadProfile(uid) {
+  try {
+    const snap = await fb.getDoc(fb.doc(fb.db, "users", uid));
+    if (!user || user.uid !== uid) return;
+    profile = snap.exists() && snap.data().username ? { username: snap.data().username } : null;
+  } catch (err) {
+    if (!user || user.uid !== uid) return;
+    profile = null;
+    setStatus("Could not load your profile: " + (err.message || err), true);
+  }
+  updateButton();
+  if (isOpen()) render();
+  if (profile) refreshList();
+}
+
+async function saveUsername(raw) {
+  const username = String(raw || "").trim();
+  if (!USERNAME_RE.test(username)) {
+    setStatus("Use 3–20 letters, numbers, dots, dashes or underscores.", true);
+    return;
+  }
+  busy = true;
+  render();
+  try {
+    await fb.setDoc(fb.doc(fb.db, "users", user.uid), {
+      username,
+      createdAt: fb.serverTimestamp(),
+    });
+    profile = { username };
+    setStatus("");
+    updateButton();
+    refreshList();
+  } catch (err) {
+    setStatus("Could not save username: " + (err.message || err), true);
+  }
+  busy = false;
+  render();
 }
 
 async function refreshList() {
@@ -360,26 +404,12 @@ const CLOUD_ICON =
 function updateButton() {
   if (!buttonEl) return;
   const label = user
-    ? `My songs (signed in as ${user.displayName || user.email || "you"})`
+    ? `My songs (signed in as ${profile ? profile.username : "you"})`
     : "My songs — sign in to save songs online";
   buttonEl.setAttribute("aria-label", label);
   buttonEl.title = label;
   buttonEl.classList.toggle("signed-in", !!user);
-  buttonEl.innerHTML = "";
-  if (user && user.photoURL) {
-    const img = document.createElement("img");
-    img.className = "cloud-avatar";
-    img.alt = "";
-    // Google profile photos refuse requests that carry a referrer.
-    img.referrerPolicy = "no-referrer";
-    img.src = user.photoURL;
-    img.addEventListener("error", () => {
-      buttonEl.innerHTML = CLOUD_ICON;
-    });
-    buttonEl.appendChild(img);
-  } else {
-    buttonEl.innerHTML = CLOUD_ICON;
-  }
+  buttonEl.innerHTML = CLOUD_ICON;
 }
 
 function el(tag, attrs = {}, ...children) {
@@ -441,15 +471,37 @@ function render() {
     return;
   }
 
+  if (profile === undefined) {
+    bodyEl.append(el("p", { class: "cloud-note" }, "Loading…"));
+    return;
+  }
+  if (profile === null) {
+    const input = el("input", {
+      type: "text", id: "cloudUsername", maxlength: "20", autocomplete: "off",
+      placeholder: "Username", "aria-label": "Username",
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveUsername(input.value);
+    });
+    bodyEl.append(
+      el("p", { class: "cloud-note" },
+        "Choose a username to finish signing up. It is the only name this app shows or keeps — " +
+          "your Google name is never used."),
+      input,
+      el("button", { class: "btn-primary", type: "button", id: "cloudUsernameSave", disabled: busy,
+        onclick: () => saveUsername(input.value) }, "Continue"),
+      el("button", { type: "button", id: "cloudSignOut", disabled: busy, onclick: signOutUser }, "Sign out")
+    );
+    renderStatus();
+    return;
+  }
+
   // Account row
   bodyEl.append(
     el(
       "div",
       { class: "cloud-account" },
-      el("span", { class: "cloud-account-name" }, user.displayName || user.email || "Signed in"),
-      user.displayName && user.email && user.email !== user.displayName
-        ? el("span", { class: "cloud-account-email" }, user.email)
-        : null,
+      el("span", { class: "cloud-account-name" }, profile.username),
       el(
         "button",
         { type: "button", id: "cloudSignOut", disabled: busy, onclick: signOutUser },
