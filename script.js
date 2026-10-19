@@ -29,6 +29,7 @@ import {
   hideMelodyPanel,
 } from "./melody-panel.js";
 import { initCloud, detachCloudSong } from "./cloud.js";
+import { initPitchMonitor, showPitchMonitor, stopPitchMonitor } from "./pitch-monitor.js";
 
 let sectionCounter = 0; // track part number
 let activeSectionIndex = null; // which section receives new chords
@@ -3316,7 +3317,7 @@ document.addEventListener("DOMContentLoaded", () => {
 let currentInstrument = "piano";
 // Layout has no sub-tabs; the entry is a placeholder so setSubtab and
 // saveInstrumentState stay total over every instrument.
-let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat", layout: "page" };
+let currentSubtab = { piano: "chord", guitar: "scale", drums: "beat", voice: "pitch", layout: "page" };
 
 function loadInstrumentState() {
   try {
@@ -3391,6 +3392,8 @@ function updateTabsUI(opts = {}) {
   const layoutPanel = document.getElementById('layoutPanel');
   const layoutControls = document.getElementById('layoutControls');
   const melodyPanel = document.getElementById('melodyPanel');
+  const pitchPanel = document.getElementById('pitchPanel');
+  const pitchControls = document.getElementById('pitchControls');
   // The empty-board hint belongs to the chord board, but only renderSections
   // ever touched it — so once the board was empty it followed you onto every
   // other tab. It has to be in the hide-all defaults like every other panel.
@@ -3412,6 +3415,8 @@ function updateTabsUI(opts = {}) {
   if (layoutPanel) layoutPanel.style.display = 'none';
   if (layoutControls) layoutControls.style.display = 'none';
   if (melodyPanel) melodyPanel.style.display = 'none';
+  if (pitchPanel) pitchPanel.style.display = 'none';
+  if (pitchControls) pitchControls.style.display = 'none';
   if (emptyState) emptyState.hidden = true;
   // The staff belongs to the guitar scale tab; main.js still decides whether
   // custom mode wants it, so only add/remove the class and leave display alone.
@@ -3471,6 +3476,12 @@ function updateTabsUI(opts = {}) {
       if (melodyPanel) melodyPanel.style.display = 'flex';
       showMelodyPanel('drums');
     }
+  } else if (currentInstrument === 'voice') {
+    // Voice → Pitch, the only sub-tab. Like Layout it owns no board;
+    // boardInstrument() maps it onto the piano board, which it never writes.
+    if (pitchPanel) pitchPanel.style.display = 'flex';
+    if (pitchControls) pitchControls.style.display = 'inline-flex';
+    showPitchMonitor();
   } else if (currentInstrument === 'layout') {
     // The sheet reads both boards rather than owning one, so it has to be
     // refreshed every time it comes on screen — chords may have changed on
@@ -3482,6 +3493,12 @@ function updateTabsUI(opts = {}) {
 
   if (!(currentInstrument === 'drums' && currentSubtab.drums === 'metronome')) {
     stopMetronome();
+  }
+  // The microphone is released, not just ignored, whenever the pitch monitor
+  // is off screen — otherwise the browser's recording indicator stays lit
+  // over every other tab.
+  if (!(currentInstrument === 'voice' && currentSubtab.voice === 'pitch')) {
+    stopPitchMonitor();
   }
   // A playing melody has to stop when you leave its tab, for the same reason
   // the metronome does — its notes are scheduled timers that would otherwise
@@ -3531,6 +3548,8 @@ document.addEventListener('DOMContentLoaded', () => {
     songTitle: () => (songTitleEl ? songTitleEl.value.trim() : ""),
   });
 
+  initPitchMonitor();
+
   initMelodyPanel({
     readMelodies,
     writeMelodies,
@@ -3563,7 +3582,7 @@ document.addEventListener('DOMContentLoaded', () => {
     instContainer.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
-      const order = ['piano','guitar','drums','layout'];
+      const order = ['piano','guitar','drums','voice','layout'];
       const idx = order.indexOf(currentInstrument);
       const next = e.key === 'ArrowRight' ? (idx + 1) % order.length : (idx - 1 + order.length) % order.length;
       setInstrument(order[next]);

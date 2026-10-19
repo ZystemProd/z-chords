@@ -94,6 +94,7 @@
                         <button class="tab" role="tab" id="tab-instrument-piano" data-instrument="piano" aria-selected="true">Piano</button>
                         <button class="tab" role="tab" id="tab-instrument-guitar" data-instrument="guitar" aria-selected="false">Guitar</button>
                         <button class="tab" role="tab" id="tab-instrument-drums" data-instrument="drums" aria-selected="false">Drums</button>
+                        <button class="tab" role="tab" id="tab-instrument-voice" data-instrument="voice" aria-selected="false">Voice</button>
                         <!-- Layout is cross-instrument: it composes content from every board,
                              so it sits beside them rather than under one. It has no sub-tabs. -->
                         <button class="tab" role="tab" id="tab-instrument-layout" data-instrument="layout" aria-selected="false">Layout</button>
@@ -113,6 +114,8 @@
                         <!-- Drums -->
                         <button class="tab" role="tab" data-instrument="drums" data-subtab="beat" id="subtab-drums-beat" aria-selected="false">Beat</button>
                         <button class="tab" role="tab" data-instrument="drums" data-subtab="metronome" id="subtab-drums-metronome" aria-selected="false">Metronome</button>
+                        <!-- Voice -->
+                        <button class="tab" role="tab" data-instrument="voice" data-subtab="pitch" id="subtab-voice-pitch" aria-selected="false">Pitch</button>
                     </div>
                 </div>
                 <div class="right">
@@ -267,6 +270,54 @@
                     <!-- Drums → Beat has no control group: the grid editor in
                          #melodyPanel owns its own transport and bar controls. -->
 
+                    <!-- Voice → Pitch (pitch-monitor.js) -->
+                    <div id="pitchControls" class="control-group pitch-controls" style="display:none;">
+                        <label class="pitch-field">
+                            <span class="group-label">Range</span>
+                            <select id="pitchRange" aria-label="Visible pitch range">
+                                <option value="follow">Follow voice</option>
+                                <option value="bass">Bass</option>
+                                <option value="baritone">Baritone</option>
+                                <option value="tenor">Tenor</option>
+                                <option value="alto">Alto</option>
+                                <option value="soprano">Soprano</option>
+                            </select>
+                        </label>
+                        <label class="pitch-field">
+                            <span class="group-label">Key</span>
+                            <select id="pitchKey" aria-label="Key whose notes are labelled">
+                                <option value="C">C</option>
+                                <option value="G">G</option>
+                                <option value="D">D</option>
+                                <option value="A">A</option>
+                                <option value="E">E</option>
+                                <option value="B">B</option>
+                                <option value="F#">F&sharp;</option>
+                                <option value="F">F</option>
+                                <option value="Bb">B&flat;</option>
+                                <option value="Eb">E&flat;</option>
+                                <option value="Ab">A&flat;</option>
+                                <option value="Db">D&flat;</option>
+                            </select>
+                        </label>
+                        <label class="pitch-field">
+                            <span class="group-label">In tune</span>
+                            <select id="pitchTolerance" aria-label="How close to a note counts as in tune">
+                                <option value="10">&plusmn;10&cent;</option>
+                                <option value="15">&plusmn;15&cent;</option>
+                                <option value="25">&plusmn;25&cent;</option>
+                            </select>
+                        </label>
+                        <label class="pitch-field">
+                            <span class="group-label">Time</span>
+                            <select id="pitchWindow" aria-label="Seconds of history shown">
+                                <option value="5">5 s</option>
+                                <option value="10">10 s</option>
+                                <option value="20">20 s</option>
+                            </select>
+                        </label>
+                    </div>
+
                     <!-- Drums → Metronome -->
                     <div id="metronomeControls" class="control-group metronome-controls" style="display:none;">
                         <label class="metronome-field metronome-bpm" for="metronomeBpm">
@@ -352,6 +403,48 @@
         <div id="melodyPanel" class="melody-panel" style="display:none;">
             <aside id="melodyList" class="melody-list" aria-label="Melodies"></aside>
             <div id="melodyStage" class="melody-stage"></div>
+        </div>
+
+        <!-- Voice → Pitch: a piano-roll pitch graph with record / stop / play.
+             The canvas draws the keyboard, lanes and line; the readout card
+             and the transport are DOM overlays so they stay real controls. -->
+        <div id="pitchPanel" class="pitch-panel" style="display:none;" data-state="idle">
+            <div class="pitch-display">
+                <canvas id="pitchCanvas" class="pitch-canvas" tabindex="0"
+                    aria-label="Pitch over time. Drag or use the arrow keys to scrub a recorded take; Space plays it."></canvas>
+                <!-- The readout card: note, cents, and a flat-to-sharp bar whose
+                     middle zone is the in-tune tolerance. -->
+                <div id="pitchCard" class="pitch-card" data-tune="">
+                    <div class="pitch-card-head">
+                        <div id="pitchNote" class="pitch-note"><span>&ndash;</span><span class="pitch-octave"></span></div>
+                        <span id="pitchCents" class="pitch-cents"></span>
+                    </div>
+                    <div class="pitch-tuner" aria-hidden="true">
+                        <div class="pitch-tuner-track"></div>
+                        <div id="pitchZone" class="pitch-tuner-zone"></div>
+                        <div class="pitch-tuner-centre"></div>
+                        <div id="pitchMarker" class="pitch-tuner-marker"></div>
+                    </div>
+                    <div class="pitch-tuner-legend" aria-hidden="true"><span>&minus;50 flat</span><span>in tune</span><span>sharp +50</span></div>
+                </div>
+                <div class="pitch-transport">
+                    <button id="pitchStop" class="pitch-btn" type="button" aria-label="Stop" title="Stop" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+                        <span class="pitch-btn-label">Stop</span>
+                    </button>
+                    <button id="pitchRecord" class="pitch-btn pitch-btn-record" type="button" aria-label="Record" title="Record" aria-pressed="false">
+                        <svg class="icon-record" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>
+                        <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                        <span class="pitch-btn-label">Record</span>
+                    </button>
+                    <button id="pitchPlay" class="pitch-btn" type="button" aria-label="Play take" title="Play take" disabled>
+                        <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+                        <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                        <span class="pitch-btn-label">Play</span>
+                    </button>
+                </div>
+            </div>
+            <p id="pitchStatus" class="pitch-status" aria-live="polite"></p>
         </div>
 
         <div id="metronomePanel" class="metronome-panel" style="display:none;" aria-live="polite">

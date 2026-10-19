@@ -89,7 +89,7 @@ The button carries `no-drag`, which the chords-container Sortable uses as its `f
 
 `#guitarStaff` is the one panel with two owners, and it is why `.tab-hidden` exists. `main.js` sets its inline `display` from the scale settings (it wants the staff only in *custom* view mode); `updateTabsUI` decides whether the guitar-scale tab is on screen at all. Neither world can call the other, so they use separate channels: `main.js` keeps the inline style, `script.js` adds/removes `.tab-hidden`, whose `display: none !important` outranks it. Before that the staff followed you onto every tab — piano, drums, everywhere — once custom mode had been switched on. Don't "simplify" it by having `updateTabsUI` set `display` directly: that would show the staff on the scale tab even in scales mode, where `main.js` wants it gone.
 
-Instrument/subtab pairs today: piano→chord|scales|melody, guitar→chord|scale|melody, drums→beat|metronome, plus layout (no sub-tabs). `#melodyPanel` serves three of those — piano→melody, guitar→melody and drums→beat — so the "stop playback when you leave" test is against the panel's sub-tab *for that instrument* (`beat` on drums, `melody` elsewhere), not against the literal string `melody`.
+Instrument/subtab pairs today: piano→chord|scales|melody, guitar→chord|scale|melody, drums→beat|metronome, voice→pitch, plus layout (no sub-tabs). `#melodyPanel` serves three of those — piano→melody, guitar→melody and drums→beat — so the "stop playback when you leave" test is against the panel's sub-tab *for that instrument* (`beat` on drums, `melody` elsewhere), not against the literal string `melody`.
 
 `#emptyState` — the "start by adding a chord" hint — is the cautionary example for the hide-all rule. It was toggled **only** by `renderSections`, which no tab but the two chord tabs calls, so once a board was empty the hint followed you onto Scales, Melody and Layout. It is now hidden in the defaults and re-shown by `renderSections` from the board's own state; `board` pins both directions, because fixing this the obvious way can just as easily leave it hidden forever.
 
@@ -332,6 +332,32 @@ Beats live on the **drums board** (`cv-melodies-drums`) and are placed on the sh
 
 Playback is a sketch: each voice is a short pitched blip (`DRUM_SOUND`), dark and low for the kick, bright and short for the cymbals, through the shared `playNotes` with `retrigger: false` — a kick and a hat land on the same tick constantly, and the default would have each cut the other off. It is enough to hear whether a pattern grooves; it is not a drum synth.
 
+### Voice (the Pitch tab)
+
+A live pitch graph for singers, laid out as a piano roll: a keyboard down the left edge, one lane per semitone, and the pitch traced over the last 5–20 s, coloured in tune / out of tune. A readout card (note, cents, a flat-to-sharp bar whose middle zone is the tolerance) and record / stop / play sit over it as DOM. Same split as everywhere else:
+
+- **`pitch-detect.js`** is pure — `detectPitch(samples, sampleRate)` → `{ freq, clarity } | null`, plus `freqToMidi`, `centsOff`, `noteName`, `createSmoother`. Tested in Node against synthetic buffers.
+- **`pitch-monitor.js`** owns `#pitchPanel` / `#pitchControls`, the microphone and the canvas. `updateTabsUI` calls `showPitchMonitor()` on the tab and `stopPitchMonitor()` everywhere else, beside `stopMetronome()`.
+
+Things that are load-bearing:
+
+- **The detector is MPM (McLeod), not autocorrelation.** A sung vowel's overtones are often louder than its fundamental, and autocorrelation then picks a multiple of the period: the trace jumps an octave. The *weak fundamental* checks pin that. Peaks are picked at every lag and the range is checked on the answer — searching only from the shortest allowed lag reported a too-high pitch as a multiple of itself, in range.
+- **The autocorrelation is computed by FFT.** The direct double loop was 4.4 ms per frame, a quarter of a core at 60 fps; the FFT is ~0.5 ms.
+- **`getUserMedia` turns off echo cancellation, noise suppression and AGC.** They are tuned for speech on a call and reshape the very signal being measured.
+- **The silence gate is low (`rmsGate` 0.003, ≈ -50 dBFS) on purpose.** With auto-gain off, a laptop microphone delivers ordinary singing at -45..-30 dBFS; the first gate (-40) was tuned on test tones and swallowed real voices whole — the take recorded and the graph stayed empty. The clarity gate, not the level gate, is what rejects noise. An INPUT meter (with the gate marked) shows while recording, and three seconds of near-silence says so in the status line.
+- **The analyser is connected to the destination through a gain of 0.** Inaudible, so no feedback, but Safari only pulls audio through nodes that lead to the destination; an unconnected analyser there reads silence. The context is also awaited into `running` before analysis, and Firefox's refusal to connect a microphone at a different sample rate falls back to a context at the microphone's rate. **Stop and leaving the tab end the tracks** rather than muting them, so the browser's recording indicator goes off.
+- **A take is memory only** — pitch points `{t, m}` plus the audio. Nothing reaches localStorage, song files or the cloud, consistent with the app not storing identity. Leaving the tab keeps the take; reloading drops it.
+- **The audio is decoded into an `AudioBuffer`, not played through `<audio>`.** A MediaRecorder WebM has no duration or seek index, so seeking it is unreliable; a buffer source starts at any offset exactly and shares the clock the trace is drawn against.
+- **Replay redraws the recorded points; it does not re-detect.** Scrubbing (drag the graph, or arrow keys) only moves the playhead.
+- **The smoother is a median of three** and an unvoiced frame clears it. Longer smoothing would iron out vibrato, which singers want to see; clearing makes the line break at gaps instead of bridging two notes.
+- **In tune is judged on the line's centre, not each instant** — a ±0.1 s average (one vibrato cycle), within one unbroken run. The ear hears vibrato as its centre pitch; judged point by point, a perfectly centred ±30¢ vibrato striped green and orange five times a second. The tolerance (±10/15/25¢) is a setting.
+- **The two line colours differ in lightness, not only hue** (light mint, darker orange), and the in-tune line is thicker, so the distinction survives colour blindness. The suite checks the lightness ratio, not just contrast with the background.
+- **The readout is calmer than the line**: eased (τ 0.2 s), with note-name hysteresis (±62¢) and a 0.6 s hold through breaths. The line is the evidence and shows every wobble; a readout that changes every frame cannot be read.
+- **The readout card sits top left**, over the oldest part of the line. The newest part, at the right edge, must never be covered.
+- **Follow mode only re-fits the view when the line nears an edge** (or the view is much wider than needed). Re-centring every frame makes a steady note appear to move.
+- **The display is dark in both themes**, like a tuner screen, but its colours are `--pitch-*` tokens on `.pitch-panel`, read back by the canvas and re-read when the body's theme class changes.
+- **The canvas publishes its geometry** (`data-lo`, `data-hi`, `data-graph-*`) for tests, the same contract as `melody-render.js`'s `data-stave-*`. The test replaces `getUserMedia` with an oscillator stream and checks painted pixels on a note's row.
+
 ### Styling / theming
 
 Theme is CSS custom properties on `:root` (dark, the default) overridden under `body.light-mode`; toggling swaps the class and persists `cv-theme`. Dimensions that JS needs to know (notably `--white-key-width`) are read back out of computed styles rather than hardcoded — keep them in sync when changing key geometry.
@@ -361,7 +387,7 @@ Clear lives in a bar `drawScale()` builds *inside* `#guitar`, above the neck, be
 
 ## localStorage keys
 
-`cv-sections-piano`, `cv-sections-guitar`, `cv-melodies-piano`, `cv-melodies-guitar`, `cv-melodies-drums` (beats — the drums board has melodies but no sections), `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-melody-zoom` (melody-panel.js — view state, not per-board), `cv-title` / `cv-subtitle` (script.js — global, not per-instrument; the pre-split `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` are read once and migrated away by `migratePerInstrumentTitle()`); `cv-guitar-scale-settings` (main.js); `cv-cloud-song` (cloud.js — which cloud song is on screen, `{uid, id, rev}`); `cv-layout` and `cv-layout-scale` (layout.js — cross-instrument, so unlike `cv-sections-*` they are **not** per-board and do not go through `saveSections`/`loadSections`).
+`cv-sections-piano`, `cv-sections-guitar`, `cv-melodies-piano`, `cv-melodies-guitar`, `cv-melodies-drums` (beats — the drums board has melodies but no sections), `cv-active-section-piano`, `cv-active-section-guitar` (the pre-split `cv-sections` / `cv-active-section` are read once and migrated away), `cv-theme`, `cv-twohands`, `cv-instrument`, `cv-subtabs`, `cv-capo`, `cv-pdf-scale`, `cv-melody-zoom` (melody-panel.js — view state, not per-board), `cv-title` / `cv-subtitle` (script.js — global, not per-instrument; the pre-split `cv-title-piano` / `cv-title-guitar` / `cv-subtitle-piano` / `cv-subtitle-guitar` are read once and migrated away by `migratePerInstrumentTitle()`); `cv-guitar-scale-settings` (main.js); `cv-pitch-settings` (pitch-monitor.js — range, key, tolerance, time window; view state); `cv-cloud-song` (cloud.js — which cloud song is on screen, `{uid, id, rev}`); `cv-layout` and `cv-layout-scale` (layout.js — cross-instrument, so unlike `cv-sections-*` they are **not** per-board and do not go through `saveSections`/`loadSections`).
 
 ## Dead / stale files
 

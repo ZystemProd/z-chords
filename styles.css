@@ -3575,3 +3575,221 @@ body.light-mode .metronome-led {
 }
 
 /* .ms-selected lives with the notation block above. */
+
+/* --- Voice → Pitch ------------------------------------------------------
+   A piano-roll display, dark in both themes like a tuner's screen: the line
+   needs a dark ground to read at a glance. Every colour is a token, read back
+   by pitch-monitor.js (a canvas cannot use CSS), so the panel is themed in
+   one place.
+
+   In tune / off: the two line colours differ in lightness as well as hue
+   (light mint vs a darker orange), and the in-tune line is drawn thicker, so
+   the distinction survives colour blindness. */
+.pitch-panel {
+  --pitch-bg: #110f0d;
+  --pitch-lane-key: rgba(237, 228, 216, 0.035);
+  --pitch-lane-active: rgba(237, 228, 216, 0.09);
+  --pitch-line: rgba(237, 228, 216, 0.05);
+  --pitch-line-strong: rgba(237, 228, 216, 0.16);
+  --pitch-key-white: #e9e1d4;
+  --pitch-key-black: #1a1612;
+  --pitch-key-edge: rgba(0, 0, 0, 0.6);
+  --pitch-key-label: #6f6357;
+  --pitch-in-tune: #72e0b6;
+  --pitch-off-tune: #e8853a;
+  --pitch-label: #a99c8c;
+  --pitch-text: #ede4d8;
+  --pitch-meter: #72e0b6;
+  --pitch-meter-track: rgba(237, 228, 216, 0.1);
+  --pitch-card-bg: rgba(21, 18, 15, 0.92);
+  --pitch-ring: rgba(237, 228, 216, 0.25);
+  --pitch-record: #e5484d;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+}
+body.light-mode .pitch-panel {
+  /* Warm charcoal rather than near-black, so the display sits in the paper
+     page as a raised object instead of a hole in it. */
+  --pitch-bg: #241f1a;
+  --pitch-card-bg: rgba(41, 35, 29, 0.94);
+}
+.pitch-display {
+  position: relative;
+  height: clamp(380px, 66vh, 680px);
+  border-radius: 24px;
+  overflow: hidden;
+  background: var(--pitch-bg);
+  border: 1px solid var(--hairline);
+}
+.pitch-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+.pitch-canvas.is-scrubbing { cursor: grabbing; }
+.pitch-panel[data-state="recording"] .pitch-canvas,
+.pitch-panel[data-state="paused"] .pitch-canvas { cursor: default; }
+.pitch-canvas:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -4px;
+  border-radius: 24px;
+}
+
+/* The readout card sits top left, over the oldest part of the line — the
+   newest part, at the right edge, is the one that must never be covered. */
+.pitch-card {
+  position: absolute;
+  top: 16px;
+  left: 92px;
+  width: 236px;
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  border-radius: 16px;
+  background: var(--pitch-card-bg);
+  border: 1px solid rgba(237, 228, 216, 0.1);
+  color: var(--pitch-text);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+/* A note held through a short gap (a breath) is dimmed, not blanked. */
+.pitch-card.is-held { opacity: 0.55; }
+.pitch-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pitch-note {
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+.pitch-octave {
+  font-size: 0.5em;
+  color: var(--pitch-label);
+  margin-left: 1px;
+}
+.pitch-cents {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.pitch-card[data-tune="in"] .pitch-cents { color: var(--pitch-in-tune); }
+.pitch-card[data-tune="off"] .pitch-cents { color: var(--pitch-off-tune); }
+.pitch-tuner { position: relative; height: 20px; }
+.pitch-tuner-track {
+  position: absolute; left: 0; right: 0; top: 8px; height: 4px;
+  border-radius: 2px; background: rgba(237, 228, 216, 0.12);
+}
+.pitch-tuner-zone {
+  position: absolute; top: 6px; height: 8px; border-radius: 4px;
+  background: color-mix(in srgb, var(--pitch-in-tune) 35%, transparent);
+}
+.pitch-tuner-centre {
+  position: absolute; left: 50%; top: 1px; width: 1px; height: 18px;
+  background: rgba(237, 228, 216, 0.5);
+}
+.pitch-tuner-marker {
+  position: absolute; left: 50%; top: 2px; width: 6px; height: 16px;
+  margin-left: -3px; border-radius: 3px;
+  background: var(--pitch-label);
+  transition: left 0.08s linear;
+}
+.pitch-card[data-tune="in"] .pitch-tuner-marker { background: var(--pitch-in-tune); }
+.pitch-card[data-tune="off"] .pitch-tuner-marker { background: var(--pitch-off-tune); }
+.pitch-tuner-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--pitch-label);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* Transport: labelled pill buttons on a fade, centred under the graph. */
+.pitch-transport {
+  position: absolute;
+  left: 78px;
+  right: 0;
+  bottom: 0;
+  height: 84px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(to top, var(--pitch-bg) 20%, transparent);
+  pointer-events: none;
+}
+.pitch-btn {
+  pointer-events: auto;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid var(--pitch-ring);
+  background: rgba(237, 228, 216, 0.04);
+  color: var(--pitch-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 14px system-ui, -apple-system, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.pitch-btn svg { width: 14px; height: 14px; fill: currentColor; flex: none; }
+.pitch-btn:hover:not(:disabled) { background: rgba(237, 228, 216, 0.1); border-color: rgba(237, 228, 216, 0.45); }
+.pitch-btn:disabled { opacity: 0.35; cursor: default; }
+.pitch-btn .icon-pause { display: none; }
+.pitch-btn-record .icon-record { fill: var(--pitch-record); }
+.pitch-btn-record.is-recording {
+  background: var(--pitch-record);
+  border-color: var(--pitch-record);
+  color: #fff;
+}
+.pitch-btn-record.is-recording:hover:not(:disabled) { background: #d23d42; border-color: #d23d42; }
+.pitch-btn-record.is-recording .icon-record,
+.pitch-btn.is-playing .icon-play { display: none; }
+.pitch-btn-record.is-recording .icon-pause,
+.pitch-btn.is-playing .icon-pause { display: block; }
+
+.pitch-status {
+  margin: 0;
+  min-height: 1.4em;
+  text-align: center;
+  font-size: 13px;
+  color: var(--note-text);
+}
+.pitch-status.is-error { color: var(--pressed-red-2); }
+.pitch-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 600px) {
+  .pitch-display { border-radius: 18px; }
+  .pitch-card { left: 86px; width: 190px; padding: 10px 12px; }
+  .pitch-note { font-size: 36px; }
+  .pitch-transport { left: 78px; gap: 8px; }
+  .pitch-btn { padding: 0 12px; }
+}
+@media (max-width: 600px) {
+  /* Stop and Play are recognisable by icon; Record keeps its label because
+     it carries the take's running time. */
+  #pitchStop .pitch-btn-label,
+  #pitchPlay .pitch-btn-label { display: none; }
+}
+@media (max-width: 600px) {
+  .pitch-tuner-legend { display: none; }
+}
+/* Four selects do not fit a phone's width on one line; unwrapped, the row
+   widened the whole toolbar and pushed the Pitch sub-tab off screen. */
+.pitch-controls {
+  flex-wrap: wrap;
+  max-width: 100%;
+  row-gap: 8px;
+}
