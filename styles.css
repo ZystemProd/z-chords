@@ -3601,6 +3601,10 @@ body.light-mode .metronome-led {
   --pitch-text: #ede4d8;
   --pitch-meter: #72e0b6;
   --pitch-meter-track: rgba(237, 228, 216, 0.1);
+  /* Target notes: sky blue, so a target is never confused with the in-tune
+     mint or the out-of-tune orange. */
+  --pitch-target: #7cc6f2;
+  --pitch-target-lane: rgba(124, 198, 242, 0.1);
   --pitch-card-bg: rgba(21, 18, 15, 0.92);
   --pitch-ring: rgba(237, 228, 216, 0.25);
   --pitch-record: #e5484d;
@@ -3793,3 +3797,6 @@ body.light-mode .pitch-panel {
   max-width: 100%;
   row-gap: 8px;
 }
+/* Keys are buttons (they pick targets), in every state — recording included,
+   which otherwise sets the default cursor on the whole canvas. */
+.pitch-panel .pitch-canvas.over-keys { cursor: pointer; }

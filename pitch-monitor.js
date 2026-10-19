@@ -96,6 +96,16 @@ let readout = { midi: 57, note: null, cents: null, inTune: false, lastVoiced: -I
 let level = 0;
 let size = { w: 0, h: 0 };
 let geometryKey = "";
+// The graph rectangle as last drawn, for hit-testing clicks on the keyboard.
+let geom = null;
+// Target notes the singer is aiming for, picked by clicking keys. View state:
+// kept while the page is open, never stored.
+const targets = new Set();
+// Key geometry, shared by drawing and hit-testing so a click lands on the
+// key that is drawn there.
+const KEY_X = 10;
+const KEY_W_WHITE = KEYBOARD_W - KEY_X - 6;
+const KEY_W_BLACK = Math.round(KEY_W_WHITE * 0.6);
 
 export function initPitchMonitor() {
   const panel = document.getElementById("pitchPanel");
@@ -575,6 +585,12 @@ function wireScrubbing() {
   let drag = null;
 
   canvas.addEventListener("pointerdown", (e) => {
+    // The keyboard picks targets; only the graph scrubs.
+    if (e.offsetX < KEYBOARD_W) {
+      const m = keyAt(e.offsetX, e.offsetY);
+      if (m != null) toggleTarget(m);
+      return;
+    }
     if (!take || take.duration <= 0 || state === "recording" || state === "paused") return;
     const wasPlaying = state === "playing";
     if (wasPlaying) pausePlayback();
@@ -583,7 +599,10 @@ function wireScrubbing() {
     canvas.classList.add("is-scrubbing");
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (!drag) return;
+    if (!drag) {
+      canvas.classList.toggle("over-keys", e.offsetX < KEYBOARD_W);
+      return;
+    }
     const graphW = Math.max(1, size.w - KEYBOARD_W - HEAD_INSET);
     const dt = ((e.clientX - drag.x) / graphW) * settings.window;
     seek(drag.from - dt);
@@ -610,6 +629,37 @@ function wireScrubbing() {
       if (wasPlaying) startPlayback(playhead);
     }
   });
+}
+
+// Which key is under (x, y) on the canvas. A black key is narrower than a
+// white one, so to the right of a black key the click belongs to whichever
+// white neighbour's half of that lane it is in — the same shape the drawing
+// gives the white keys.
+function keyAt(x, y) {
+  if (!geom || x < KEY_X || x > KEY_X + KEY_W_WHITE) return null;
+  const step = (geom.bottom - geom.top) / (view.hi - view.lo);
+  const exact = view.lo + (geom.bottom - y) / step;
+  const m = Math.round(exact);
+  if (!isBlackKey(m)) return m;
+  if (x <= KEY_X + KEY_W_BLACK) return m;
+  return exact >= m ? m + 1 : m - 1;
+}
+
+function toggleTarget(m) {
+  if (targets.has(m)) targets.delete(m);
+  else targets.add(m);
+  const key = keyInfo();
+  const names = [...targets].sort((a, b) => a - b).map((t) => {
+    const n = noteName(t, key.flats);
+    return `${n.name}${n.octave}`;
+  });
+  els.canvas.dataset.targets = [...targets].sort((a, b) => a - b).join(",");
+  if (!els.status.classList.contains("is-error")) {
+    setStatus(names.length
+      ? `Aiming for ${names.join(", ")}. Click a key again to clear it.`
+      : "Targets cleared. Click a key to pick a note to aim for.");
+  }
+  draw();
 }
 
 function seek(t) {
@@ -652,6 +702,8 @@ function readColors() {
     text: v("--pitch-text"),
     meter: v("--pitch-meter"),
     meterTrack: v("--pitch-meter-track"),
+    target: v("--pitch-target"),
+    targetLane: v("--pitch-target-lane"),
   };
 }
 
@@ -731,6 +783,7 @@ function draw(animate = false) {
     bottom: h - GRAPH_PAD_Y,
   };
   publishGeometry(g);
+  geom = g;
 
   drawLanes(ctx, g, w, key);
   drawKeyboard(ctx, g, key);
@@ -797,6 +850,15 @@ function drawLanes(ctx, g, w, key) {
       ctx.fillStyle = fill;
       ctx.fillRect(g.left, y0, w - g.left, step);
     }
+    // A target lane: tinted and bordered top and bottom, so the singer can
+    // see the band the line should run inside.
+    if (targets.has(m)) {
+      ctx.fillStyle = colors.targetLane;
+      ctx.fillRect(g.left, y0, w - g.left, step);
+      ctx.fillStyle = colors.target;
+      ctx.fillRect(g.left, y0, w - g.left, 2);
+      ctx.fillRect(g.left, y0 + step - 2, w - g.left, 2);
+    }
     // Octave and E/F boundaries are the two places adjacent white keys meet;
     // a stronger line there gives the eye the keyboard's own landmarks.
     const pcAbove = (((m + 1) % 12) + 12) % 12;
@@ -809,9 +871,11 @@ function drawKeyboard(ctx, g, key) {
   const step = (g.bottom - g.top) / (view.hi - view.lo);
   const lit = readout.note;
   const litColor = readout.inTune ? colors.inTune : colors.offTune;
-  const x = 10;
-  const wWhite = KEYBOARD_W - x - 6;
-  const wBlack = Math.round(wWhite * 0.6);
+  const x = KEY_X;
+  const wWhite = KEY_W_WHITE;
+  const wBlack = KEY_W_BLACK;
+  ctx.strokeStyle = colors.target;
+  ctx.lineWidth = 3;
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, g.top, KEYBOARD_W, g.bottom - g.top);
@@ -831,6 +895,9 @@ function drawKeyboard(ctx, g, key) {
     const bottom = yFor(m - (isBlackKey(m - 1) ? 1 : 0.5), g);
     ctx.fillStyle = m === lit ? litColor : colors.keyWhite;
     ctx.fillRect(x, top + 0.5, wWhite, bottom - top - 1);
+    // Drawn before the black keys, which cover it where they overlap — so
+    // the border follows the key's visible outline.
+    if (targets.has(m)) ctx.strokeRect(x + 1.5, top + 2, wWhite - 3, bottom - top - 4);
     const isC = ((m % 12) + 12) % 12 === 0;
     if (step >= 10 || isC) {
       const { name, octave } = noteName(m, key.flats);
@@ -845,6 +912,7 @@ function drawKeyboard(ctx, g, key) {
     ctx.fillRect(x, top + 1, wBlack, step - 2);
     ctx.fillStyle = colors.keyEdge;
     ctx.fillRect(x + wBlack, top + 1, 1, step - 2);
+    if (targets.has(m)) ctx.strokeRect(x + 1.5, top + 2.5, wBlack - 3, step - 5);
   }
   ctx.restore();
 }

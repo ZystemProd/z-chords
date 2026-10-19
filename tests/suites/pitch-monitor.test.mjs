@@ -296,6 +296,69 @@ export default async function run({ browser, origin, t }) {
   t.ok("a centred ±30¢ vibrato is drawn as in tune", vibIn > 40 && vibIn > vibOff * 4,
     `${vibIn} in vs ${vibOff} off`);
 
+  // --- clicking a key marks a target note ---
+  // The point of a target is that a singer can see it from across the room,
+  // so the check is on paint: the key gets a border, and the lane across the
+  // graph is bordered top and bottom, all in the target colour.
+  const targetRGB = await tokenRGB(page, "--pitch-target");
+  const clickKey = async (midi, x) => {
+    const pt = await page.evaluate((m, x) => {
+      const c = document.getElementById("pitchCanvas");
+      const d = c.dataset;
+      const r = c.getBoundingClientRect();
+      const y = +d.graphBottom - ((m - +d.lo) / (+d.hi - +d.lo)) * (+d.graphBottom - +d.graphTop);
+      return { x: r.left + x, y: r.top + y };
+    }, midi, x);
+    await page.mouse.click(pt.x, pt.y);
+    await settle(80);
+  };
+  const targetsNow = () => page.$eval("#pitchCanvas", (c) => c.dataset.targets || "");
+  // Count target-coloured pixels on a horizontal line across the graph at
+  // the lane edge above `midi`, and around the key's own outline.
+  const targetPaint = (midi) => page.evaluate((m, t) => {
+    const c = document.getElementById("pitchCanvas");
+    const d = c.dataset;
+    const dpr = c.width / c.clientWidth;
+    const ctx = c.getContext("2d");
+    const step = (+d.graphBottom - +d.graphTop) / (+d.hi - +d.lo);
+    const yC = +d.graphBottom - ((m - +d.lo) / (+d.hi - +d.lo)) * (+d.graphBottom - +d.graphTop);
+    const isT = (p, i) => Math.hypot(p[i] - t[0], p[i + 1] - t[1], p[i + 2] - t[2]) < 40;
+    const count = (x, y, w, h) => {
+      const img = ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr))).data;
+      let n = 0;
+      for (let i = 0; i < img.length; i += 4) if (isT(img, i)) n++;
+      return n;
+    };
+    const laneEdge = count(+d.graphLeft + 300, yC - step / 2, 300, 3);
+    const keyBorder = count(10, yC - step / 2, 4, step);
+    return { laneEdge, keyBorder };
+  }, midi, targetRGB);
+
+  let before = await targetPaint(64);
+  t.ok("no target is drawn before one is picked", before.laneEdge === 0 && before.keyBorder === 0, JSON.stringify(before));
+  await clickKey(64, 50);
+  t.ok("clicking the E4 key makes it a target", (await targetsNow()) === "64", await targetsNow());
+  let after = await targetPaint(64);
+  t.ok("the E4 lane is bordered across the graph", after.laneEdge > 200, JSON.stringify(after));
+  t.ok("the E4 key has a border", after.keyBorder > 5, JSON.stringify(after));
+  t.ok("the status names the target", /Aiming for E4/.test(await page.$eval("#pitchStatus", (s) => s.textContent)));
+
+  await clickKey(66, 20);
+  t.ok("the narrow black-key region picks the black key (F#4)", (await targetsNow()) === "64,66", await targetsNow());
+  // Right of a black key, the lane belongs to the white keys beside it:
+  // just above the F# lane centre is G4, just below is F4.
+  await clickKey(66.3, 60);
+  t.ok("right of a black key, the upper half picks the white key above", (await targetsNow()) === "64,66,67", await targetsNow());
+  await clickKey(64, 50);
+  t.ok("clicking a target again clears it", (await targetsNow()) === "66,67", await targetsNow());
+  after = await targetPaint(64);
+  t.ok("and its borders go with it", after.laneEdge === 0 && after.keyBorder === 0, JSON.stringify(after));
+  await clickKey(66, 20);
+  await clickKey(67, 60);
+  t.ok("all targets can be cleared", (await targetsNow()) === "", await targetsNow());
+  t.ok("clicking keys does not scrub the take",
+    (await page.$eval("#pitchPanel", (p) => p.dataset.state)) === "idle");
+
   // --- both themes: both line colours stand out, and from each other ---
   // "From each other" in lightness, not hue alone: that is what keeps in tune
   // and out of tune apart for a colour-blind singer.
